@@ -284,18 +284,13 @@ const WelcomeScreen: React.FC<{ onExampleClick: (prompt: string) => void }> = ({
 }
 
 const TypingIndicator = ({ message }: { message?: string }) => (
-    <div className="flex items-center space-x-3 mb-10 animate-fade-in-up">
-        <div className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0">
-            <GeminiIcon size={28} />
+    <div className="flex items-center space-x-3 mb-6 animate-fade-in-up ml-11">
+        <div className="flex items-center space-x-1.5 p-3 bg-[#1e1f20] rounded-lg">
+            <div className="w-2 h-2 bg-gray-400 rounded-full typing-dot"></div>
+            <div className="w-2 h-2 bg-gray-400 rounded-full typing-dot"></div>
+            <div className="w-2 h-2 bg-gray-400 rounded-full typing-dot"></div>
         </div>
-        <div className="flex items-center space-x-3">
-            <div className="flex items-center space-x-1.5 p-3 bg-[#1e1f20] rounded-lg">
-                <div className="w-2 h-2 bg-gray-400 rounded-full typing-dot"></div>
-                <div className="w-2 h-2 bg-gray-400 rounded-full typing-dot"></div>
-                <div className="w-2 h-2 bg-gray-400 rounded-full typing-dot"></div>
-            </div>
-            {message && <div className="text-gray-200">{message}</div>}
-        </div>
+        {message && <div className="text-gray-200">{message}</div>}
     </div>
 );
 
@@ -396,17 +391,24 @@ const MainContent: React.FC<MainContentProps> = ({ isMobile, toggleSidebar, chat
   
   const lastMessage = chatHistory[chatHistory.length - 1];
   const isLastMessagePlaceholder = isLoading && lastMessage?.role === 'model';
-  const lastMessageText = isLastMessagePlaceholder ? (lastMessage.parts.find((p): p is TextPart => 'text' in p))?.text ?? '' : '';
+  
+  const lastMessageText = isLastMessagePlaceholder 
+    ? (lastMessage.parts.find((p): p is TextPart => 'text' in p))?.text ?? '' 
+    : '';
 
-  // Heuristic to check if the text is a status update from the retry logic.
-  const isStatusUpdate = lastMessageText.includes('Retrying') || lastMessageText.startsWith('Model is overloaded') || lastMessageText.startsWith('Error:');
+  // Heuristic to check if the text is a status update from the retry logic that should be displayed.
+  const isDisplayableStatus = lastMessageText.includes('Retrying') 
+    || lastMessageText.startsWith('Model is overloaded') 
+    || lastMessageText.startsWith('Error:');
+
+  // Messages to render in bubbles. The placeholder is always hidden while loading and represented by the indicator.
+  const messagesToRender = isLastMessagePlaceholder ? chatHistory.slice(0, -1) : chatHistory;
   
-  const messagesToRender = (isLastMessagePlaceholder && isStatusUpdate) ? chatHistory.slice(0, -1) : chatHistory;
-  const statusMessageForIndicator = (isLastMessagePlaceholder && isStatusUpdate) ? lastMessageText : '';
+  // The text to display next to the typing indicator.
+  const statusMessageForIndicator = isDisplayableStatus ? lastMessageText : '';
   
-  // Show indicator if loading and it's a status update, OR if loading and there's no text yet (initial generation),
-  // OR if loading and there's no chat history yet (very first prompt).
-  const showTypingIndicator = isLoading && (!!statusMessageForIndicator || !lastMessageText || chatHistory.length === 0);
+  // The typing indicator should be shown whenever the model is thinking.
+  const showTypingIndicator = isLoading;
 
   return (
     <div className="relative flex-1 flex flex-col h-screen bg-[#131314]">

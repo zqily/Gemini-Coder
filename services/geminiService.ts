@@ -125,6 +125,7 @@ export const generateContentWithRetries = async (
                 retries503++;
                 onStatusUpdate(`Model is overloaded. Retrying in ${delay / 1000}s...`);
                 await cancellableSleep(delay);
+                onStatusUpdate('');
                 retriesOther = 0; // Reset other error counter
                 continue; // Retry
             }
@@ -140,6 +141,7 @@ export const generateContentWithRetries = async (
                 retriesOther++;
                 onStatusUpdate(userMessage);
                 await cancellableSleep(delay);
+                onStatusUpdate('');
                 retries503 = 0; // Reset 503 error counter
                 continue; // Retry
             } else {

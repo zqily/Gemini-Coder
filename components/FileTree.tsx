@@ -1,5 +1,4 @@
-
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Folder, FolderOpen, FileText, Copy, ClipboardCopy, Check, Eye, EyeOff } from './icons';
 import type { ProjectContext } from '../types';
 
@@ -83,8 +82,43 @@ interface NodeProps {
 const Node: React.FC<NodeProps> = ({ node, level, onFileClick, allFiles, originalContext, deletedItems, excludedPaths, onTogglePathExclusion }) => {
   const [isOpen, setIsOpen] = useState(true);
   const [copiedItem, setCopiedItem] = useState<'name' | 'content' | null>(null);
+  const [isAltPressed, setIsAltPressed] = useState(false);
+  const [isCtrlPressed, setIsCtrlPressed] = useState(false);
+  const [isShiftPressed, setIsShiftPressed] = useState(false);
   const isFolder = node.type === 'folder';
   
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+        if (e.key === 'Alt') {
+            e.preventDefault(); // Prevent browser menu focus
+            setIsAltPressed(true);
+        }
+        if (e.key === 'Control') setIsCtrlPressed(true);
+        if (e.key === 'Shift') setIsShiftPressed(true);
+    };
+    const handleKeyUp = (e: KeyboardEvent) => {
+        if (e.key === 'Alt') setIsAltPressed(false);
+        if (e.key === 'Control') setIsCtrlPressed(false);
+        if (e.key === 'Shift') setIsShiftPressed(false);
+    };
+    const handleBlur = () => {
+        // Reset if window loses focus
+        setIsAltPressed(false);
+        setIsCtrlPressed(false);
+        setIsShiftPressed(false);
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    window.addEventListener('blur', handleBlur);
+
+    return () => {
+        window.removeEventListener('keydown', handleKeyDown);
+        window.removeEventListener('keyup', handleKeyUp);
+        window.removeEventListener('blur', handleBlur);
+    };
+  }, []);
+
   const isDeleted = deletedItems.files.has(node.path) || deletedItems.dirs.has(node.path);
   const isExcluded = excludedPaths.has(node.path);
   const isCreated = !isDeleted && originalContext && !originalContext.files.has(node.path) && !originalContext.dirs.has(node.path);
@@ -105,19 +139,6 @@ const Node: React.FC<NodeProps> = ({ node, level, onFileClick, allFiles, origina
     statusIndicator = <span className="font-mono text-xs ml-1 text-blue-400">[M]</span>;
   }
 
-  const handleContainerClick = (e: React.MouseEvent) => {
-    if (e.altKey) {
-        onTogglePathExclusion(node.path);
-        e.preventDefault(); // Prevent text selection
-        return;
-    }
-    if (isFolder) {
-      setIsOpen(!isOpen);
-    } else {
-      onFileClick(node.path);
-    }
-  };
-
   const handleCopy = (type: 'name' | 'content', textToCopy: string) => {
     if (typeof textToCopy !== 'string') return;
     navigator.clipboard.writeText(textToCopy).then(() => {
@@ -126,18 +147,67 @@ const Node: React.FC<NodeProps> = ({ node, level, onFileClick, allFiles, origina
     });
   };
 
+  const handleContainerClick = (e: React.MouseEvent) => {
+    if (e.altKey || e.ctrlKey || e.shiftKey) {
+        e.preventDefault();
+    }
+
+    if (e.altKey) {
+        onTogglePathExclusion(node.path);
+        return;
+    }
+    if (e.ctrlKey) {
+        if (isFolder) {
+            handleCopy('name', node.name);
+        } else {
+            handleCopy('content', allFiles.get(node.path) || '');
+        }
+        return;
+    }
+    if (e.shiftKey) {
+        handleCopy('name', node.name);
+        return;
+    }
+
+    // Default action (no modifier)
+    if (isFolder) {
+        setIsOpen(!isOpen);
+    } else {
+        onFileClick(node.path);
+    }
+  };
+  
+  const getDynamicProps = () => {
+    let hoverClass = 'hover:bg-gray-700/70';
+    let title = node.path;
+
+    if (isAltPressed) {
+        hoverClass = 'hover:bg-gray-600';
+        title = `Alt-click to ${isExcluded ? 'include' : 'exclude'} this path from context`;
+    } else if (isCtrlPressed) {
+        hoverClass = isFolder ? 'hover:bg-yellow-800/50' : 'hover:bg-green-800/50';
+        title = isFolder ? 'Ctrl-click to copy name' : 'Ctrl-click to copy content';
+    } else if (isShiftPressed) {
+        hoverClass = 'hover:bg-yellow-800/50';
+        title = 'Shift-click to copy name';
+    }
+    
+    return { hoverClass, title };
+  };
+
+  const { hoverClass, title } = getDynamicProps();
   const Icon = isFolder ? (isOpen ? FolderOpen : Folder) : FileText;
 
   return (
     <div>
       <div
-        className="group flex items-center justify-between p-1 rounded-md hover:bg-gray-700/70"
+        className={`group flex items-center justify-between p-1 rounded-md transition-colors duration-100 ${hoverClass}`}
         style={{ paddingLeft: `${level * 16}px` }}
       >
         <div 
           onClick={handleContainerClick} 
           className="flex items-center cursor-pointer flex-grow truncate mr-2"
-          title={node.path}
+          title={title}
         >
           <Icon size={16} className={`mr-2 flex-shrink-0 ${statusClasses}`} />
           <span className={`text-sm truncate ${statusClasses}`}>{node.name}</span>
@@ -150,7 +220,7 @@ const Node: React.FC<NodeProps> = ({ node, level, onFileClick, allFiles, origina
                 onTogglePathExclusion(node.path);
             }}
             className="p-1 rounded hover:bg-gray-600"
-            title={isExcluded ? 'Include in context' : 'Exclude from context'}
+            title={isExcluded ? 'Include in context (Alt+Click)' : 'Exclude from context (Alt+Click)'}
             aria-label={isExcluded ? 'Include in context' : 'Exclude from context'}
             >
             {isExcluded ? <EyeOff size={14} className="text-gray-500"/> : <Eye size={14} />}

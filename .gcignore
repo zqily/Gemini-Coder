@@ -1,6 +1,6 @@
 assets/
 metadata.json
-package-log.json
+package-lock.json
 package.json
 README.md
 tsconfig.json

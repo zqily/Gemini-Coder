@@ -20,7 +20,31 @@
   }
 }
 
+@layer components {
+  .typing-dot {
+    animation: typing-bounce 1.4s infinite ease-in-out both;
+  }
+  .typing-dot:nth-of-type(2) {
+    animation-delay: -0.16s;
+  }
+  .typing-dot:nth-of-type(3) {
+    animation-delay: -0.32s;
+  }
+}
+
 @layer utilities {
+  /* Animation for loading dots */
+  @keyframes typing-bounce {
+    0%,
+    80%,
+    100% {
+      transform: translateY(0);
+    }
+    40% {
+      transform: translateY(-5px);
+    }
+  }
+  
   /* Animation for chat bubbles, modals, etc. */
   @keyframes fade-in-up {
     from {

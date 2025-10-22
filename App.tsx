@@ -41,7 +41,7 @@ const MODES: Record<ModeId, Mode> = {
     id: 'simple-coder',
     name: 'Simple Coder',
     icon: CodeXml,
-    systemInstruction: "You are an expert programmer. Your primary purpose is to help the user with their code. You have been granted a set of tools to modify a virtual file system. Use these tools when the user asks for code changes, new files, or refactoring. Announce which files you are modifying before you make a change. When you are finished with all file modifications, let the user know you are done."
+    systemInstruction: "You are an expert programmer. Your primary purpose is to help the user with their code. You have been granted a set of tools to modify a virtual file system. Use these tools when the user asks for code changes, new files, or refactoring. **Crucially, you must complete the user's entire request in a single turn. Do not perform one file modification and then stop. You must plan all the required changes and then issue all the necessary function calls in the same response.** Announce which files you are modifying before you make a change. When you are finished with all file modifications, let the user know you are done and write a summary of your changes."
   }
 };
 
@@ -304,16 +304,57 @@ const App: React.FC = () => {
   };
   
   const handleTogglePathExclusion = useCallback((path: string) => {
+    // Combine all known files and directories from current and deleted contexts
+    const allDirs = new Set([
+        ...(projectContext?.dirs || []),
+        ...(deletedItems.dirs || [])
+    ]);
+    const allFiles = new Map([
+        ...(projectContext?.files || []),
+        ...(deletedItems.files || [])
+    ]);
+
+    // A path is a directory if it's explicitly in the dirs set, or if any file path starts with it as a prefix.
+    const isDirectory = allDirs.has(path) || Array.from(allFiles.keys()).some(p => p.startsWith(`${path}/`));
+
     setExcludedPaths(prev => {
         const newSet = new Set(prev);
-        if (newSet.has(path)) {
-            newSet.delete(path);
-        } else {
-            newSet.add(path);
+        
+        // If it's just a file, toggle only itself.
+        if (!isDirectory) {
+            if (newSet.has(path)) {
+                newSet.delete(path);
+            } else {
+                newSet.add(path);
+            }
+            return newSet;
         }
+
+        // It's a directory. Determine the action based on its current state.
+        // If the folder is already excluded, we will include it and all its children.
+        // If it's not excluded, we will exclude it and all its children.
+        const shouldExclude = !newSet.has(path);
+
+        const allPaths = new Set([
+            ...allFiles.keys(),
+            ...allDirs,
+        ]);
+
+        // Collect the directory itself and all its descendant paths.
+        const pathsToToggle = [path, ...Array.from(allPaths).filter(p => p.startsWith(`${path}/`))];
+
+        // Apply the action to all collected paths.
+        for (const p of pathsToToggle) {
+            if (shouldExclude) {
+                newSet.add(p);
+            } else {
+                newSet.delete(p);
+            }
+        }
+        
         return newSet;
     });
-  }, []);
+  }, [projectContext, deletedItems]);
 
   const handlePromptSubmit = useCallback(async (prompt: string, files: AttachedFile[]) => {
     if (!apiKey) {

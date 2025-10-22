@@ -21,7 +21,6 @@ export interface InlineDataPart {
 
 export interface FunctionCallPart {
   functionCall: {
-    // FIX: name and args are optional in the Gemini SDK FunctionCall type.
     name?: string;
     args?: { [key: string]: any };
   };
