@@ -1,4 +1,3 @@
-
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { HelpCircle, ChevronDown, User, ImageIcon, File as FileIcon, Menu, Copy, Check, X, Wrench } from './icons';
 import PromptInput from './PromptInput';
@@ -285,10 +284,10 @@ const WelcomeScreen: React.FC<{ onExampleClick: (prompt: string) => void }> = ({
 
 const TypingIndicator = ({ message }: { message?: string }) => (
     <div className="flex items-center space-x-3 mb-6 animate-fade-in-up ml-11">
-        <div className="flex items-center space-x-1.5 p-3 bg-[#1e1f20] rounded-lg">
-            <div className="w-2 h-2 bg-gray-400 rounded-full typing-dot"></div>
-            <div className="w-2 h-2 bg-gray-400 rounded-full typing-dot"></div>
-            <div className="w-2 h-2 bg-gray-400 rounded-full typing-dot"></div>
+        <div className="flex items-center space-x-2 p-3 bg-transparent rounded-lg">
+            <div className="w-3 h-3 bg-blue-500 rounded-full typing-dot"></div>
+            <div className="w-3 h-3 bg-purple-500 rounded-full typing-dot"></div>
+            <div className="w-3 h-3 bg-blue-400 rounded-full typing-dot"></div>
         </div>
         {message && <div className="text-gray-200">{message}</div>}
     </div>
