@@ -1,3 +1,4 @@
+
 import React, { useRef } from 'react';
 import { Menu, Plus, Settings, UploadCloud, GitBranch, Trash2 } from './icons';
 import FileTree from './FileTree';
@@ -16,9 +17,11 @@ interface SidebarProps {
   deletedItems: ProjectContext;
   onUnlinkProject: () => void;
   onOpenFileEditor: (path: string) => void;
+  excludedPaths: Set<string>;
+  onTogglePathExclusion: (path: string) => void;
 }
 
-const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen, onNewChat, onOpenSettings, onProjectSync, displayContext, originalContext, deletedItems, onUnlinkProject, onOpenFileEditor }) => {
+const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen, onNewChat, onOpenSettings, onProjectSync, displayContext, originalContext, deletedItems, onUnlinkProject, onOpenFileEditor, excludedPaths, onTogglePathExclusion }) => {
   const directoryInputRef = useRef<HTMLInputElement>(null);
 
   const handleProjectSyncClick = () => {
@@ -104,7 +107,9 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen, onNewChat, onOpenS
                 allDirs={displayContext.dirs} 
                 originalContext={originalContext}
                 deletedItems={deletedItems}
-                onFileClick={onOpenFileEditor} 
+                onFileClick={onOpenFileEditor}
+                excludedPaths={excludedPaths}
+                onTogglePathExclusion={onTogglePathExclusion}
              />
           </div>
       )}

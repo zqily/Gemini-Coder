@@ -1,9 +1,8 @@
-// FIX: Remove deprecated GenerateContentRequest type.
-import { GoogleGenAI, FunctionDeclaration } from "@google/genai";
+import { GoogleGenAI, FunctionDeclaration, GenerateContentResponse } from "@google/genai";
 import type { ChatMessage } from '../types';
 
 /**
- * Initiates a content generation stream with the Google Gemini API.
+ * Generates content with the Google Gemini API.
  * This is used instead of the Chat API to allow for more complex, multi-turn
  * function calling scenarios.
  * @param apiKey - The user's Google AI API key.
@@ -11,15 +10,15 @@ import type { ChatMessage } from '../types';
  * @param history - The full conversation history.
  * @param systemInstruction - Optional system instruction.
  * @param tools - Optional function calling tools.
- * @returns A promise that resolves to the generation stream.
+ * @returns A promise that resolves to the generation response.
  */
-export const generateContentStream = async (
+export const generateContent = async (
   apiKey: string,
   modelName: string,
   history: ChatMessage[],
   systemInstruction?: string,
   tools?: { functionDeclarations: FunctionDeclaration[] }[]
-) => {
+): Promise<GenerateContentResponse> => {
   if (!apiKey) {
     throw new Error("API Key is missing. Please add it in settings.");
   }
@@ -30,22 +29,19 @@ export const generateContentStream = async (
   if (systemInstruction) config.systemInstruction = systemInstruction;
   if (tools) config.tools = tools;
 
-  // FIX: The request object is passed directly to the method.
   const request = {
     model: modelName,
     contents: history,
     config,
   };
 
-  const result = await ai.models.generateContentStream(request);
-
-  // FIX: `generateContentStream` now returns the stream iterator directly.
-  return result;
+  const response = await ai.models.generateContent(request);
+  return response;
 };
 
 
 /**
- * A wrapper for `generateContentStream` that adds robust retry logic for API errors.
+ * A wrapper for `generateContent` that adds robust retry logic for API errors.
  * @param apiKey - The user's Google AI API key.
  * @param modelName - The name of the model to use.
  * @param history - The full conversation history.
@@ -54,9 +50,9 @@ export const generateContentStream = async (
  * @param cancellationRef - A React ref to check if the user has cancelled the request.
  * @param onStatusUpdate - A callback to update the UI with status messages (e.g., "Retrying...").
  * @param cancellableSleep - A sleep function that can be interrupted by the cancellationRef.
- * @returns A promise that resolves to the generation stream, or throws an error if all retries fail.
+ * @returns A promise that resolves to the generation response, or throws an error if all retries fail.
  */
-export const generateContentStreamWithRetries = async (
+export const generateContentWithRetries = async (
   apiKey: string,
   modelName: string,
   history: ChatMessage[],
@@ -65,7 +61,7 @@ export const generateContentStreamWithRetries = async (
   cancellationRef: React.MutableRefObject<boolean>,
   onStatusUpdate: (message: string) => void,
   cancellableSleep: (ms: number) => Promise<void>
-) => {
+): Promise<GenerateContentResponse> => {
     let retries503 = 0;
     const initialDelay503 = 10000;
     const increment503 = 5000;
@@ -81,13 +77,15 @@ export const generateContentStreamWithRetries = async (
         }
         
         try {
-            const stream = await generateContentStream(apiKey, modelName, history, systemInstruction, tools);
-            return stream; // Success, return stream and exit loop
+            const response = await generateContent(apiKey, modelName, history, systemInstruction, tools);
+            return response; // Success, return response object and exit loop
         } catch (error: any) {
             if (cancellationRef.current) throw error;
 
             let statusCode: number | undefined;
             const message = error instanceof Error ? error.message : String(error);
+            
+            // New, more robust error parsing logic.
             
             // 1. Prioritize structured error property for status code.
             if (error && typeof error.httpStatus === 'number') {

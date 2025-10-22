@@ -1,3 +1,4 @@
+
 import {
   Menu,
   Pencil,
@@ -25,6 +26,8 @@ import {
   Wrench,
   Save,
   ClipboardCopy,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 
 export {
@@ -54,4 +57,6 @@ export {
   Wrench,
   Save,
   ClipboardCopy,
+  Eye,
+  EyeOff,
 };

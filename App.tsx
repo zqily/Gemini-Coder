@@ -1,10 +1,11 @@
+
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import Sidebar from './components/Sidebar';
 import MainContent from './components/MainContent';
 import SettingsModal from './components/SettingsModal';
 import FileEditorModal from './components/FileEditorModal';
 import type { ChatMessage, AttachedFile, Mode, ModeId, ProjectContext, ChatPart } from './types';
-import { generateContentStreamWithRetries } from './services/geminiService';
+import { generateContentWithRetries } from './services/geminiService';
 import { useApiKey } from './hooks/useApiKey';
 import { useSendShortcutSetting } from './hooks/useSendShortcutSetting';
 import { useSelectedMode } from './hooks/useSelectedMode';
@@ -144,6 +145,7 @@ const App: React.FC = () => {
   const [projectContext, setProjectContext] = useState<ProjectContext | null>(null);
   const [originalProjectContext, setOriginalProjectContext] = useState<ProjectContext | null>(null);
   const [deletedItems, setDeletedItems] = useState<ProjectContext>(EMPTY_CONTEXT);
+  const [excludedPaths, setExcludedPaths] = useState<Set<string>>(new Set());
   
   const [displayContext, setDisplayContext] = useState<ProjectContext | null>(null);
   const [editingFile, setEditingFile] = useState<{ path: string; content: string } | null>(null);
@@ -208,6 +210,7 @@ const App: React.FC = () => {
     setOriginalProjectContext(null);
     setDeletedItems(EMPTY_CONTEXT);
     setAttachedFiles([]);
+    setExcludedPaths(new Set());
     if (isMobile) {
       setIsSidebarOpen(false);
     }
@@ -252,6 +255,7 @@ const App: React.FC = () => {
     setProjectContext(newProjectContext);
     setOriginalProjectContext(newProjectContext);
     setDeletedItems(EMPTY_CONTEXT);
+    setExcludedPaths(new Set());
   }, []);
 
   const handleUnlinkProject = useCallback(() => {
@@ -259,6 +263,7 @@ const App: React.FC = () => {
         setProjectContext(null);
         setOriginalProjectContext(null);
         setDeletedItems(EMPTY_CONTEXT);
+        setExcludedPaths(new Set());
     }
   }, []);
 
@@ -280,6 +285,18 @@ const App: React.FC = () => {
   const handleCloseFileEditor = () => {
     setEditingFile(null);
   };
+  
+  const handleTogglePathExclusion = useCallback((path: string) => {
+    setExcludedPaths(prev => {
+        const newSet = new Set(prev);
+        if (newSet.has(path)) {
+            newSet.delete(path);
+        } else {
+            newSet.add(path);
+        }
+        return newSet;
+    });
+  }, []);
 
   const handlePromptSubmit = useCallback(async (prompt: string, files: AttachedFile[]) => {
     if (!apiKey) {
@@ -325,154 +342,153 @@ const App: React.FC = () => {
             }, 100);
         });
     };
+    
+    // Add a placeholder for the upcoming model response. This will be updated or removed.
+    setChatHistory(prev => [...prev, { role: 'model', parts: [{ text: '' }] }]);
 
     try {
         let historyForApi = [...updatedChatHistory];
         const isCoderMode = selectedMode.includes('coder');
+        
+        if (projectContext && isCoderMode) {
+             const filteredContext: ProjectContext = { files: new Map(), dirs: new Set() };
 
-        // These local variables will hold the most up-to-date context within the function-calling loop
-        let currentProjectContext = projectContext;
-        let currentDeletedItems = deletedItems;
+             const isPathExcluded = (path: string): boolean => {
+               if (excludedPaths.has(path)) return true;
+               for (const excluded of excludedPaths) {
+                 // Exclude if it's a descendant of an excluded folder
+                 if (path.startsWith(excluded + '/')) {
+                   return true;
+                 }
+               }
+               return false;
+             };
+         
+             for (const [path, content] of projectContext.files.entries()) {
+               if (!isPathExcluded(path)) {
+                 filteredContext.files.set(path, content);
+               }
+             }
+             for (const path of projectContext.dirs) {
+               if (!isPathExcluded(path)) {
+                 filteredContext.dirs.add(path);
+               }
+             }
 
-        let functionCallLoop = true;
-        while (functionCallLoop) {
-            if (cancellationRef.current) break;
-            
-            // Create a temporary history for this specific API call with the fresh context
-            const historyForThisTurn = [...historyForApi];
-            if (currentProjectContext && isCoderMode) {
-                 const fileContext = FileSystem.serializeProjectContext(currentProjectContext);
-                 const contextMessage: ChatMessage = {
-                     role: 'user',
-                     parts: [{ text: `The user has provided this project context. Use your tools to operate on it. Do not output this context in your response.\n\n${fileContext}`}]
-                 };
-                 // Inject the context message before the last message (the user's actual prompt or a tool response).
-                 // This provides the model with the latest state before it acts.
-                 historyForThisTurn.splice(historyForThisTurn.length - 1, 0, contextMessage);
+             const fileContext = FileSystem.serializeProjectContext(filteredContext);
+             const contextMessage: ChatMessage = {
+                 role: 'user',
+                 parts: [{ text: `The user has provided this project context. Use your tools to operate on it. Do not output this context in your response.\n\n${fileContext}`}]
+             };
+             // Inject the context message before the last message (the user's actual prompt).
+             historyForApi.splice(historyForApi.length - 1, 0, contextMessage);
+        }
+        
+        const onStatusUpdate = (message: string) => {
+            setChatHistory(prev => {
+                const newHistory = [...prev];
+                const lastMessage = newHistory[newHistory.length - 1];
+                if (lastMessage && lastMessage.role === 'model') {
+                    newHistory[newHistory.length - 1] = { ...lastMessage, parts: [{ text: message }] };
+                }
+                return newHistory;
+            });
+        };
+        
+        const systemInstruction = MODES[selectedMode].systemInstruction;
+        const tools = isCoderMode ? [{ functionDeclarations: FILE_SYSTEM_TOOLS }] : undefined;
+
+        const response = await generateContentWithRetries(
+            apiKey, selectedModel, historyForApi, systemInstruction, tools,
+            cancellationRef, onStatusUpdate, cancellableSleep
+        );
+
+        if (cancellationRef.current) throw new Error('Cancelled by user');
+
+        const modelResponseText = response.text;
+        const functionCalls = response.functionCalls ?? [];
+
+        // If we got nothing, just remove the placeholder and we're done.
+        if (!modelResponseText && functionCalls.length === 0) {
+            setChatHistory(prev => prev.slice(0, -1));
+        } else {
+             // Construct the final model message parts
+            const modelTurnParts: ChatPart[] = [];
+            if (modelResponseText) {
+                modelTurnParts.push({ text: modelResponseText });
             }
-            
-            const onStatusUpdate = (message: string) => {
-                setChatHistory(prev => {
-                    const newHistory = [...prev];
-                    const lastMessage = newHistory[newHistory.length - 1];
-                    if (lastMessage && lastMessage.role === 'model') {
-                        newHistory[newHistory.length - 1] = { ...lastMessage, parts: [{ text: message }] };
-                    }
-                    return newHistory;
-                });
+            functionCalls.forEach(fc => modelTurnParts.push({ functionCall: fc }));
+    
+            const modelTurnWithMessage: ChatMessage = {
+                role: 'model',
+                parts: modelTurnParts
             };
 
-            // Add a placeholder for the upcoming model response
-            setChatHistory(prev => [...prev, { role: 'model', parts: [{ text: '' }] }]);
+            // Replace the placeholder with the final model message
+            setChatHistory(prev => {
+                const newHistory = [...prev];
+                newHistory[newHistory.length - 1] = modelTurnWithMessage;
+                return newHistory;
+            });
 
-            try {
-                const systemInstruction = MODES[selectedMode].systemInstruction;
-                const tools = isCoderMode ? [{ functionDeclarations: FILE_SYSTEM_TOOLS }] : undefined;
-
-                const stream = await generateContentStreamWithRetries(
-                    apiKey, selectedModel, historyForThisTurn, systemInstruction, tools,
-                    cancellationRef, onStatusUpdate, cancellableSleep
-                );
-
-                let modelResponseText = "";
-                let functionCalls: FunctionCall[] = [];
-                
-                for await (const chunk of stream) {
-                    if (cancellationRef.current) break;
+            // If there were function calls, execute them now
+            if (functionCalls.length > 0) {
+                // Batch process all function calls from the model's response
+                let accumulatedContext = projectContext;
+                let accumulatedDeleted = deletedItems;
+                const functionResponses: ChatPart[] = [];
+    
+                for (const fc of functionCalls) {
+                    if (cancellationRef.current) throw new Error('Cancelled by user');
+    
+                    const { result, newContext, newDeleted } = executeFunctionCall(fc, accumulatedContext!, accumulatedDeleted);
                     
-                    const part = chunk.candidates?.[0]?.content?.parts?.[0];
-                    if (part?.text) {
-                        modelResponseText += part.text;
-                        setChatHistory(prev => {
-                            const newHistory = [...prev];
-                            newHistory[newHistory.length - 1] = { role: 'model', parts: [{ text: modelResponseText }] };
-                            return newHistory;
-                        });
-                    } else if (part?.functionCall) {
-                        functionCalls.push(part.functionCall);
-                    }
-                }
-
-                if (cancellationRef.current) break;
-
-                if (functionCalls.length > 0) {
-                    const modelTurnParts: ChatPart[] = [];
-                    if (modelResponseText) {
-                        modelTurnParts.push({ text: modelResponseText });
-                    }
-                    modelTurnParts.push(...functionCalls.map(fc => ({ functionCall: fc })));
-
-                    const modelTurnWithMessage: ChatMessage = {
-                        role: 'model',
-                        parts: modelTurnParts
-                    };
-                    
-                    setChatHistory(prev => {
-                        const newHistory = [...prev];
-                        newHistory[newHistory.length - 1] = modelTurnWithMessage;
-                        return newHistory;
+                    accumulatedContext = newContext;
+                    accumulatedDeleted = newDeleted;
+    
+                    functionResponses.push({
+                        functionResponse: {
+                            name: fc.name!,
+                            response: result,
+                        }
                     });
-
-                    // Batch process all function calls from the model's response
-                    let accumulatedContext = currentProjectContext;
-                    let accumulatedDeleted = currentDeletedItems;
-                    const functionResponses: ChatPart[] = [];
-
-                    for (const fc of functionCalls) {
-                        if (cancellationRef.current) break; // Check for cancellation before executing each function call
-
-                        const { result, newContext, newDeleted } = executeFunctionCall(fc, accumulatedContext!, accumulatedDeleted);
-                        
-                        // Update local accumulators for the next function call in this batch
-                        accumulatedContext = newContext;
-                        accumulatedDeleted = newDeleted;
-
-                        functionResponses.push({
-                            functionResponse: {
-                                name: fc.name!,
-                                response: result,
-                            }
-                        });
-                    }
-                    
-                    if (cancellationRef.current) break;
-
-                    // Update React state once with the final accumulated context for this turn
-                    setProjectContext(accumulatedContext);
-                    setDeletedItems(accumulatedDeleted);
-                    
-                    // Also update the local context variables for the next iteration of the outer `while` loop
-                    currentProjectContext = accumulatedContext;
-                    currentDeletedItems = accumulatedDeleted;
-
-                    const toolResponseMessage: ChatMessage = { role: 'tool', parts: functionResponses };
-                    
-                    // Add the model's turn and the tool responses to the main history for the next loop iteration
-                    historyForApi.push(modelTurnWithMessage, toolResponseMessage);
-                    setChatHistory(prev => [...prev, toolResponseMessage]);
-                } else {
-                    functionCallLoop = false; // No function calls, done with this turn.
                 }
-
-            } catch(error) {
-                // This catches final, unrecoverable errors from the retry wrapper, or cancellation.
-                console.error("Content generation failed after retries:", error);
-                functionCallLoop = false; // Exit the function-calling loop
+                
+                if (cancellationRef.current) throw new Error('Cancelled by user');
+    
+                // Update React state once with the final accumulated context for this turn
+                setProjectContext(accumulatedContext);
+                setDeletedItems(accumulatedDeleted);
+                
+                const toolResponseMessage: ChatMessage = { role: 'tool', parts: functionResponses };
+                setChatHistory(prev => [...prev, toolResponseMessage]);
             }
         }
-
     } catch (error) {
-      console.error("A critical error occurred during prompt submission setup:", error);
-      const errorMessage: ChatMessage = {
-        role: 'model',
-        parts: [{ text: `Error: ${error instanceof Error ? error.message : 'An unknown error occurred'}` }]
-      };
-      setChatHistory(prev => [...prev, errorMessage]);
+      console.error("A critical error occurred during prompt submission:", error);
+      const errorMessageText = error instanceof Error ? error.message : 'An unknown error occurred';
+      
+      if (errorMessageText !== 'Cancelled by user') {
+          const errorMessage: ChatMessage = {
+            role: 'model',
+            parts: [{ text: `Error: ${errorMessageText}` }]
+          };
+          // Replace the placeholder message with the error.
+          setChatHistory(prev => {
+              const newHistory = [...prev];
+              newHistory[newHistory.length - 1] = errorMessage;
+              return newHistory;
+          });
+      } else {
+          // If cancelled, just remove the placeholder message.
+          setChatHistory(prev => prev.slice(0, -1));
+      }
     } finally {
       setIsLoading(false);
       cancellationRef.current = false;
     }
-  }, [apiKey, chatHistory, selectedModel, selectedMode, projectContext, deletedItems]);
+  }, [apiKey, chatHistory, selectedModel, selectedMode, projectContext, deletedItems, excludedPaths]);
+
 
   return (
     <div className="flex h-screen w-full bg-[#131314] text-gray-200 font-sans overflow-hidden">
@@ -488,6 +504,8 @@ const App: React.FC = () => {
         deletedItems={deletedItems}
         onUnlinkProject={handleUnlinkProject}
         onOpenFileEditor={handleOpenFileEditor}
+        excludedPaths={excludedPaths}
+        onTogglePathExclusion={handleTogglePathExclusion}
       />
       <MainContent
         isSidebarOpen={isSidebarOpen}

@@ -1,5 +1,6 @@
+
 import React, { useState } from 'react';
-import { Folder, FolderOpen, FileText, Copy, ClipboardCopy, Check } from './icons';
+import { Folder, FolderOpen, FileText, Copy, ClipboardCopy, Check, Eye, EyeOff } from './icons';
 import type { ProjectContext } from '../types';
 
 
@@ -9,6 +10,8 @@ interface FileTreeProps {
   originalContext: ProjectContext | null;
   deletedItems: ProjectContext;
   onFileClick: (path: string) => void;
+  excludedPaths: Set<string>;
+  onTogglePathExclusion: (path: string) => void;
 }
 
 interface TreeNode {
@@ -73,14 +76,17 @@ interface NodeProps {
     allFiles: Map<string, string>;
     originalContext: ProjectContext | null;
     deletedItems: ProjectContext;
+    excludedPaths: Set<string>;
+    onTogglePathExclusion: (path: string) => void;
 }
 
-const Node: React.FC<NodeProps> = ({ node, level, onFileClick, allFiles, originalContext, deletedItems }) => {
+const Node: React.FC<NodeProps> = ({ node, level, onFileClick, allFiles, originalContext, deletedItems, excludedPaths, onTogglePathExclusion }) => {
   const [isOpen, setIsOpen] = useState(true);
   const [copiedItem, setCopiedItem] = useState<'name' | 'content' | null>(null);
   const isFolder = node.type === 'folder';
   
   const isDeleted = deletedItems.files.has(node.path) || deletedItems.dirs.has(node.path);
+  const isExcluded = excludedPaths.has(node.path);
   const isCreated = !isDeleted && originalContext && !originalContext.files.has(node.path) && !originalContext.dirs.has(node.path);
   const isModified = !isDeleted && !isCreated && node.type === 'file' && originalContext && originalContext.files.get(node.path) !== allFiles.get(node.path);
 
@@ -89,6 +95,8 @@ const Node: React.FC<NodeProps> = ({ node, level, onFileClick, allFiles, origina
   if (isDeleted) {
     statusClasses = 'text-red-400/80 line-through';
     statusIndicator = <span className="font-mono text-xs ml-1 text-red-400/80">[D]</span>;
+  } else if (isExcluded) {
+    statusClasses = 'text-gray-500 italic';
   } else if (isCreated) {
     statusClasses = 'text-green-400';
     statusIndicator = <span className="font-mono text-xs ml-1 text-green-400">[A]</span>;
@@ -97,7 +105,12 @@ const Node: React.FC<NodeProps> = ({ node, level, onFileClick, allFiles, origina
     statusIndicator = <span className="font-mono text-xs ml-1 text-blue-400">[M]</span>;
   }
 
-  const handleContainerClick = () => {
+  const handleContainerClick = (e: React.MouseEvent) => {
+    if (e.altKey) {
+        onTogglePathExclusion(node.path);
+        e.preventDefault(); // Prevent text selection
+        return;
+    }
     if (isFolder) {
       setIsOpen(!isOpen);
     } else {
@@ -131,6 +144,17 @@ const Node: React.FC<NodeProps> = ({ node, level, onFileClick, allFiles, origina
           {statusIndicator}
         </div>
         <div className="flex items-center opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+          <button
+            onClick={(e) => {
+                e.stopPropagation();
+                onTogglePathExclusion(node.path);
+            }}
+            className="p-1 rounded hover:bg-gray-600"
+            title={isExcluded ? 'Include in context' : 'Exclude from context'}
+            aria-label={isExcluded ? 'Include in context' : 'Exclude from context'}
+            >
+            {isExcluded ? <EyeOff size={14} className="text-gray-500"/> : <Eye size={14} />}
+          </button>
           {!isFolder && (
             <button
               onClick={(e) => {
@@ -160,7 +184,7 @@ const Node: React.FC<NodeProps> = ({ node, level, onFileClick, allFiles, origina
       {isFolder && isOpen && node.children && (
         <div>
           {node.children.map(child => (
-            <Node key={child.path} node={child} level={level + 1} onFileClick={onFileClick} allFiles={allFiles} originalContext={originalContext} deletedItems={deletedItems} />
+            <Node key={child.path} node={child} level={level + 1} onFileClick={onFileClick} allFiles={allFiles} originalContext={originalContext} deletedItems={deletedItems} excludedPaths={excludedPaths} onTogglePathExclusion={onTogglePathExclusion} />
           ))}
         </div>
       )}
@@ -168,13 +192,13 @@ const Node: React.FC<NodeProps> = ({ node, level, onFileClick, allFiles, origina
   );
 };
 
-const FileTree: React.FC<FileTreeProps> = ({ allFiles, allDirs, originalContext, deletedItems, onFileClick }) => {
+const FileTree: React.FC<FileTreeProps> = ({ allFiles, allDirs, originalContext, deletedItems, onFileClick, excludedPaths, onTogglePathExclusion }) => {
   const tree = buildTree(allFiles, allDirs);
 
   return (
     <div className="text-gray-300 overflow-y-auto">
       {tree.map(node => (
-        <Node key={node.path} node={node} level={0} onFileClick={onFileClick} allFiles={allFiles} originalContext={originalContext} deletedItems={deletedItems} />
+        <Node key={node.path} node={node} level={0} onFileClick={onFileClick} allFiles={allFiles} originalContext={originalContext} deletedItems={deletedItems} excludedPaths={excludedPaths} onTogglePathExclusion={onTogglePathExclusion} />
       ))}
     </div>
   );
