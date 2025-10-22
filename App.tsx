@@ -122,7 +122,11 @@ const App: React.FC = () => {
     for (const file of files) {
         // webkitRelativePath is the property that contains the full path
         const path = (file as any).webkitRelativePath;
-        if (path && !isIgnored(path)) {
+
+        // Hardcoded rule to always ignore the .git directory
+        const isGitPath = /(^|\/)\.git(\/|$)/.test(path);
+
+        if (path && !isIgnored(path) && !isGitPath) {
             const content = await file.text();
             newProjectContext.files.set(path, content);
             // Add parent directories
@@ -135,6 +139,12 @@ const App: React.FC = () => {
         }
     }
     setProjectContext(newProjectContext);
+  }, []);
+
+  const handleUnlinkProject = useCallback(() => {
+    if (window.confirm('Are you sure you want to unlink the project context?')) {
+        setProjectContext(null);
+    }
   }, []);
 
   const executeFunctionCall = useCallback(async (fc: FunctionCall): Promise<any> => {
@@ -309,6 +319,7 @@ const App: React.FC = () => {
         isMobile={isMobile}
         onProjectSync={handleProjectSync}
         projectContext={projectContext}
+        onUnlinkProject={handleUnlinkProject}
       />
       <MainContent
         isSidebarOpen={isSidebarOpen}

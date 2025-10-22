@@ -1,5 +1,6 @@
+
 import React, { useRef } from 'react';
-import { Menu, Plus, Settings, UploadCloud, GitBranch } from './icons';
+import { Menu, Plus, Settings, UploadCloud, GitBranch, Trash2 } from './icons';
 import FileTree from './FileTree';
 import type { ProjectContext } from '../types';
 
@@ -12,9 +13,10 @@ interface SidebarProps {
   isMobile: boolean;
   onProjectSync: (files: FileList) => void;
   projectContext: ProjectContext | null;
+  onUnlinkProject: () => void;
 }
 
-const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen, onNewChat, onOpenSettings, onProjectSync, projectContext }) => {
+const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen, onNewChat, onOpenSettings, onProjectSync, projectContext, onUnlinkProject }) => {
   const directoryInputRef = useRef<HTMLInputElement>(null);
 
   const handleProjectSyncClick = () => {
@@ -81,9 +83,19 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen, onNewChat, onOpenS
       
       {projectContext && isOpen && (
           <div className="mt-6 pt-4 border-t border-gray-700/60 flex-1 overflow-y-auto overflow-x-hidden">
-             <div className="flex items-center gap-2 mb-3 px-1 text-gray-400">
-                <GitBranch size={16}/>
-                <h3 className="font-semibold text-xs uppercase tracking-wider">Project Files</h3>
+             <div className="flex items-center justify-between gap-2 mb-3 px-1 text-gray-400">
+                <div className="flex items-center gap-2">
+                    <GitBranch size={16}/>
+                    <h3 className="font-semibold text-xs uppercase tracking-wider">Project Files</h3>
+                </div>
+                <button
+                    onClick={onUnlinkProject}
+                    className="p-1 rounded-md hover:bg-gray-700 hover:text-red-400 transition-colors"
+                    aria-label="Unlink project"
+                    title="Unlink project"
+                >
+                    <Trash2 size={14} />
+                </button>
             </div>
              <FileTree files={projectContext.files} dirs={projectContext.dirs} />
           </div>
