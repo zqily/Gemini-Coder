@@ -1,0 +1,5 @@
+
+{
+  "name": "Gemini Coder",
+  "description": "A custom coding GUI for the Gemini API, designed to be a robust and optimized tool for developers. It supports file uploads for context-aware conversations and allows users to switch between Gemini models."
+}
