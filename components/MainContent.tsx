@@ -443,7 +443,7 @@ const MainContent: React.FC<MainContentProps> = ({ isMobile, toggleSidebar, chat
             {messagesToRender.length === 0 && !isLoading ? (
                 <WelcomeScreen onExampleClick={handleExampleSubmit} />
             ) : (
-                 <div className="pt-8">
+                 <div className="pt-8 pb-[40vh]">
                     {messagesToRender.map((msg, index) => {
                         if (msg.role === 'tool') {
                             return null;
