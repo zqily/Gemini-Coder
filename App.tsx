@@ -1,11 +1,10 @@
-
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import Sidebar from './components/Sidebar';
 import MainContent from './components/MainContent';
 import SettingsModal from './components/SettingsModal';
 import FileEditorModal from './components/FileEditorModal';
 import type { ChatMessage, AttachedFile, Mode, ModeId, ProjectContext, ChatPart } from './types';
-import { generateContentStream } from './services/geminiService';
+import { generateContentStreamWithRetries } from './services/geminiService';
 import { useApiKey } from './hooks/useApiKey';
 import { Bot, CodeXml } from './components/icons';
 import { createIsIgnored } from './utils/gitignore';
@@ -76,6 +75,7 @@ const FILE_SYSTEM_TOOLS: FunctionDeclaration[] = [
     }
 ];
 
+const EMPTY_CONTEXT: ProjectContext = { files: new Map(), dirs: new Set() };
 
 const App: React.FC = () => {
   const isMobile = useWindowSize();
@@ -88,7 +88,12 @@ const App: React.FC = () => {
   const [apiKey, setApiKey] = useApiKey();
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [selectedMode, setSelectedMode] = useState<ModeId>('default');
+
+  // File system state
   const [projectContext, setProjectContext] = useState<ProjectContext | null>(null);
+  const [originalProjectContext, setOriginalProjectContext] = useState<ProjectContext | null>(null);
+  const [deletedItems, setDeletedItems] = useState<ProjectContext>(EMPTY_CONTEXT);
+  
   const [displayContext, setDisplayContext] = useState<ProjectContext | null>(null);
   const [editingFile, setEditingFile] = useState<{ path: string; content: string } | null>(null);
   const cancellationRef = useRef(false);
@@ -98,17 +103,22 @@ const App: React.FC = () => {
       setIsSettingsModalOpen(true);
     }
   }, [apiKey]);
-
+  
   useEffect(() => {
-    const newContext: ProjectContext = {
-        files: new Map<string, string>(),
-        dirs: new Set<string>()
-    };
+    // This context is for rendering the file tree. It shows everything: current + deleted + attached.
+    const mergedFiles = new Map([
+      ...(deletedItems?.files || []),
+      ...(projectContext?.files || [])
+    ]);
+    const mergedDirs = new Set([
+        ...(deletedItems?.dirs || []),
+        ...(projectContext?.dirs || [])
+    ]);
 
-    if (projectContext) {
-        projectContext.files.forEach((content, path) => newContext.files.set(path, content));
-        projectContext.dirs.forEach(dir => newContext.dirs.add(dir));
-    }
+    const newContext: ProjectContext = {
+        files: mergedFiles,
+        dirs: mergedDirs
+    };
 
     attachedFiles.forEach(file => {
         // Simple check for text-based mime types
@@ -138,11 +148,14 @@ const App: React.FC = () => {
     } else {
         setDisplayContext(null);
     }
-  }, [projectContext, attachedFiles]);
+  }, [projectContext, deletedItems, attachedFiles]);
+
 
   const handleNewChat = () => {
     setChatHistory([]);
-    setProjectContext(null); // Also clear project context
+    setProjectContext(null);
+    setOriginalProjectContext(null);
+    setDeletedItems(EMPTY_CONTEXT);
     setAttachedFiles([]);
     if (isMobile) {
       setIsSidebarOpen(false);
@@ -186,11 +199,15 @@ const App: React.FC = () => {
         }
     }
     setProjectContext(newProjectContext);
+    setOriginalProjectContext(newProjectContext);
+    setDeletedItems(EMPTY_CONTEXT);
   }, []);
 
   const handleUnlinkProject = useCallback(() => {
     if (window.confirm('Are you sure you want to unlink the project context?')) {
         setProjectContext(null);
+        setOriginalProjectContext(null);
+        setDeletedItems(EMPTY_CONTEXT);
     }
   }, []);
 
@@ -217,7 +234,6 @@ const App: React.FC = () => {
   const executeFunctionCall = useCallback(async (fc: FunctionCall): Promise<any> => {
     const { name, args } = fc;
     let result: any = { success: true };
-    // FIX: Function call arguments can be undefined, handle this case.
     if (!args) {
       return { success: false, error: `Function call '${name || 'unknown'}' is missing arguments.` };
     }
@@ -225,34 +241,45 @@ const App: React.FC = () => {
     try {
         switch (name) {
             case 'readFile':
-                // FIX: Cast function call argument from unknown to string.
-                result = projectContext?.files.get(args.path as string) || `File not found: ${args.path as string}`;
+                const content = projectContext?.files.get(args.path as string);
+                if (content !== undefined) {
+                    result = { success: true, content: content };
+                } else {
+                    result = { success: false, error: `File not found: ${args.path as string}` };
+                }
                 break;
             case 'writeFile':
-                // FIX: Cast function call arguments from unknown to string.
                 setProjectContext(prev => FileSystem.createFile(args.path as string, args.content as string, prev!));
                 result.message = `Wrote to ${args.path as string}`;
                 break;
             case 'createFolder':
-                // FIX: Cast function call argument from unknown to string.
                 setProjectContext(prev => FileSystem.createFolder(args.path as string, prev!));
                 result.message = `Created folder ${args.path as string}`;
                 break;
             case 'listFiles':
                 const allPaths = [...projectContext!.files.keys(), ...projectContext!.dirs];
-                // FIX: Cast function call argument from unknown to string.
                 const listPath = args.path as string;
-                result = allPaths.filter(p => p.startsWith(`${listPath}/`) && p.split('/').length === listPath.split('/').length + 1);
+                const items = allPaths.filter(p => p.startsWith(`${listPath}/`) && p.split('/').length === listPath.split('/').length + 1);
+                result = { success: true, items: items };
                 break;
             case 'move':
-                // FIX: Cast function call arguments from unknown to string.
                 setProjectContext(prev => FileSystem.movePath(args.sourcePath as string, args.destinationPath as string, prev!));
                 result.message = `Moved ${args.sourcePath as string} to ${args.destinationPath as string}`;
                 break;
             case 'deletePath':
-                // FIX: Cast function call argument from unknown to string.
-                setProjectContext(prev => FileSystem.deletePath(args.path as string, prev!));
-                result.message = `Deleted ${args.path as string}`;
+                const pathToDelete = args.path as string;
+                const subtreeToDelete = FileSystem.extractSubtree(pathToDelete, projectContext!);
+                
+                if (subtreeToDelete.files.size > 0 || subtreeToDelete.dirs.size > 0) {
+                    setDeletedItems(prev => ({
+                        files: new Map([...prev.files, ...subtreeToDelete.files]),
+                        dirs: new Set([...prev.dirs, ...subtreeToDelete.dirs])
+                    }));
+                    setProjectContext(prev => FileSystem.deletePath(pathToDelete, prev!));
+                    result.message = `Deleted ${pathToDelete}`;
+                } else {
+                     result = { success: false, error: `Path not found for deletion: ${pathToDelete}` };
+                }
                 break;
             default:
                 result = { success: false, error: `Unknown function: ${name}` };
@@ -288,7 +315,26 @@ const App: React.FC = () => {
     const newUserMessage: ChatMessage = { role: 'user', parts: userParts };
     const updatedChatHistory = [...chatHistory, newUserMessage];
     setChatHistory(updatedChatHistory);
+    setAttachedFiles([]);
     
+    const cancellableSleep = (ms: number) => {
+        return new Promise<void>((resolve, reject) => {
+            let intervalId: number | undefined;
+            const timeoutId = setTimeout(() => {
+                if(intervalId) clearInterval(intervalId);
+                resolve();
+            }, ms);
+
+            intervalId = window.setInterval(() => {
+                if (cancellationRef.current) {
+                    clearTimeout(timeoutId);
+                    clearInterval(intervalId!);
+                    reject(new Error('Cancelled by user'));
+                }
+            }, 100);
+        });
+    };
+
     try {
         let historyForApi = [...updatedChatHistory];
         const isCoderMode = selectedMode.includes('coder');
@@ -302,78 +348,100 @@ const App: React.FC = () => {
              historyForApi.splice(historyForApi.length - 1, 0, contextMessage);
         }
 
-        while (true) {
+        let functionCallLoop = true;
+        while (functionCallLoop) {
             if (cancellationRef.current) break;
-            const systemInstruction = MODES[selectedMode].systemInstruction;
-            const tools = isCoderMode ? [{ functionDeclarations: FILE_SYSTEM_TOOLS }] : undefined;
-
-            const stream = await generateContentStream(apiKey, selectedModel, historyForApi, systemInstruction, tools);
-
-            let modelResponseText = "";
-            let functionCalls: FunctionCall[] = [];
             
-            const modelMessagePlaceholder: ChatMessage = { role: 'model', parts: [{ text: '' }] };
-            setChatHistory(prev => [...prev, modelMessagePlaceholder]);
-
-            for await (const chunk of stream) {
-                if (cancellationRef.current) break;
-                
-                const part = chunk.candidates?.[0]?.content?.parts?.[0];
-                if (part?.text) {
-                    modelResponseText += part.text;
-                    setChatHistory(prev => {
-                        const newHistory = [...prev];
-                        newHistory[newHistory.length - 1] = { role: 'model', parts: [{ text: modelResponseText }] };
-                        return newHistory;
-                    });
-                } else if (part?.functionCall) {
-                    functionCalls.push(part.functionCall);
-                }
-            }
-
-            if (cancellationRef.current) break;
-
-            if (functionCalls.length > 0) {
-                const modelTurnWithFunctionCall: ChatMessage = {
-                    role: 'model',
-                    parts: functionCalls.map(fc => ({ functionCall: fc }))
-                };
+            const onStatusUpdate = (message: string) => {
                 setChatHistory(prev => {
                     const newHistory = [...prev];
-                    newHistory[newHistory.length - 1] = modelTurnWithFunctionCall;
+                    const lastMessage = newHistory[newHistory.length - 1];
+                    if (lastMessage && lastMessage.role === 'model') {
+                        newHistory[newHistory.length - 1] = { ...lastMessage, parts: [{ text: message }] };
+                    }
                     return newHistory;
                 });
+            };
 
-                const functionResponses: ChatPart[] = [];
-                for (const fc of functionCalls) {
-                    const result = await executeFunctionCall(fc);
-                    functionResponses.push({
-                        functionResponse: {
-                            name: fc.name!,
-                            response: result ,
-                        }
-                    });
+            // Add a placeholder for the upcoming model response
+            setChatHistory(prev => [...prev, { role: 'model', parts: [{ text: '' }] }]);
+
+            try {
+                const systemInstruction = MODES[selectedMode].systemInstruction;
+                const tools = isCoderMode ? [{ functionDeclarations: FILE_SYSTEM_TOOLS }] : undefined;
+
+                const stream = await generateContentStreamWithRetries(
+                    apiKey, selectedModel, historyForApi, systemInstruction, tools,
+                    cancellationRef, onStatusUpdate, cancellableSleep
+                );
+
+                let modelResponseText = "";
+                let functionCalls: FunctionCall[] = [];
+                
+                for await (const chunk of stream) {
+                    if (cancellationRef.current) break;
+                    
+                    const part = chunk.candidates?.[0]?.content?.parts?.[0];
+                    if (part?.text) {
+                        modelResponseText += part.text;
+                        setChatHistory(prev => {
+                            const newHistory = [...prev];
+                            newHistory[newHistory.length - 1] = { role: 'model', parts: [{ text: modelResponseText }] };
+                            return newHistory;
+                        });
+                    } else if (part?.functionCall) {
+                        functionCalls.push(part.functionCall);
+                    }
                 }
 
-                const toolResponseMessage: ChatMessage = { role: 'tool', parts: functionResponses };
-                historyForApi.push(modelTurnWithFunctionCall, toolResponseMessage);
-                setChatHistory(prev => [...prev, toolResponseMessage]);
-            } else {
-                break; // No function calls, done with this turn.
+                if (cancellationRef.current) break;
+
+                if (functionCalls.length > 0) {
+                    const modelTurnWithFunctionCall: ChatMessage = {
+                        role: 'model',
+                        parts: functionCalls.map(fc => ({ functionCall: fc }))
+                    };
+                    setChatHistory(prev => {
+                        const newHistory = [...prev];
+                        newHistory[newHistory.length - 1] = modelTurnWithFunctionCall;
+                        return newHistory;
+                    });
+
+                    const functionResponses: ChatPart[] = [];
+                    for (const fc of functionCalls) {
+                        const result = await executeFunctionCall(fc);
+                        functionResponses.push({
+                            functionResponse: {
+                                name: fc.name!,
+                                response: result ,
+                            }
+                        });
+                    }
+
+                    const toolResponseMessage: ChatMessage = { role: 'tool', parts: functionResponses };
+                    historyForApi.push(modelTurnWithFunctionCall, toolResponseMessage);
+                    setChatHistory(prev => [...prev, toolResponseMessage]);
+                } else {
+                    functionCallLoop = false; // No function calls, done with this turn.
+                }
+
+            } catch(error) {
+                // This catches final, unrecoverable errors from the retry wrapper, or cancellation.
+                console.error("Content generation failed after retries:", error);
+                functionCallLoop = false; // Exit the function-calling loop
             }
         }
 
     } catch (error) {
-      console.error(error);
+      console.error("A critical error occurred during prompt submission setup:", error);
       const errorMessage: ChatMessage = {
         role: 'model',
         parts: [{ text: `Error: ${error instanceof Error ? error.message : 'An unknown error occurred'}` }]
       };
-      setChatHistory(prev => [...prev.slice(0, -1), errorMessage]);
+      setChatHistory(prev => [...prev, errorMessage]);
     } finally {
       setIsLoading(false);
       cancellationRef.current = false;
-      setAttachedFiles([]);
     }
   }, [apiKey, chatHistory, selectedModel, selectedMode, projectContext, executeFunctionCall]);
 
@@ -386,7 +454,9 @@ const App: React.FC = () => {
         onOpenSettings={() => setIsSettingsModalOpen(true)}
         isMobile={isMobile}
         onProjectSync={handleProjectSync}
-        projectContext={displayContext}
+        displayContext={displayContext}
+        originalContext={originalProjectContext}
+        deletedItems={deletedItems}
         onUnlinkProject={handleUnlinkProject}
         onOpenFileEditor={handleOpenFileEditor}
       />

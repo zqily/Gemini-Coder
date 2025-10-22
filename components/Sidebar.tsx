@@ -1,4 +1,3 @@
-
 import React, { useRef } from 'react';
 import { Menu, Plus, Settings, UploadCloud, GitBranch, Trash2 } from './icons';
 import FileTree from './FileTree';
@@ -12,12 +11,14 @@ interface SidebarProps {
   onOpenSettings: () => void;
   isMobile: boolean;
   onProjectSync: (files: FileList) => void;
-  projectContext: ProjectContext | null;
+  displayContext: ProjectContext | null;
+  originalContext: ProjectContext | null;
+  deletedItems: ProjectContext;
   onUnlinkProject: () => void;
   onOpenFileEditor: (path: string) => void;
 }
 
-const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen, onNewChat, onOpenSettings, onProjectSync, projectContext, onUnlinkProject, onOpenFileEditor }) => {
+const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen, onNewChat, onOpenSettings, onProjectSync, displayContext, originalContext, deletedItems, onUnlinkProject, onOpenFileEditor }) => {
   const directoryInputRef = useRef<HTMLInputElement>(null);
 
   const handleProjectSyncClick = () => {
@@ -82,7 +83,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen, onNewChat, onOpenS
         </button>
       </div>
       
-      {projectContext && isOpen && (
+      {displayContext && isOpen && (
           <div className="mt-6 pt-4 border-t border-gray-700/60 flex-1 overflow-y-auto overflow-x-hidden">
              <div className="flex items-center justify-between gap-2 mb-3 px-1 text-gray-400">
                 <div className="flex items-center gap-2">
@@ -98,7 +99,13 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen, onNewChat, onOpenS
                     <Trash2 size={14} />
                 </button>
             </div>
-             <FileTree files={projectContext.files} dirs={projectContext.dirs} onFileClick={onOpenFileEditor} />
+             <FileTree 
+                allFiles={displayContext.files} 
+                allDirs={displayContext.dirs} 
+                originalContext={originalContext}
+                deletedItems={deletedItems}
+                onFileClick={onOpenFileEditor} 
+             />
           </div>
       )}
 

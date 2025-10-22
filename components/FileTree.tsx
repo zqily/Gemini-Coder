@@ -1,9 +1,13 @@
 import React, { useState } from 'react';
 import { Folder, FolderOpen, FileText, Copy, ClipboardCopy, Check } from './icons';
+import type { ProjectContext } from '../types';
+
 
 interface FileTreeProps {
-  files: Map<string, string>;
-  dirs: Set<string>;
+  allFiles: Map<string, string>;
+  allDirs: Set<string>;
+  originalContext: ProjectContext | null;
+  deletedItems: ProjectContext;
   onFileClick: (path: string) => void;
 }
 
@@ -66,13 +70,32 @@ interface NodeProps {
     node: TreeNode;
     level: number;
     onFileClick: (path: string) => void;
-    files: Map<string, string>;
+    allFiles: Map<string, string>;
+    originalContext: ProjectContext | null;
+    deletedItems: ProjectContext;
 }
 
-const Node: React.FC<NodeProps> = ({ node, level, onFileClick, files }) => {
+const Node: React.FC<NodeProps> = ({ node, level, onFileClick, allFiles, originalContext, deletedItems }) => {
   const [isOpen, setIsOpen] = useState(true);
   const [copiedItem, setCopiedItem] = useState<'name' | 'content' | null>(null);
   const isFolder = node.type === 'folder';
+  
+  const isDeleted = deletedItems.files.has(node.path) || deletedItems.dirs.has(node.path);
+  const isCreated = !isDeleted && originalContext && !originalContext.files.has(node.path) && !originalContext.dirs.has(node.path);
+  const isModified = !isDeleted && !isCreated && node.type === 'file' && originalContext && originalContext.files.get(node.path) !== allFiles.get(node.path);
+
+  let statusClasses = 'text-gray-300';
+  let statusIndicator: React.ReactNode = null;
+  if (isDeleted) {
+    statusClasses = 'text-red-400/80 line-through';
+    statusIndicator = <span className="font-mono text-xs ml-1 text-red-400/80">[D]</span>;
+  } else if (isCreated) {
+    statusClasses = 'text-green-400';
+    statusIndicator = <span className="font-mono text-xs ml-1 text-green-400">[A]</span>;
+  } else if (isModified) {
+    statusClasses = 'text-blue-400';
+    statusIndicator = <span className="font-mono text-xs ml-1 text-blue-400">[M]</span>;
+  }
 
   const handleContainerClick = () => {
     if (isFolder) {
@@ -103,15 +126,16 @@ const Node: React.FC<NodeProps> = ({ node, level, onFileClick, files }) => {
           className="flex items-center cursor-pointer flex-grow truncate mr-2"
           title={node.path}
         >
-          <Icon size={16} className="mr-2 flex-shrink-0" />
-          <span className="text-sm truncate">{node.name}</span>
+          <Icon size={16} className={`mr-2 flex-shrink-0 ${statusClasses}`} />
+          <span className={`text-sm truncate ${statusClasses}`}>{node.name}</span>
+          {statusIndicator}
         </div>
         <div className="flex items-center opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
           {!isFolder && (
             <button
               onClick={(e) => {
                 e.stopPropagation();
-                handleCopy('content', files.get(node.path) || '');
+                handleCopy('content', allFiles.get(node.path) || '');
               }}
               className="p-1 rounded hover:bg-gray-600"
               title="Copy content"
@@ -136,7 +160,7 @@ const Node: React.FC<NodeProps> = ({ node, level, onFileClick, files }) => {
       {isFolder && isOpen && node.children && (
         <div>
           {node.children.map(child => (
-            <Node key={child.path} node={child} level={level + 1} onFileClick={onFileClick} files={files} />
+            <Node key={child.path} node={child} level={level + 1} onFileClick={onFileClick} allFiles={allFiles} originalContext={originalContext} deletedItems={deletedItems} />
           ))}
         </div>
       )}
@@ -144,13 +168,13 @@ const Node: React.FC<NodeProps> = ({ node, level, onFileClick, files }) => {
   );
 };
 
-const FileTree: React.FC<FileTreeProps> = ({ files, dirs, onFileClick }) => {
-  const tree = buildTree(files, dirs);
+const FileTree: React.FC<FileTreeProps> = ({ allFiles, allDirs, originalContext, deletedItems, onFileClick }) => {
+  const tree = buildTree(allFiles, allDirs);
 
   return (
     <div className="text-gray-300 overflow-y-auto">
       {tree.map(node => (
-        <Node key={node.path} node={node} level={0} onFileClick={onFileClick} files={files} />
+        <Node key={node.path} node={node} level={0} onFileClick={onFileClick} allFiles={allFiles} originalContext={originalContext} deletedItems={deletedItems} />
       ))}
     </div>
   );

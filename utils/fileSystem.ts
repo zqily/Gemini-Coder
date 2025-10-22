@@ -66,7 +66,7 @@ export const deletePath = (path: string, context: ProjectContext): ProjectContex
   // Check if it's a file
   if (newFiles.has(path)) {
     newFiles.delete(path);
-  } else if (newDirs.has(path)) {
+  } else if (newDirs.has(path) || Array.from(newFiles.keys()).some(k => k.startsWith(`${path}/`))) {
     // It's a directory, delete it and all its contents
     newDirs.delete(path);
     // Delete all files within this directory
@@ -127,6 +127,39 @@ export const movePath = (sourcePath: string, destinationPath: string, context: P
 
     return newContext;
 };
+
+/**
+ * Extracts a file or an entire directory tree from a project context.
+ * @param path The path of the file or folder to extract.
+ * @param context The project context to extract from.
+ * @returns A new ProjectContext containing only the extracted items.
+ */
+export const extractSubtree = (path: string, context: ProjectContext): ProjectContext => {
+  const subtree: ProjectContext = { files: new Map(), dirs: new Set() };
+  
+  // Check if it's a directory by seeing if it's in dirs or if any file path starts with it
+  const isDir = context.dirs.has(path) || Array.from(context.files.keys()).some(k => k.startsWith(`${path}/`));
+
+  if (isDir) {
+    subtree.dirs.add(path);
+    // Find child dirs
+    for (const dir of context.dirs) {
+      if (dir.startsWith(`${path}/`)) {
+        subtree.dirs.add(dir);
+      }
+    }
+    // Find child files
+    for (const [filePath, content] of context.files.entries()) {
+      if (filePath.startsWith(`${path}/`)) {
+        subtree.files.set(filePath, content);
+      }
+    }
+  } else if (context.files.has(path)) {
+    subtree.files.set(path, context.files.get(path)!);
+  }
+  return subtree;
+};
+
 
 /**
  * Serializes the project context into a string format for the model prompt.
