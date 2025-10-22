@@ -5,6 +5,7 @@ import type { AttachedFile, Mode, ModeId } from '../types';
 interface PromptInputProps {
   onSubmit: (prompt: string) => void;
   isLoading: boolean;
+  onStop: () => void;
   files: AttachedFile[];
   setFiles: React.Dispatch<React.SetStateAction<AttachedFile[]>>;
   selectedMode: ModeId;
@@ -13,13 +14,31 @@ interface PromptInputProps {
 }
 
 // NOTE: Duplicated from MainContent.tsx due to project constraints.
-const SUPPORTED_MIME_TYPES = [
+const NATIVELY_SUPPORTED_MIME_TYPES = [
   'image/png', 'image/jpeg', 'image/webp', 'image/heic', 'image/heif',
   'text/plain', 'text/html', 'text/css', 'text/javascript', 'application/x-javascript',
   'text/x-typescript', 'application/x-typescript', 'text/csv', 'text/markdown',
   'text/x-python', 'application/x-python-code', 'application/json', 'text/xml', 'application/rtf',
   'application/pdf'
 ];
+
+// A map of text-based MIME types to convert to 'text/plain' for wider compatibility
+const CONVERTIBLE_TO_TEXT_MIME_TYPES: Record<string, string> = {
+    'image/svg+xml': 'text/plain',
+    'application/x-sh': 'text/plain',
+    'text/x-c': 'text/plain',
+    'text/x-csharp': 'text/plain',
+    'text/x-c++': 'text/plain',
+    'text/x-java-source': 'text/plain',
+    'text/x-php': 'text/plain',
+    'text/x-ruby': 'text/plain',
+    'text/x-go': 'text/plain',
+    'text/rust': 'text/plain',
+    'application/toml': 'text/plain',
+    'text/yaml': 'text/plain',
+};
+
+const ALL_ACCEPTED_MIME_TYPES = [...NATIVELY_SUPPORTED_MIME_TYPES, ...Object.keys(CONVERTIBLE_TO_TEXT_MIME_TYPES)];
 
 const fileToDataURL = (file: File): Promise<string> => {
   return new Promise((resolve, reject) => {
@@ -57,7 +76,7 @@ const FilePreview: React.FC<{ file: AttachedFile, onRemove: () => void }> = ({ f
     );
 };
 
-const PromptInput: React.FC<PromptInputProps> = ({ onSubmit, isLoading, files, setFiles, selectedMode, setSelectedMode, modes }) => {
+const PromptInput: React.FC<PromptInputProps> = ({ onSubmit, isLoading, onStop, files, setFiles, selectedMode, setSelectedMode, modes }) => {
   const [prompt, setPrompt] = useState('');
   const [isReadingFiles, setIsReadingFiles] = useState(false);
   const [isPlusMenuOpen, setIsPlusMenuOpen] = useState(false);
@@ -85,12 +104,13 @@ const PromptInput: React.FC<PromptInputProps> = ({ onSubmit, isLoading, files, s
     setIsReadingFiles(true);
     try {
       const newFilesPromises = selectedFiles
-        .filter(file => SUPPORTED_MIME_TYPES.includes(file.type))
+        .filter(file => ALL_ACCEPTED_MIME_TYPES.includes(file.type))
         .map(async file => {
           const content = await fileToDataURL(file);
+          const mimeType = CONVERTIBLE_TO_TEXT_MIME_TYPES[file.type] || file.type;
           return {
             name: file.name,
-            type: file.type,
+            type: mimeType,
             size: file.size,
             content,
           };
@@ -153,7 +173,7 @@ const PromptInput: React.FC<PromptInputProps> = ({ onSubmit, isLoading, files, s
                         <FileIcon size={18} />
                         <span>Add file(s)</span>
                     </button>
-                    <div className="group relative px-1 -mx-1">
+                    <div className="group relative py-1 -my-1">
                         <button
                             type="button"
                             className="w-full flex items-center justify-between gap-3 px-3 py-2 text-sm text-left text-gray-300 hover:bg-gray-700/70 transition-colors"
@@ -202,7 +222,7 @@ const PromptInput: React.FC<PromptInputProps> = ({ onSubmit, isLoading, files, s
           ref={fileInputRef}
           onChange={handleFileChange}
           className="hidden"
-          accept={SUPPORTED_MIME_TYPES.join(',')}
+          accept={ALL_ACCEPTED_MIME_TYPES.join(',')}
         />
         <textarea
           ref={textareaRef}
@@ -219,14 +239,25 @@ const PromptInput: React.FC<PromptInputProps> = ({ onSubmit, isLoading, files, s
             }
           }}
         />
-        <button
-          type="submit"
-          disabled={isLoading || isReadingFiles || (!prompt.trim() && files.length === 0)}
-          className="bg-blue-600 p-3 ml-2 rounded-full hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0 self-center disabled:bg-gray-600"
-          aria-label="Send prompt"
-        >
-          {isLoading ? <LoaderCircle className="animate-spin" size={20} /> : <Send size={20} />}
-        </button>
+        {isLoading ? (
+          <button
+            type="button"
+            onClick={onStop}
+            className="bg-gray-700 p-3 ml-2 rounded-full hover:bg-gray-600 transition-colors flex-shrink-0 self-center"
+            aria-label="Stop generation"
+          >
+            <X size={20} />
+          </button>
+        ) : (
+          <button
+            type="submit"
+            disabled={isReadingFiles || (!prompt.trim() && files.length === 0)}
+            className="bg-blue-600 p-3 ml-2 rounded-full hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0 self-center disabled:bg-gray-600"
+            aria-label="Send prompt"
+          >
+            <Send size={20} />
+          </button>
+        )}
       </div>
     </form>
   );

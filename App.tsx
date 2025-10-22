@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import Sidebar from './components/Sidebar';
 import MainContent from './components/MainContent';
 import SettingsModal from './components/SettingsModal';
@@ -53,6 +53,7 @@ const App: React.FC = () => {
   const [apiKey, setApiKey] = useApiKey();
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [selectedMode, setSelectedMode] = useState<ModeId>('default');
+  const cancellationRef = useRef(false);
   
   // On initial load, open settings if no API key is found.
   useEffect(() => {
@@ -77,6 +78,12 @@ const App: React.FC = () => {
    */
   const toggleSidebar = () => setIsSidebarOpen(prev => !prev);
 
+  /**
+   * Signals the ongoing API request to stop.
+   */
+  const handleStopGeneration = useCallback(() => {
+    cancellationRef.current = true;
+  }, []);
 
   /**
    * Handles the submission of a new prompt from the user.
@@ -92,6 +99,7 @@ const App: React.FC = () => {
     if (!prompt.trim() && files.length === 0) return;
 
     setIsLoading(true);
+    cancellationRef.current = false; // Reset cancellation flag on new submission
 
     const userParts = [];
     if (prompt) {
@@ -123,6 +131,9 @@ const App: React.FC = () => {
       setChatHistory(currentHistory);
 
       for await (const chunk of stream) {
+        if (cancellationRef.current) {
+          break; // Exit the loop if cancellation is requested
+        }
         modelResponse += chunk.text;
         currentHistory = [...updatedChatHistory, { role: 'model', parts: [{ text: modelResponse }] }];
         setChatHistory(currentHistory);
@@ -140,6 +151,7 @@ const App: React.FC = () => {
       });
     } finally {
       setIsLoading(false);
+      cancellationRef.current = false; // Ensure flag is reset
     }
   }, [apiKey, chatHistory, selectedModel, selectedMode]);
 
@@ -161,6 +173,7 @@ const App: React.FC = () => {
         selectedModel={selectedModel}
         setSelectedModel={setSelectedModel}
         onSubmit={handlePromptSubmit}
+        onStop={handleStopGeneration}
         selectedMode={selectedMode}
         setSelectedMode={setSelectedMode}
         modes={MODES}

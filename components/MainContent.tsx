@@ -1,20 +1,41 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { HelpCircle, ChevronDown, Sparkles, User, ImageIcon, File as FileIcon, Menu, Copy, Check } from './icons';
+import { HelpCircle, ChevronDown, User, ImageIcon, File as FileIcon, Menu, Copy, Check, X } from './icons';
 import PromptInput from './PromptInput';
 import type { ChatMessage, AttachedFile, Mode, ModeId } from '../types';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import GeminiIcon from './GeminiIcon';
 
 // File handling utilities
-const SUPPORTED_MIME_TYPES = [
-  'image/png', 'image/jpeg', 'image/webp', 'image/heic', 'iage/heif',
+
+const NATIVELY_SUPPORTED_MIME_TYPES = [
+  'image/png', 'image/jpeg', 'image/webp', 'image/heic', 'image/heif',
   'text/plain', 'text/html', 'text/css', 'text/javascript', 'application/x-javascript',
   'text/x-typescript', 'application/x-typescript', 'text/csv', 'text/markdown',
   'text/x-python', 'application/x-python-code', 'application/json', 'text/xml', 'application/rtf',
   'application/pdf'
 ];
+
+// A map of text-based MIME types to convert to 'text/plain' for wider compatibility
+const CONVERTIBLE_TO_TEXT_MIME_TYPES: Record<string, string> = {
+    'image/svg+xml': 'text/plain',
+    'application/x-sh': 'text/plain',
+    'text/x-c': 'text/plain',
+    'text/x-csharp': 'text/plain',
+    'text/x-c++': 'text/plain',
+    'text/x-java-source': 'text/plain',
+    'text/x-php': 'text/plain',
+    'text/x-ruby': 'text/plain',
+    'text/x-go': 'text/plain',
+    'text/rust': 'text/plain',
+    'application/toml': 'text/plain',
+    'text/yaml': 'text/plain',
+};
+
+const ALL_ACCEPTED_MIME_TYPES = [...NATIVELY_SUPPORTED_MIME_TYPES, ...Object.keys(CONVERTIBLE_TO_TEXT_MIME_TYPES)];
+
 const fileToDataURL = (file: File): Promise<string> => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -33,6 +54,7 @@ interface MainContentProps {
   selectedModel: string;
   setSelectedModel: (model: string) => void;
   onSubmit: (prompt: string, files: AttachedFile[]) => void;
+  onStop: () => void;
   selectedMode: ModeId;
   setSelectedMode: (mode: ModeId) => void;
   modes: Record<ModeId, Mode>;
@@ -163,8 +185,8 @@ const ChatBubble: React.FC<{ message: ChatMessage }> = ({ message }) => {
     return (
         <div className="flex flex-col mb-10 animate-fade-in-up">
             <div className="flex items-center space-x-3 mb-3">
-                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white text-sm flex-shrink-0 ${isUser ? 'bg-blue-600' : 'bg-gradient-to-br from-purple-500 to-indigo-600'}`}>
-                    {isUser ? <User size={18} /> : <Sparkles size={18} />}
+                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white text-sm flex-shrink-0 ${isUser ? 'bg-blue-600' : ''}`}>
+                    {isUser ? <User size={18} /> : <GeminiIcon size={28} />}
                 </div>
                 <span className="font-semibold text-white">{isUser ? 'You' : 'Gemini'}</span>
             </div>
@@ -195,6 +217,7 @@ const WelcomeScreen: React.FC<{ onExampleClick: (prompt: string) => void }> = ({
     ];
     return (
          <div className="flex flex-col h-full justify-center items-center text-center pb-24">
+            <img src="/assets/gemini.svg" alt="Gemini Logo" className="w-20 h-20 mb-6" />
             <h1 className="text-5xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-purple-500 animate-shimmer">
                 Hello, how can I help?
             </h1>
@@ -212,8 +235,8 @@ const WelcomeScreen: React.FC<{ onExampleClick: (prompt: string) => void }> = ({
 
 const TypingIndicator = () => (
     <div className="flex items-center space-x-3 mb-10 animate-fade-in-up">
-        <div className="w-8 h-8 rounded-full flex items-center justify-center bg-gradient-to-br from-purple-500 to-indigo-600 flex-shrink-0">
-            <Sparkles size={18} />
+        <div className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0">
+            <GeminiIcon size={28} />
         </div>
         <div className="flex items-center space-x-1.5 p-3 bg-[#1e1f20] rounded-lg">
             <div className="w-2 h-2 bg-gray-400 rounded-full typing-dot"></div>
@@ -223,7 +246,7 @@ const TypingIndicator = () => (
     </div>
 );
 
-const MainContent: React.FC<MainContentProps> = ({ isMobile, toggleSidebar, chatHistory, isLoading, selectedModel, setSelectedModel, onSubmit, selectedMode, setSelectedMode, modes }) => {
+const MainContent: React.FC<MainContentProps> = ({ isMobile, toggleSidebar, chatHistory, isLoading, selectedModel, setSelectedModel, onSubmit, onStop, selectedMode, setSelectedMode, modes }) => {
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const [files, setFiles] = useState<AttachedFile[]>([]);
   const [isDragging, setIsDragging] = useState(false);
@@ -235,10 +258,12 @@ const MainContent: React.FC<MainContentProps> = ({ isMobile, toggleSidebar, chat
     setIsReadingFiles(true);
     try {
       const newFilesPromises = Array.from(selectedFiles)
-        .filter(file => SUPPORTED_MIME_TYPES.includes(file.type))
+        .filter(file => ALL_ACCEPTED_MIME_TYPES.includes(file.type))
         .map(async file => {
           const content = await fileToDataURL(file);
-          return { name: file.name, type: file.type, size: file.size, content };
+          // Convert mime type if it's in our convertible list, otherwise use original
+          const mimeType = CONVERTIBLE_TO_TEXT_MIME_TYPES[file.type] || file.type;
+          return { name: file.name, type: mimeType, size: file.size, content };
         });
       const newFiles = await Promise.all(newFilesPromises);
       setFiles(prev => [...prev, ...newFiles]);
@@ -366,6 +391,7 @@ const MainContent: React.FC<MainContentProps> = ({ isMobile, toggleSidebar, chat
           <PromptInput
             onSubmit={handlePromptSubmit}
             isLoading={isLoading || isReadingFiles}
+            onStop={onStop}
             files={files}
             setFiles={setFiles}
             selectedMode={selectedMode}
