@@ -69,6 +69,64 @@ const FILE_SYSTEM_TOOLS: FunctionDeclaration[] = [
 
 const EMPTY_CONTEXT: ProjectContext = { files: new Map(), dirs: new Set() };
 
+/**
+ * A pure function that executes a file system operation based on a function call from the model.
+ * It takes the current project context and returns the new context after the operation.
+ * It does not have any side effects (like calling React state setters).
+ * @param fc The FunctionCall object from the model.
+ * @param currentContext The current state of the project files and directories.
+ * @param currentDeleted The current state of deleted items.
+ * @returns An object containing the result of the operation and the new project/deleted contexts.
+ */
+const executeFunctionCall = (fc: FunctionCall, currentContext: ProjectContext, currentDeleted: ProjectContext): { result: any, newContext: ProjectContext, newDeleted: ProjectContext } => {
+    const { name, args } = fc;
+    let result: any = { success: true };
+    let newContext = currentContext;
+    let newDeleted = currentDeleted;
+
+    if (!args) {
+        return { result: { success: false, error: `Function call '${name || 'unknown'}' is missing arguments.` }, newContext, newDeleted };
+    }
+
+    try {
+        switch (name) {
+            case 'writeFile':
+                newContext = FileSystem.createFile(args.path as string, args.content as string, currentContext);
+                result.message = `Wrote to ${args.path as string}`;
+                break;
+            case 'createFolder':
+                newContext = FileSystem.createFolder(args.path as string, currentContext);
+                result.message = `Created folder ${args.path as string}`;
+                break;
+            case 'move':
+                newContext = FileSystem.movePath(args.sourcePath as string, args.destinationPath as string, currentContext);
+                result.message = `Moved ${args.sourcePath as string} to ${args.destinationPath as string}`;
+                break;
+            case 'deletePath':
+                const pathToDelete = args.path as string;
+                const subtreeToDelete = FileSystem.extractSubtree(pathToDelete, currentContext);
+                
+                if (subtreeToDelete.files.size > 0 || subtreeToDelete.dirs.size > 0) {
+                    newDeleted = {
+                        files: new Map([...currentDeleted.files, ...subtreeToDelete.files]),
+                        dirs: new Set([...currentDeleted.dirs, ...subtreeToDelete.dirs])
+                    };
+                    newContext = FileSystem.deletePath(pathToDelete, currentContext);
+                    result.message = `Deleted ${pathToDelete}`;
+                } else {
+                     result = { success: false, error: `Path not found for deletion: ${pathToDelete}` };
+                }
+                break;
+            default:
+                result = { success: false, error: `Unknown function: ${name}` };
+        }
+    } catch (e) {
+        result = { success: false, error: e instanceof Error ? e.message : String(e) };
+    }
+    return { result, newContext, newDeleted };
+};
+
+
 const App: React.FC = () => {
   const isMobile = useWindowSize();
   const [isSidebarOpen, setIsSidebarOpen] = useState(!isMobile);
@@ -223,52 +281,6 @@ const App: React.FC = () => {
     setEditingFile(null);
   };
 
-
-  const executeFunctionCall = useCallback(async (fc: FunctionCall): Promise<any> => {
-    const { name, args } = fc;
-    let result: any = { success: true };
-    if (!args) {
-      return { success: false, error: `Function call '${name || 'unknown'}' is missing arguments.` };
-    }
-
-    try {
-        switch (name) {
-            case 'writeFile':
-                setProjectContext(prev => FileSystem.createFile(args.path as string, args.content as string, prev!));
-                result.message = `Wrote to ${args.path as string}`;
-                break;
-            case 'createFolder':
-                setProjectContext(prev => FileSystem.createFolder(args.path as string, prev!));
-                result.message = `Created folder ${args.path as string}`;
-                break;
-            case 'move':
-                setProjectContext(prev => FileSystem.movePath(args.sourcePath as string, args.destinationPath as string, prev!));
-                result.message = `Moved ${args.sourcePath as string} to ${args.destinationPath as string}`;
-                break;
-            case 'deletePath':
-                const pathToDelete = args.path as string;
-                const subtreeToDelete = FileSystem.extractSubtree(pathToDelete, projectContext!);
-                
-                if (subtreeToDelete.files.size > 0 || subtreeToDelete.dirs.size > 0) {
-                    setDeletedItems(prev => ({
-                        files: new Map([...prev.files, ...subtreeToDelete.files]),
-                        dirs: new Set([...prev.dirs, ...subtreeToDelete.dirs])
-                    }));
-                    setProjectContext(prev => FileSystem.deletePath(pathToDelete, prev!));
-                    result.message = `Deleted ${pathToDelete}`;
-                } else {
-                     result = { success: false, error: `Path not found for deletion: ${pathToDelete}` };
-                }
-                break;
-            default:
-                result = { success: false, error: `Unknown function: ${name}` };
-        }
-    } catch (e) {
-        result = { success: false, error: e instanceof Error ? e.message : String(e) };
-    }
-    return result;
-  }, [projectContext]);
-
   const handlePromptSubmit = useCallback(async (prompt: string, files: AttachedFile[]) => {
     if (!apiKey) {
       alert("Please set your Gemini API key in the settings.");
@@ -318,18 +330,26 @@ const App: React.FC = () => {
         let historyForApi = [...updatedChatHistory];
         const isCoderMode = selectedMode.includes('coder');
 
-        if (projectContext && isCoderMode) {
-             const fileContext = FileSystem.serializeProjectContext(projectContext);
-             const contextMessage: ChatMessage = {
-                 role: 'user',
-                 parts: [{ text: `The user has provided this project context. Use your tools to operate on it. Do not output this context in your response.\n\n${fileContext}`}]
-             };
-             historyForApi.splice(historyForApi.length - 1, 0, contextMessage);
-        }
+        // These local variables will hold the most up-to-date context within the function-calling loop
+        let currentProjectContext = projectContext;
+        let currentDeletedItems = deletedItems;
 
         let functionCallLoop = true;
         while (functionCallLoop) {
             if (cancellationRef.current) break;
+            
+            // Create a temporary history for this specific API call with the fresh context
+            const historyForThisTurn = [...historyForApi];
+            if (currentProjectContext && isCoderMode) {
+                 const fileContext = FileSystem.serializeProjectContext(currentProjectContext);
+                 const contextMessage: ChatMessage = {
+                     role: 'user',
+                     parts: [{ text: `The user has provided this project context. Use your tools to operate on it. Do not output this context in your response.\n\n${fileContext}`}]
+                 };
+                 // Inject the context message before the last message (the user's actual prompt or a tool response).
+                 // This provides the model with the latest state before it acts.
+                 historyForThisTurn.splice(historyForThisTurn.length - 1, 0, contextMessage);
+            }
             
             const onStatusUpdate = (message: string) => {
                 setChatHistory(prev => {
@@ -350,7 +370,7 @@ const App: React.FC = () => {
                 const tools = isCoderMode ? [{ functionDeclarations: FILE_SYSTEM_TOOLS }] : undefined;
 
                 const stream = await generateContentStreamWithRetries(
-                    apiKey, selectedModel, historyForApi, systemInstruction, tools,
+                    apiKey, selectedModel, historyForThisTurn, systemInstruction, tools,
                     cancellationRef, onStatusUpdate, cancellableSleep
                 );
 
@@ -376,29 +396,59 @@ const App: React.FC = () => {
                 if (cancellationRef.current) break;
 
                 if (functionCalls.length > 0) {
-                    const modelTurnWithFunctionCall: ChatMessage = {
+                    const modelTurnParts: ChatPart[] = [];
+                    if (modelResponseText) {
+                        modelTurnParts.push({ text: modelResponseText });
+                    }
+                    modelTurnParts.push(...functionCalls.map(fc => ({ functionCall: fc })));
+
+                    const modelTurnWithMessage: ChatMessage = {
                         role: 'model',
-                        parts: functionCalls.map(fc => ({ functionCall: fc }))
+                        parts: modelTurnParts
                     };
+                    
                     setChatHistory(prev => {
                         const newHistory = [...prev];
-                        newHistory[newHistory.length - 1] = modelTurnWithFunctionCall;
+                        newHistory[newHistory.length - 1] = modelTurnWithMessage;
                         return newHistory;
                     });
 
+                    // Batch process all function calls from the model's response
+                    let accumulatedContext = currentProjectContext;
+                    let accumulatedDeleted = currentDeletedItems;
                     const functionResponses: ChatPart[] = [];
+
                     for (const fc of functionCalls) {
-                        const result = await executeFunctionCall(fc);
+                        if (cancellationRef.current) break; // Check for cancellation before executing each function call
+
+                        const { result, newContext, newDeleted } = executeFunctionCall(fc, accumulatedContext!, accumulatedDeleted);
+                        
+                        // Update local accumulators for the next function call in this batch
+                        accumulatedContext = newContext;
+                        accumulatedDeleted = newDeleted;
+
                         functionResponses.push({
                             functionResponse: {
                                 name: fc.name!,
-                                response: result ,
+                                response: result,
                             }
                         });
                     }
+                    
+                    if (cancellationRef.current) break;
+
+                    // Update React state once with the final accumulated context for this turn
+                    setProjectContext(accumulatedContext);
+                    setDeletedItems(accumulatedDeleted);
+                    
+                    // Also update the local context variables for the next iteration of the outer `while` loop
+                    currentProjectContext = accumulatedContext;
+                    currentDeletedItems = accumulatedDeleted;
 
                     const toolResponseMessage: ChatMessage = { role: 'tool', parts: functionResponses };
-                    historyForApi.push(modelTurnWithFunctionCall, toolResponseMessage);
+                    
+                    // Add the model's turn and the tool responses to the main history for the next loop iteration
+                    historyForApi.push(modelTurnWithMessage, toolResponseMessage);
                     setChatHistory(prev => [...prev, toolResponseMessage]);
                 } else {
                     functionCallLoop = false; // No function calls, done with this turn.
@@ -422,7 +472,7 @@ const App: React.FC = () => {
       setIsLoading(false);
       cancellationRef.current = false;
     }
-  }, [apiKey, chatHistory, selectedModel, selectedMode, projectContext, executeFunctionCall]);
+  }, [apiKey, chatHistory, selectedModel, selectedMode, projectContext, deletedItems]);
 
   return (
     <div className="flex h-screen w-full bg-[#131314] text-gray-200 font-sans overflow-hidden">
