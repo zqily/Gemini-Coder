@@ -44,7 +44,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, apiKey, 
               placeholder="Enter your API key"
             />
              <p className="text-xs text-gray-500 mt-2">
-                Your key is managed in the app's memory and is gone when you close the tab.
+                Your API key is saved in your browser's local storage.
              </p>
           </div>
         </div>

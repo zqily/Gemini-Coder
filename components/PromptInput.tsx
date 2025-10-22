@@ -56,7 +56,7 @@ const PromptInput: React.FC<PromptInputProps> = ({ onSubmit, isLoading }) => {
       alert("There was an error processing some of your files.");
     } finally {
       setIsReadingFiles(false);
-      if (event.target) event.target.value = ''; // Reset file input
+      if (event.target) event.target.value = '';
     }
   };
   
@@ -69,13 +69,14 @@ const PromptInput: React.FC<PromptInputProps> = ({ onSubmit, isLoading }) => {
     const textarea = textareaRef.current;
     if (textarea) {
         textarea.style.height = 'auto';
-        textarea.style.height = `${textarea.scrollHeight}px`;
+        const maxHeight = 192; // max-h-48 in pixels
+        textarea.style.height = `${Math.min(textarea.scrollHeight, maxHeight)}px`;
     }
   };
   
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (isLoading || (!prompt.trim() && files.length === 0)) return;
+    if (isLoading || isReadingFiles || (!prompt.trim() && files.length === 0)) return;
     onSubmit(prompt, files);
     setPrompt('');
     setFiles([]);
@@ -85,11 +86,11 @@ const PromptInput: React.FC<PromptInputProps> = ({ onSubmit, isLoading }) => {
   };
 
   return (
-    <form onSubmit={handleSubmit} className="bg-[#1e1f20] rounded-2xl p-4 flex flex-col w-full relative">
+    <form onSubmit={handleSubmit} className="w-full">
       {files.length > 0 && (
         <div className="flex flex-wrap gap-2 mb-3">
           {files.map((file, index) => (
-            <div key={index} className="bg-gray-700/80 rounded-full pl-3 pr-2 py-1 flex items-center gap-2 text-sm max-w-xs">
+            <div key={index} className="bg-gray-700/80 rounded-full pl-3 pr-2 py-1 flex items-center gap-2 text-sm max-w-xs animate-fade-in-up">
               {file.type.startsWith('image/') ? <ImageIcon size={16} /> : <FileIcon size={16} />}
               <span className="truncate">{file.name}</span>
               <button type="button" onClick={() => removeFile(index)} className="rounded-full hover:bg-gray-600 p-0.5">
@@ -99,12 +100,12 @@ const PromptInput: React.FC<PromptInputProps> = ({ onSubmit, isLoading }) => {
           ))}
         </div>
       )}
-      <div className="flex items-end">
+      <div className="bg-[#1e1f20] rounded-2xl p-2.5 flex items-end w-full relative transition-all duration-200 focus-within:ring-2 focus-within:ring-blue-500/50">
         <button
           type="button"
           onClick={() => fileInputRef.current?.click()}
           disabled={isLoading || isReadingFiles}
-          className="p-2 mr-2 rounded-full hover:bg-gray-700 transition-colors disabled:opacity-50"
+          className="p-2 mr-1 rounded-full hover:bg-gray-700 transition-colors disabled:opacity-50 flex-shrink-0"
         >
          {isReadingFiles ? <LoaderCircle className="animate-spin" size={24} /> : <Plus size={24} />}
         </button>
@@ -122,7 +123,7 @@ const PromptInput: React.FC<PromptInputProps> = ({ onSubmit, isLoading }) => {
           onChange={handleTextareaInput}
           placeholder="Ask Gemini"
           rows={1}
-          className="flex-1 bg-transparent resize-none focus:outline-none placeholder-gray-500 text-lg max-h-48"
+          className="flex-1 bg-transparent resize-none focus:outline-none placeholder-gray-500 text-base leading-relaxed max-h-48 self-center"
           disabled={isLoading}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
@@ -134,7 +135,7 @@ const PromptInput: React.FC<PromptInputProps> = ({ onSubmit, isLoading }) => {
         <button
           type="submit"
           disabled={isLoading || isReadingFiles || (!prompt.trim() && files.length === 0)}
-          className="bg-[#292a2c] p-3 rounded-full hover:bg-gray-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          className="bg-[#292a2c] p-3 ml-2 rounded-full hover:bg-gray-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
         >
           {isLoading ? <LoaderCircle className="animate-spin" size={20} /> : <Send size={20} />}
         </button>

@@ -1,9 +1,10 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import Sidebar from './components/Sidebar';
 import MainContent from './components/MainContent';
 import SettingsModal from './components/SettingsModal';
 import type { ChatMessage, AttachedFile } from './types';
 import { runChat } from './services/geminiService';
+import { useApiKey } from './hooks/useApiKey';
 
 /**
  * The main application component.
@@ -15,8 +16,16 @@ const App: React.FC = () => {
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [selectedModel, setSelectedModel] = useState('gemini-flash-latest');
-  const [apiKey, setApiKey] = useState('');
+  const [apiKey, setApiKey] = useApiKey();
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+
+  // On initial load, open settings if no API key is found.
+  useEffect(() => {
+    if (!apiKey) {
+      setIsSettingsModalOpen(true);
+    }
+  }, [apiKey]);
+
 
   /**
    * Clears the current chat history to start a new conversation.
@@ -88,7 +97,7 @@ const App: React.FC = () => {
   }, [apiKey, chatHistory, selectedModel]);
 
   return (
-    <div className="flex h-screen w-full bg-[#131314] text-gray-200 font-sans">
+    <div className="flex h-screen w-full bg-[#131314] text-gray-200 font-sans overflow-hidden">
       <Sidebar
         isOpen={isSidebarOpen}
         setIsOpen={setIsSidebarOpen}

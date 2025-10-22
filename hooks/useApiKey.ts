@@ -1,21 +1,18 @@
-
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 
 const API_KEY_STORAGE_KEY = 'gemini-api-key';
 
-export const useApiKey = (): [string, (key: string) => void] => {
-  const [apiKey, setApiKey] = useState<string>('');
+const getInitialApiKey = (): string => {
+  try {
+    return localStorage.getItem(API_KEY_STORAGE_KEY) || '';
+  } catch (error) {
+    console.error('Failed to retrieve API key from local storage:', error);
+    return '';
+  }
+};
 
-  useEffect(() => {
-    try {
-      const storedKey = localStorage.getItem(API_KEY_STORAGE_KEY);
-      if (storedKey) {
-        setApiKey(storedKey);
-      }
-    } catch (error) {
-      console.error('Failed to retrieve API key from local storage:', error);
-    }
-  }, []);
+export const useApiKey = (): [string, (key: string) => void] => {
+  const [apiKey, setApiKey] = useState<string>(getInitialApiKey);
 
   const saveApiKey = useCallback((key: string) => {
     try {

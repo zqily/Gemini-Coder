@@ -40,34 +40,32 @@ const ModelSelector: React.FC<{ selectedModel: string; setSelectedModel: (model:
         <button
           type="button"
           onClick={() => setIsOpen(!isOpen)}
-          className="flex items-center space-x-1 text-gray-400 hover:text-white"
+          className="flex items-center space-x-1 text-gray-300 hover:text-white transition-colors"
         >
-          <span className="text-xl font-medium">{currentModelName}</span>
-          <ChevronDown size={20} />
+          <span className="text-2xl font-medium">{currentModelName}</span>
+          <ChevronDown size={24} className={`transition-transform duration-200 text-gray-400 ${isOpen ? 'rotate-180' : ''}`} />
         </button>
       </div>
 
-      {isOpen && (
-        <div className="origin-top-left absolute left-0 mt-2 w-56 rounded-md shadow-lg bg-[#2c2d2f] ring-1 ring-black ring-opacity-5 z-10">
-          <div className="py-1" role="menu" aria-orientation="vertical" aria-labelledby="options-menu">
-            {models.map(model => (
-              <button
-                key={model.id}
-                onClick={() => {
-                  setSelectedModel(model.id);
-                  setIsOpen(false);
-                }}
-                className={`${
-                  selectedModel === model.id ? 'bg-gray-700 text-white' : 'text-gray-300'
-                } block w-full text-left px-4 py-2 text-sm hover:bg-gray-600`}
-                role="menuitem"
-              >
-                {model.name}
-              </button>
-            ))}
-          </div>
+      <div className={`origin-top-left absolute left-0 mt-2 w-56 rounded-md shadow-lg bg-[#2c2d2f] ring-1 ring-black ring-opacity-5 z-10 transition-all duration-200 ease-out ${isOpen ? 'opacity-100 scale-100' : 'opacity-0 scale-95 pointer-events-none'}`}>
+        <div className="py-1" role="menu" aria-orientation="vertical" aria-labelledby="options-menu">
+          {models.map(model => (
+            <button
+              key={model.id}
+              onClick={() => {
+                setSelectedModel(model.id);
+                setIsOpen(false);
+              }}
+              className={`${
+                selectedModel === model.id ? 'bg-gray-700 text-white' : 'text-gray-300'
+              } block w-full text-left px-4 py-2 text-sm hover:bg-gray-600 transition-colors`}
+              role="menuitem"
+            >
+              {model.name}
+            </button>
+          ))}
         </div>
-      )}
+      </div>
     </div>
   );
 };
@@ -78,10 +76,10 @@ const ChatBubble: React.FC<{ message: ChatMessage }> = ({ message }) => {
     const fileParts = message.parts.filter(p => p.inlineData);
 
     return (
-        <div className="flex flex-col mb-6">
+        <div className="flex flex-col mb-6 animate-fade-in-up">
             <div className="flex items-center space-x-3 mb-2">
-                <div className={`w-8 h-8 rounded-full flex items-center justify-center ${isUser ? 'bg-blue-500' : 'bg-gradient-to-br from-purple-500 to-indigo-600'}`}>
-                    {isUser ? 'You' : <Sparkles size={18} />}
+                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-sm ${isUser ? 'bg-blue-500' : 'bg-gradient-to-br from-purple-500 to-indigo-600'}`}>
+                    {isUser ? 'U' : <Sparkles size={18} />}
                 </div>
             </div>
              <div className="ml-11">
@@ -101,21 +99,24 @@ const ChatBubble: React.FC<{ message: ChatMessage }> = ({ message }) => {
     );
 };
 
+
 const MainContent: React.FC<MainContentProps> = ({ chatHistory, isLoading, selectedModel, setSelectedModel, onSubmit }) => {
   const chatContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    chatContainerRef.current?.scrollTo(0, chatContainerRef.current.scrollHeight);
+    setTimeout(() => {
+      chatContainerRef.current?.scrollTo({
+        top: chatContainerRef.current.scrollHeight,
+        behavior: 'smooth'
+      });
+    }, 100);
   }, [chatHistory, isLoading]);
   
   return (
     <div className="flex-1 flex flex-col h-screen">
-      <header className="flex justify-between items-center p-4 h-16 flex-shrink-0">
-        <div>
-          <h1 className="text-2xl font-semibold">Gemini</h1>
-          <ModelSelector selectedModel={selectedModel} setSelectedModel={setSelectedModel} />
-        </div>
-        <button className="p-2 rounded-full hover:bg-gray-700 transition-colors">
+      <header className="flex justify-between items-center p-4 h-20 flex-shrink-0">
+        <ModelSelector selectedModel={selectedModel} setSelectedModel={setSelectedModel} />
+        <button className="p-2 rounded-full hover:bg-gray-700 transition-all hover:scale-105 active:scale-95">
           <HelpCircle size={24} />
         </button>
       </header>
@@ -123,16 +124,19 @@ const MainContent: React.FC<MainContentProps> = ({ chatHistory, isLoading, selec
       <main ref={chatContainerRef} className="flex-1 overflow-y-auto px-4 md:px-8 lg:px-16 pb-4">
         <div className="max-w-4xl mx-auto h-full">
             {chatHistory.length === 0 && !isLoading ? (
-                <div className="flex flex-col h-full justify-center items-center">
-                    <h2 className="text-5xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-purple-500">
+                <div className="flex flex-col h-full justify-center items-center text-center pb-24">
+                    <h2 className="text-5xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-purple-500 animate-shimmer">
                     Ready to code?
                     </h2>
+                    <p className="text-gray-400 mt-4 max-w-md">
+                        I can help you write, debug, and learn about code. Try asking me something or uploading a file!
+                    </p>
                 </div>
             ) : (
                  <div className="pt-8">
                     {chatHistory.map((msg, index) => <ChatBubble key={index} message={msg} />)}
                     {isLoading && (
-                        <div className="flex items-center space-x-3">
+                        <div className="flex items-center space-x-3 animate-fade-in-up mt-6">
                             <div className="w-8 h-8 rounded-full flex items-center justify-center bg-gradient-to-br from-purple-500 to-indigo-600">
                                 <Sparkles size={18} />
                             </div>
@@ -144,7 +148,7 @@ const MainContent: React.FC<MainContentProps> = ({ chatHistory, isLoading, selec
         </div>
       </main>
       
-      <footer className="px-4 md:px-8 lg:px-16 pb-8 flex-shrink-0">
+      <footer className="px-4 md:px-8 lg:px-16 pb-6 flex-shrink-0">
         <div className="max-w-4xl mx-auto">
           <PromptInput onSubmit={onSubmit} isLoading={isLoading} />
         </div>
