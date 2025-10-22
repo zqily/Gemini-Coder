@@ -64,6 +64,7 @@ interface MainContentProps {
   selectedMode: ModeId;
   setSelectedMode: (mode: ModeId) => void;
   modes: Record<ModeId, Mode>;
+  sendWithCtrlEnter: boolean;
 }
 
 const ModelSelector: React.FC<{ selectedModel: string; setSelectedModel: (model: string) => void }> = ({ selectedModel, setSelectedModel }) => {
@@ -183,27 +184,30 @@ const MarkdownRenderer: React.FC<{ content: string }> = ({ content }) => {
   );
 };
 
+interface ChatBubbleProps {
+  message: ChatMessage;
+  toolResponseMessage?: ChatMessage;
+}
+
 const isFunctionCallPart = (part: ChatPart): part is FunctionCallPart => 'functionCall' in part;
 const isFunctionResponsePart = (part: ChatPart): part is FunctionResponsePart => 'functionResponse' in part;
 
-const ChatBubble: React.FC<{ message: ChatMessage }> = ({ message }) => {
+const ChatBubble: React.FC<ChatBubbleProps> = ({ message, toolResponseMessage }) => {
     const isUser = message.role === 'user';
     const isModel = message.role === 'model';
-    const isTool = message.role === 'tool';
-
-    // FIX: Use explicit type guards to correctly narrow the type of ChatPart and allow safe property access.
+    
     const textPart = (message.parts.find((p): p is TextPart => 'text' in p))?.text;
     const fileParts = message.parts.filter((p): p is InlineDataPart => 'inlineData' in p);
     const functionCallParts = message.parts.filter(isFunctionCallPart);
-    const functionResponseParts = message.parts.filter(isFunctionResponsePart);
+    const functionResponseParts = toolResponseMessage?.parts.filter(isFunctionResponsePart) ?? [];
 
-    const Icon = isUser ? User : isTool ? Wrench : GeminiIcon;
-    const name = isUser ? 'You' : isTool ? 'Tool' : 'Gemini';
+    const Icon = isUser ? User : GeminiIcon;
+    const name = isUser ? 'You' : 'Gemini';
 
     return (
         <div className="flex flex-col mb-10 animate-fade-in-up">
             <div className="flex items-center space-x-3 mb-3">
-                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white text-sm flex-shrink-0 ${isUser ? 'bg-blue-600' : isTool ? 'bg-gray-600' : ''}`}>
+                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white text-sm flex-shrink-0 ${isUser ? 'bg-blue-600' : ''}`}>
                     <Icon size={isModel ? 28 : 18} />
                 </div>
                 <span className="font-semibold text-white">{name}</span>
@@ -213,7 +217,6 @@ const ChatBubble: React.FC<{ message: ChatMessage }> = ({ message }) => {
                     <div className="flex flex-wrap gap-2 mb-2">
                         {fileParts.map((part, index) => (
                             <div key={index} className="bg-gray-700/50 rounded-lg p-2 flex items-center gap-2 text-sm">
-                                {/* FIX: 'part' is now correctly typed as InlineDataPart, so 'inlineData' can be accessed safely. */}
                                 {part.inlineData.mimeType.startsWith('image/') ? <ImageIcon size={16} /> : <FileIcon size={16} />}
                                 <span>File Attached ({part.inlineData.mimeType})</span>
                             </div>
@@ -221,29 +224,32 @@ const ChatBubble: React.FC<{ message: ChatMessage }> = ({ message }) => {
                     </div>
                 )}
                 {textPart && <div className="prose prose-invert max-w-none"><MarkdownRenderer content={textPart} /></div>}
+                
                 {functionCallParts.length > 0 && (
-                     <div className="space-y-2">
-                        {functionCallParts.map((part, index) => (
-                             <div key={index} className="bg-gray-800/50 border border-gray-700/50 rounded-lg p-3 text-sm">
-                                {/* FIX: Handle optional 'name' and 'args' properties from FunctionCallPart. */}
-                                <p className="font-semibold text-gray-300">Tool Call: <code className="text-blue-400">{part.functionCall.name ?? ''}</code></p>
-                                <pre className="text-xs text-gray-400 mt-1 overflow-x-auto bg-black/20 p-2 rounded-md">
-                                    {JSON.stringify(part.functionCall.args ?? {}, null, 2)}
-                                </pre>
-                            </div>
-                        ))}
-                    </div>
-                )}
-                 {functionResponseParts.length > 0 && (
-                     <div className="space-y-2">
-                        {functionResponseParts.map((part, index) => (
-                             <div key={index} className="bg-gray-800/30 border border-gray-700/50 rounded-lg p-3 text-sm">
-                                <p className="font-semibold text-gray-300">Tool Result: <code className="text-blue-400">{part.functionResponse.name}</code></p>
-                                <pre className="text-xs text-gray-400 mt-1 overflow-x-auto bg-black/20 p-2 rounded-md">
-                                    {JSON.stringify(part.functionResponse.response, null, 2)}
-                                </pre>
-                            </div>
-                        ))}
+                     <div className="space-y-3">
+                        {functionCallParts.map((callPart, index) => {
+                            const correspondingResponse = functionResponseParts[index];
+                            return (
+                                <div key={index} className="bg-gray-800/50 border border-gray-700/50 rounded-lg overflow-hidden text-sm">
+                                    {/* Tool Call Section */}
+                                    <div className="p-3">
+                                        <p className="font-semibold text-gray-300">Tool Call: <code className="text-blue-400">{callPart.functionCall.name ?? 'unknown'}</code></p>
+                                        <pre className="text-xs text-gray-400 mt-1 overflow-x-auto bg-black/20 p-2 rounded-md">
+                                            {JSON.stringify(callPart.functionCall.args ?? {}, null, 2)}
+                                        </pre>
+                                    </div>
+                                    {/* Tool Result Section */}
+                                    {correspondingResponse && (
+                                        <div className="border-t border-gray-700/50 p-3 bg-black/10">
+                                            <p className="font-semibold text-gray-300">Tool Result: <code className="text-blue-400">{correspondingResponse.functionResponse.name}</code></p>
+                                            <pre className="text-xs text-gray-400 mt-1 overflow-x-auto bg-black/20 p-2 rounded-md">
+                                                {JSON.stringify(correspondingResponse.functionResponse.response, null, 2)}
+                                            </pre>
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })}
                     </div>
                 )}
              </div>
@@ -277,20 +283,23 @@ const WelcomeScreen: React.FC<{ onExampleClick: (prompt: string) => void }> = ({
     );
 }
 
-const TypingIndicator = () => (
+const TypingIndicator = ({ message }: { message?: string }) => (
     <div className="flex items-center space-x-3 mb-10 animate-fade-in-up">
         <div className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0">
             <GeminiIcon size={28} />
         </div>
-        <div className="flex items-center space-x-1.5 p-3 bg-[#1e1f20] rounded-lg">
-            <div className="w-2 h-2 bg-gray-400 rounded-full typing-dot"></div>
-            <div className="w-2 h-2 bg-gray-400 rounded-full typing-dot"></div>
-            <div className="w-2 h-2 bg-gray-400 rounded-full typing-dot"></div>
+        <div className="flex items-center space-x-3">
+            <div className="flex items-center space-x-1.5 p-3 bg-[#1e1f20] rounded-lg">
+                <div className="w-2 h-2 bg-gray-400 rounded-full typing-dot"></div>
+                <div className="w-2 h-2 bg-gray-400 rounded-full typing-dot"></div>
+                <div className="w-2 h-2 bg-gray-400 rounded-full typing-dot"></div>
+            </div>
+            {message && <div className="text-gray-200">{message}</div>}
         </div>
     </div>
 );
 
-const MainContent: React.FC<MainContentProps> = ({ isMobile, toggleSidebar, chatHistory, isLoading, attachedFiles, setAttachedFiles, isReadingFiles, setIsReadingFiles, selectedModel, setSelectedModel, onSubmit, onStop, selectedMode, setSelectedMode, modes }) => {
+const MainContent: React.FC<MainContentProps> = ({ isMobile, toggleSidebar, chatHistory, isLoading, attachedFiles, setAttachedFiles, isReadingFiles, setIsReadingFiles, selectedModel, setSelectedModel, onSubmit, onStop, selectedMode, setSelectedMode, modes, sendWithCtrlEnter }) => {
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   
@@ -385,6 +394,20 @@ const MainContent: React.FC<MainContentProps> = ({ isMobile, toggleSidebar, chat
     }, 100);
   }, [chatHistory, isLoading]);
   
+  const lastMessage = chatHistory[chatHistory.length - 1];
+  const isLastMessagePlaceholder = isLoading && lastMessage?.role === 'model';
+  const lastMessageText = isLastMessagePlaceholder ? (lastMessage.parts.find((p): p is TextPart => 'text' in p))?.text ?? '' : '';
+
+  // Heuristic to check if the text is a status update from the retry logic.
+  const isStatusUpdate = lastMessageText.includes('Retrying') || lastMessageText.startsWith('Model is overloaded') || lastMessageText.startsWith('Error:');
+  
+  const messagesToRender = (isLastMessagePlaceholder && isStatusUpdate) ? chatHistory.slice(0, -1) : chatHistory;
+  const statusMessageForIndicator = (isLastMessagePlaceholder && isStatusUpdate) ? lastMessageText : '';
+  
+  // Show indicator if loading and it's a status update, OR if loading and there's no text yet (initial generation),
+  // OR if loading and there's no chat history yet (very first prompt).
+  const showTypingIndicator = isLoading && (!!statusMessageForIndicator || !lastMessageText || chatHistory.length === 0);
+
   return (
     <div className="relative flex-1 flex flex-col h-screen bg-[#131314]">
       {isDragging && (
@@ -416,12 +439,30 @@ const MainContent: React.FC<MainContentProps> = ({ isMobile, toggleSidebar, chat
 
       <main ref={chatContainerRef} className="flex-1 overflow-y-auto px-4 md:px-8 lg:px-16 pb-4">
         <div className="max-w-4xl mx-auto h-full">
-            {chatHistory.length === 0 && !isLoading ? (
+            {messagesToRender.length === 0 && !isLoading ? (
                 <WelcomeScreen onExampleClick={handleExampleSubmit} />
             ) : (
                  <div className="pt-8">
-                    {chatHistory.map((msg, index) => <ChatBubble key={index} message={msg} />)}
-                    {isLoading && <TypingIndicator />}
+                    {messagesToRender.map((msg, index) => {
+                        if (msg.role === 'tool') {
+                            return null;
+                        }
+
+                        const originalIndex = chatHistory.indexOf(msg);
+
+                        const nextMessage = (originalIndex > -1 && originalIndex + 1 < chatHistory.length)
+                            ? chatHistory[originalIndex + 1]
+                            : undefined;
+
+                        const toolResponseMessage = (
+                            msg.role === 'model' &&
+                            nextMessage?.role === 'tool' &&
+                            msg.parts.some(part => 'functionCall' in part)
+                        ) ? nextMessage : undefined;
+
+                        return <ChatBubble key={originalIndex > -1 ? originalIndex : index} message={msg} toolResponseMessage={toolResponseMessage} />;
+                    })}
+                    {showTypingIndicator && <TypingIndicator message={statusMessageForIndicator} />}
                  </div>
             )}
         </div>
@@ -438,6 +479,7 @@ const MainContent: React.FC<MainContentProps> = ({ isMobile, toggleSidebar, chat
             selectedMode={selectedMode}
             setSelectedMode={setSelectedMode}
             modes={modes}
+            sendWithCtrlEnter={sendWithCtrlEnter}
            />
         </div>
       </footer>

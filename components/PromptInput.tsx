@@ -1,5 +1,5 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { Plus, Send, X, File as FileIcon, LoaderCircle, ChevronRight, Check } from './icons';
+import React, { useState, useRef } from 'react';
+import { Plus, Send, X, File as FileIcon, LoaderCircle } from './icons';
 import type { AttachedFile, Mode, ModeId } from '../types';
 
 interface PromptInputProps {
@@ -11,6 +11,7 @@ interface PromptInputProps {
   selectedMode: ModeId;
   setSelectedMode: (mode: ModeId) => void;
   modes: Record<ModeId, Mode>;
+  sendWithCtrlEnter: boolean;
 }
 
 // NOTE: Duplicated from MainContent.tsx due to project constraints.
@@ -76,26 +77,12 @@ const FilePreview: React.FC<{ file: AttachedFile, onRemove: () => void }> = ({ f
     );
 };
 
-const PromptInput: React.FC<PromptInputProps> = ({ onSubmit, isLoading, onStop, files, setFiles, selectedMode, setSelectedMode, modes }) => {
+const PromptInput: React.FC<PromptInputProps> = ({ onSubmit, isLoading, onStop, files, setFiles, selectedMode, setSelectedMode, modes, sendWithCtrlEnter }) => {
   const [prompt, setPrompt] = useState('');
   const [isReadingFiles, setIsReadingFiles] = useState(false);
-  const [isPlusMenuOpen, setIsPlusMenuOpen] = useState(false);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const plusMenuRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (plusMenuRef.current && !plusMenuRef.current.contains(event.target as Node)) {
-        setIsPlusMenuOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-    };
-  }, []);
 
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFiles = Array.from(event.target.files || []);
@@ -140,8 +127,8 @@ const PromptInput: React.FC<PromptInputProps> = ({ onSubmit, isLoading, onStop, 
     }
   };
   
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = (e?: React.FormEvent) => {
+    e?.preventDefault();
     if (isLoading || isReadingFiles || (!prompt.trim() && files.length === 0)) return;
     onSubmit(prompt);
     setPrompt('');
@@ -150,8 +137,22 @@ const PromptInput: React.FC<PromptInputProps> = ({ onSubmit, isLoading, onStop, 
     }
   };
 
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (sendWithCtrlEnter) {
+      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        handleSubmit();
+      }
+    } else {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        handleSubmit();
+      }
+    }
+  };
+
   return (
-    <form onSubmit={handleSubmit} className={`w-full bg-[#1e1f20] transition-all duration-200 rounded-2xl focus-within:ring-2 focus-within:ring-blue-500/50 ${files.length > 0 ? 'shadow-lg' : ''}`}>
+    <form onSubmit={handleSubmit} className={`w-full bg-[#1e1f20] transition-all duration-200 rounded-2xl focus-within:ring-2 focus-within:ring-blue-500/50 flex flex-col ${files.length > 0 ? 'shadow-lg' : ''}`}>
       {files.length > 0 && (
         <div className="p-3 border-b border-gray-700/50">
             <div className="flex flex-wrap gap-3">
@@ -161,103 +162,74 @@ const PromptInput: React.FC<PromptInputProps> = ({ onSubmit, isLoading, onStop, 
             </div>
         </div>
       )}
-      <div className="p-2 flex items-end w-full relative">
-        <div ref={plusMenuRef} className="relative self-center">
-            {isPlusMenuOpen && (
-                <div className="absolute bottom-full mb-2 w-48 bg-[#2c2d2f] rounded-lg shadow-lg py-1.5 animate-fade-in-up-short origin-bottom-left">
-                    <button
-                        type="button"
-                        onClick={() => { fileInputRef.current?.click(); setIsPlusMenuOpen(false); }}
-                        className="w-full flex items-center gap-3 px-3 py-2 text-sm text-left text-gray-300 hover:bg-gray-700/70 transition-colors"
-                    >
-                        <FileIcon size={18} />
-                        <span>Add file(s)</span>
-                    </button>
-                    <div className="group relative py-1 -my-1">
-                        <button
-                            type="button"
-                            className="w-full flex items-center justify-between gap-3 px-3 py-2 text-sm text-left text-gray-300 hover:bg-gray-700/70 transition-colors"
-                        >
-                            <div className="flex items-center gap-3">
-                                {React.createElement(modes[selectedMode].icon, { size: 18 })}
-                                <span>Modes</span>
-                            </div>
-                            <ChevronRight size={16} />
-                        </button>
-                        <div className="absolute left-full top-[-4px] w-48 bg-[#2c2d2f] rounded-lg shadow-lg py-1.5 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity duration-150">
-                            {Object.values(modes).map(mode => (
-                                <button
-                                    key={mode.id}
-                                    type="button"
-                                    onClick={() => {
-                                        setSelectedMode(mode.id);
-                                        setIsPlusMenuOpen(false);
-                                    }}
-                                    className={`w-full flex items-center justify-between gap-3 px-3 py-2 text-sm text-left transition-colors ${selectedMode === mode.id ? 'text-blue-400' : 'text-gray-300 hover:bg-gray-700/70'}`}
-                                >
-                                    <div className="flex items-center gap-3">
-                                        {React.createElement(mode.icon, { size: 18 })}
-                                        <span>{mode.name}</span>
-                                    </div>
-                                    {selectedMode === mode.id && <Check size={16} />}
-                                </button>
-                            ))}
-                        </div>
-                    </div>
-                </div>
-            )}
-            <button
-              type="button"
-              onClick={() => setIsPlusMenuOpen(p => !p)}
-              disabled={isLoading || isReadingFiles}
-              className="p-2 mr-1 rounded-full hover:bg-gray-700 transition-colors disabled:opacity-50 flex-shrink-0"
-              aria-label="Attach files or select mode"
-            >
-            {isReadingFiles ? <LoaderCircle className="animate-spin" size={24} /> : <Plus size={24} />}
-            </button>
+      <div>
+        <div className="px-4 pt-3 pb-1 flex items-center gap-2">
+            {Object.values(modes).map(mode => (
+              <button
+                key={mode.id}
+                type="button"
+                onClick={() => setSelectedMode(mode.id)}
+                className={`p-2 rounded-lg transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
+                  selectedMode === mode.id
+                    ? 'bg-gray-600/70 text-white'
+                    : 'bg-transparent text-gray-400 hover:bg-gray-700/50 hover:text-gray-200'
+                }`}
+                title={mode.name}
+                aria-label={mode.name}
+              >
+                {React.createElement(mode.icon, { size: 18, 'aria-hidden': true })}
+              </button>
+            ))}
         </div>
-        <input
-          type="file"
-          multiple
-          ref={fileInputRef}
-          onChange={handleFileChange}
-          className="hidden"
-          accept={ALL_ACCEPTED_MIME_TYPES.join(',')}
-        />
-        <textarea
-          ref={textareaRef}
-          value={prompt}
-          onChange={handleTextareaInput}
-          placeholder="Ask Gemini anything..."
-          rows={1}
-          className="flex-1 bg-transparent resize-none focus:outline-none placeholder-gray-500 text-base leading-relaxed max-h-48 self-center"
-          disabled={isLoading}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault();
-              handleSubmit(e);
-            }
-          }}
-        />
-        {isLoading ? (
+
+        <div className="p-2 flex items-end w-full relative">
           <button
             type="button"
-            onClick={onStop}
-            className="bg-gray-700 p-3 ml-2 rounded-full hover:bg-gray-600 transition-colors flex-shrink-0 self-center"
-            aria-label="Stop generation"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isLoading || isReadingFiles}
+            className="p-2 mr-1 rounded-full hover:bg-gray-700 transition-colors disabled:opacity-50 flex-shrink-0 self-center"
+            aria-label="Attach files"
           >
-            <X size={20} />
+          {isReadingFiles ? <LoaderCircle className="animate-spin" size={24} /> : <Plus size={24} />}
           </button>
-        ) : (
-          <button
-            type="submit"
-            disabled={isReadingFiles || (!prompt.trim() && files.length === 0)}
-            className="bg-blue-600 p-3 ml-2 rounded-full hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0 self-center disabled:bg-gray-600"
-            aria-label="Send prompt"
-          >
-            <Send size={20} />
-          </button>
-        )}
+          <input
+            type="file"
+            multiple
+            ref={fileInputRef}
+            onChange={handleFileChange}
+            className="hidden"
+            accept={ALL_ACCEPTED_MIME_TYPES.join(',')}
+          />
+          <textarea
+            ref={textareaRef}
+            value={prompt}
+            onChange={handleTextareaInput}
+            placeholder={sendWithCtrlEnter ? "Ask Gemini anything... (Ctrl+Enter to send)" : "Ask Gemini anything..."}
+            rows={1}
+            className="flex-1 bg-transparent resize-none focus:outline-none placeholder-gray-500 text-base leading-relaxed max-h-48 self-center"
+            disabled={isLoading}
+            onKeyDown={handleKeyDown}
+          />
+          {isLoading ? (
+            <button
+              type="button"
+              onClick={onStop}
+              className="bg-gray-700 p-3 ml-2 rounded-full hover:bg-gray-600 transition-colors flex-shrink-0 self-center"
+              aria-label="Stop generation"
+            >
+              <X size={20} />
+            </button>
+          ) : (
+            <button
+              type="submit"
+              disabled={isReadingFiles || (!prompt.trim() && files.length === 0)}
+              className="bg-blue-600 p-3 ml-2 rounded-full hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0 self-center disabled:bg-gray-600"
+              aria-label="Send prompt"
+            >
+              <Send size={20} />
+            </button>
+          )}
+        </div>
       </div>
     </form>
   );

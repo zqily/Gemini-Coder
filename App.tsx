@@ -6,6 +6,8 @@ import FileEditorModal from './components/FileEditorModal';
 import type { ChatMessage, AttachedFile, Mode, ModeId, ProjectContext, ChatPart } from './types';
 import { generateContentStreamWithRetries } from './services/geminiService';
 import { useApiKey } from './hooks/useApiKey';
+import { useSendShortcutSetting } from './hooks/useSendShortcutSetting';
+import { useSelectedMode } from './hooks/useSelectedMode';
 import { Bot, CodeXml } from './components/icons';
 import { createIsIgnored } from './utils/gitignore';
 import * as FileSystem from './utils/fileSystem';
@@ -44,11 +46,6 @@ const MODES: Record<ModeId, Mode> = {
 
 const FILE_SYSTEM_TOOLS: FunctionDeclaration[] = [
     {
-        name: 'readFile',
-        description: 'Reads the content of a file at a given path.',
-        parameters: { type: Type.OBJECT, properties: { path: { type: Type.STRING } }, required: ['path'] }
-    },
-    {
         name: 'writeFile',
         description: 'Writes content to a file at a given path. Creates the file if it does not exist, and overwrites it if it does.',
         parameters: { type: Type.OBJECT, properties: { path: { type: Type.STRING }, content: { type: Type.STRING } }, required: ['path', 'content'] }
@@ -56,11 +53,6 @@ const FILE_SYSTEM_TOOLS: FunctionDeclaration[] = [
     {
         name: 'createFolder',
         description: 'Creates a new directory at a given path.',
-        parameters: { type: Type.OBJECT, properties: { path: { type: Type.STRING } }, required: ['path'] }
-    },
-    {
-        name: 'listFiles',
-        description: 'Lists the files and directories in a given path.',
         parameters: { type: Type.OBJECT, properties: { path: { type: Type.STRING } }, required: ['path'] }
     },
     {
@@ -86,8 +78,9 @@ const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [selectedModel, setSelectedModel] = useState('gemini-2.5-pro'); // Pro for function calling
   const [apiKey, setApiKey] = useApiKey();
+  const [sendWithCtrlEnter, setSendWithCtrlEnter] = useSendShortcutSetting();
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
-  const [selectedMode, setSelectedMode] = useState<ModeId>('default');
+  const [selectedMode, setSelectedMode] = useSelectedMode();
 
   // File system state
   const [projectContext, setProjectContext] = useState<ProjectContext | null>(null);
@@ -240,14 +233,6 @@ const App: React.FC = () => {
 
     try {
         switch (name) {
-            case 'readFile':
-                const content = projectContext?.files.get(args.path as string);
-                if (content !== undefined) {
-                    result = { success: true, content: content };
-                } else {
-                    result = { success: false, error: `File not found: ${args.path as string}` };
-                }
-                break;
             case 'writeFile':
                 setProjectContext(prev => FileSystem.createFile(args.path as string, args.content as string, prev!));
                 result.message = `Wrote to ${args.path as string}`;
@@ -255,12 +240,6 @@ const App: React.FC = () => {
             case 'createFolder':
                 setProjectContext(prev => FileSystem.createFolder(args.path as string, prev!));
                 result.message = `Created folder ${args.path as string}`;
-                break;
-            case 'listFiles':
-                const allPaths = [...projectContext!.files.keys(), ...projectContext!.dirs];
-                const listPath = args.path as string;
-                const items = allPaths.filter(p => p.startsWith(`${listPath}/`) && p.split('/').length === listPath.split('/').length + 1);
-                result = { success: true, items: items };
                 break;
             case 'move':
                 setProjectContext(prev => FileSystem.movePath(args.sourcePath as string, args.destinationPath as string, prev!));
@@ -477,12 +456,15 @@ const App: React.FC = () => {
         selectedMode={selectedMode}
         setSelectedMode={setSelectedMode}
         modes={MODES}
+        sendWithCtrlEnter={sendWithCtrlEnter}
       />
       <SettingsModal
         isOpen={isSettingsModalOpen}
         onClose={() => setIsSettingsModalOpen(false)}
         apiKey={apiKey}
         setApiKey={setApiKey}
+        sendWithCtrlEnter={sendWithCtrlEnter}
+        setSendWithCtrlEnter={setSendWithCtrlEnter}
       />
       {editingFile && (
         <FileEditorModal

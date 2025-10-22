@@ -88,10 +88,31 @@ export const generateContentStreamWithRetries = async (
 
             let statusCode: number | undefined;
             const message = error instanceof Error ? error.message : String(error);
-            // Attempt to parse status code from standard Gemini error message format e.g., "[429]..."
-            const match = message.match(/\[(\d{3})\]/);
-            if (match && match[1]) {
-                statusCode = parseInt(match[1], 10);
+            
+            // 1. Prioritize structured error property for status code.
+            if (error && typeof error.httpStatus === 'number') {
+                statusCode = error.httpStatus;
+            }
+
+            // 2. If not found, try to parse the error message itself as JSON.
+            // The Gemini API can wrap the actual error object within a JSON string in the message field.
+            if (statusCode === undefined) {
+                try {
+                    const parsedError = JSON.parse(message);
+                    if (parsedError.error && typeof parsedError.error.code === 'number') {
+                        statusCode = parsedError.error.code;
+                    }
+                } catch (e) {
+                    // Not a JSON message, continue to next check.
+                }
+            }
+            
+            // 3. Fallback to regex matching on the raw string for other formats like "[503]...".
+            if (statusCode === undefined) {
+                const match = message.match(/\[(\d{3})\]/);
+                if (match && match[1]) {
+                    statusCode = parseInt(match[1], 10);
+                }
             }
 
             console.error(`API Error (status: ${statusCode}):`, error);
