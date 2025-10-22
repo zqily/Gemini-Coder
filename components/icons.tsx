@@ -14,6 +14,9 @@ import {
   User,
   Copy,
   Check,
+  Bot,
+  CodeXml,
+  ChevronRight,
 } from 'lucide-react';
 
 export {
@@ -32,4 +35,7 @@ export {
   User,
   Copy,
   Check,
+  Bot,
+  CodeXml,
+  ChevronRight,
 };

@@ -36,6 +36,21 @@
     animation: fade-in-up 0.4s ease-out forwards;
   }
 
+  /* Animation for smaller popups */
+  @keyframes fade-in-up-short {
+    from {
+      opacity: 0;
+      transform: translateY(5px) scale(0.98);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+  }
+  .animate-fade-in-up-short {
+    animation: fade-in-up-short 0.15s ease-out forwards;
+  }
+
   /* Simple fade-in for smaller elements */
   @keyframes fade-in {
     from { opacity: 0; }

@@ -1,3 +1,12 @@
+export type ModeId = 'default' | 'simple-coder';
+
+export interface Mode {
+  id: ModeId;
+  name: string;
+  systemInstruction?: string;
+  icon: React.ElementType;
+}
+
 export interface ChatPart {
   text?: string;
   inlineData?: {

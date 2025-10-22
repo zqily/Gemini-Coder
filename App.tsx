@@ -2,9 +2,10 @@ import React, { useState, useCallback, useEffect } from 'react';
 import Sidebar from './components/Sidebar';
 import MainContent from './components/MainContent';
 import SettingsModal from './components/SettingsModal';
-import type { ChatMessage, AttachedFile } from './types';
+import type { ChatMessage, AttachedFile, Mode, ModeId } from './types';
 import { runChat } from './services/geminiService';
 import { useApiKey } from './hooks/useApiKey';
+import { Bot, CodeXml } from './components/icons';
 
 // Custom hook to detect window size
 const useWindowSize = () => {
@@ -22,6 +23,21 @@ const useWindowSize = () => {
   return isMobile;
 };
 
+const MODES: Record<ModeId, Mode> = {
+  'default': {
+    id: 'default',
+    name: 'Default',
+    icon: Bot,
+    systemInstruction: undefined,
+  },
+  'simple-coder': {
+    id: 'simple-coder',
+    name: 'Simple Coder',
+    icon: CodeXml,
+    systemInstruction: "As a seasoned programmer, your task is to write code for User. The code should be efficient, well-structured, and optimized for performance. Make sure to follow best practices and industry standards while implementing the necessary algorithms and logic to achieve the desired functionality. Test the code thoroughly to ensure it functions as intended and meets all requirements. Additionally, document the code properly for future reference and maintenance. Write using markdown, and avoid Diff markers."
+  }
+};
+
 
 /**
  * The main application component.
@@ -33,9 +49,10 @@ const App: React.FC = () => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(!isMobile);
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [selectedModel, setSelectedModel] = useState('gemini-1.5-flash');
+  const [selectedModel, setSelectedModel] = useState('gemini-flash-latest');
   const [apiKey, setApiKey] = useApiKey();
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+  const [selectedMode, setSelectedMode] = useState<ModeId>('default');
   
   // On initial load, open settings if no API key is found.
   useEffect(() => {
@@ -98,14 +115,14 @@ const App: React.FC = () => {
     setChatHistory(updatedChatHistory);
     
     try {
-      const stream = await runChat(apiKey, selectedModel, updatedChatHistory);
+      const systemInstruction = MODES[selectedMode].systemInstruction;
+      const stream = await runChat(apiKey, selectedModel, updatedChatHistory, systemInstruction);
       let modelResponse = "";
       const modelMessage: ChatMessage = { role: 'model', parts: [{ text: '' }] };
       let currentHistory = [...updatedChatHistory, modelMessage];
       setChatHistory(currentHistory);
 
       for await (const chunk of stream) {
-        // FIX: Access .text as a property, not a function
         modelResponse += chunk.text;
         currentHistory = [...updatedChatHistory, { role: 'model', parts: [{ text: modelResponse }] }];
         setChatHistory(currentHistory);
@@ -124,7 +141,7 @@ const App: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [apiKey, chatHistory, selectedModel]);
+  }, [apiKey, chatHistory, selectedModel, selectedMode]);
 
   return (
     <div className="flex h-screen w-full bg-[#131314] text-gray-200 font-sans overflow-hidden">
@@ -144,6 +161,9 @@ const App: React.FC = () => {
         selectedModel={selectedModel}
         setSelectedModel={setSelectedModel}
         onSubmit={handlePromptSubmit}
+        selectedMode={selectedMode}
+        setSelectedMode={setSelectedMode}
+        modes={MODES}
       />
       <SettingsModal
         isOpen={isSettingsModalOpen}

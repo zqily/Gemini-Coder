@@ -1,11 +1,28 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { HelpCircle, ChevronDown, Sparkles, User, ImageIcon, File as FileIcon, Menu, Copy, Check } from './icons';
 import PromptInput from './PromptInput';
-import type { ChatMessage, AttachedFile } from '../types';
+import type { ChatMessage, AttachedFile, Mode, ModeId } from '../types';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
+
+// File handling utilities
+const SUPPORTED_MIME_TYPES = [
+  'image/png', 'image/jpeg', 'image/webp', 'image/heic', 'iage/heif',
+  'text/plain', 'text/html', 'text/css', 'text/javascript', m'application/x-javascript',
+  'text/x-typescript', 'application/x-typescript', 'text/csv', 'text/markdown',
+  'text/x-python', 'application/x-python-code', 'application/json', 'text/xml', 'application/rtf',
+  'application/pdf'
+];
+const fileToDataURL = (file: File): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = error => reject(error);
+    reader.readAsDataURL(file);
+  });
+};
 
 interface MainContentProps {
   isSidebarOpen: boolean;
@@ -16,6 +33,9 @@ interface MainContentProps {
   selectedModel: string;
   setSelectedModel: (model: string) => void;
   onSubmit: (prompt: string, files: AttachedFile[]) => void;
+  selectedMode: ModeId;
+  setSelectedMode: (mode: ModeId) => void;
+  modes: Record<ModeId, Mode>;
 }
 
 const ModelSelector: React.FC<{ selectedModel: string; setSelectedModel: (model: string) => void }> = ({ selectedModel, setSelectedModel }) => {
@@ -23,7 +43,7 @@ const ModelSelector: React.FC<{ selectedModel: string; setSelectedModel: (model:
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   const models = [
-    { id: 'gemini-pro-latest', name: 'Gemini Pro' },
+    { id: 'gemini-2.5-pro', name: 'Gemini Pro' },
     { id: 'gemini-flash-latest', name: 'Gemini Flash' },
   ];
 
@@ -203,11 +223,90 @@ const TypingIndicator = () => (
     </div>
 );
 
-const MainContent: React.FC<MainContentProps> = ({ isMobile, toggleSidebar, chatHistory, isLoading, selectedModel, setSelectedModel, onSubmit }) => {
+const MainContent: React.FC<MainContentProps> = ({ isMobile, toggleSidebar, chatHistory, isLoading, selectedModel, setSelectedModel, onSubmit, selectedMode, setSelectedMode, modes }) => {
   const chatContainerRef = useRef<HTMLDivElement>(null);
+  const [files, setFiles] = useState<AttachedFile[]>([]);
+  const [isDragging, setIsDragging] = useState(false);
+  const [isReadingFiles, setIsReadingFiles] = useState(false);
   
+  const handleFileSelect = useCallback(async (selectedFiles: FileList | null) => {
+    if (!selectedFiles || selectedFiles.length === 0) return;
+
+    setIsReadingFiles(true);
+    try {
+      const newFilesPromises = Array.from(selectedFiles)
+        .filter(file => SUPPORTED_MIME_TYPES.includes(file.type))
+        .map(async file => {
+          const content = await fileToDataURL(file);
+          return { name: file.name, type: file.type, size: file.size, content };
+        });
+      const newFiles = await Promise.all(newFilesPromises);
+      setFiles(prev => [...prev, ...newFiles]);
+    } catch (error) {
+      console.error("Error reading files:", error);
+    } finally {
+      setIsReadingFiles(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    let dragOverTimeout: number | undefined;
+
+    const hideOverlay = () => {
+      setIsDragging(false);
+    };
+
+    const handleDragEnter = (e: DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      // When re-entering, clear any lingering timeout to hide the overlay.
+      clearTimeout(dragOverTimeout);
+      if (e.dataTransfer && Array.from(e.dataTransfer.types).includes('Files')) {
+        setIsDragging(true);
+      }
+    };
+    
+    // Fires continuously while dragging over the window.
+    const handleDragOver = (e: DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      // We're still dragging over, so reset the timeout.
+      clearTimeout(dragOverTimeout);
+      // If dragover stops firing (e.g., user moves cursor out of window), the timeout will hide the overlay.
+      dragOverTimeout = window.setTimeout(hideOverlay, 150);
+    };
+    
+    const handleDrop = (e: DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      // A drop is a definitive end, so clear the timeout and hide the overlay.
+      clearTimeout(dragOverTimeout);
+      hideOverlay();
+      if (e.dataTransfer?.files && e.dataTransfer.files.length > 0) {
+        handleFileSelect(e.dataTransfer.files);
+      }
+    };
+
+    // Note: We don't need 'dragleave' because the 'dragover' timeout handles leaving the window.
+    window.addEventListener('dragenter', handleDragEnter);
+    window.addEventListener('dragover', handleDragOver);
+    window.addEventListener('drop', handleDrop);
+
+    return () => {
+      window.removeEventListener('dragenter', handleDragEnter);
+      window.removeEventListener('dragover', handleDragOver);
+      window.removeEventListener('drop', handleDrop);
+      clearTimeout(dragOverTimeout);
+    };
+  }, [handleFileSelect]);
+
   const handleExampleSubmit = (prompt: string) => {
     onSubmit(prompt, []);
+  };
+  
+  const handlePromptSubmit = (prompt: string) => {
+    onSubmit(prompt, files);
+    setFiles([]);
   };
 
   useEffect(() => {
@@ -221,7 +320,16 @@ const MainContent: React.FC<MainContentProps> = ({ isMobile, toggleSidebar, chat
   }, [chatHistory, isLoading]);
   
   return (
-    <div className="flex-1 flex flex-col h-screen bg-[#131314]">
+    <div className="relative flex-1 flex flex-col h-screen bg-[#131314]">
+      {isDragging && (
+        <div className="absolute inset-0 bg-blue-900/40 border-2 border-dashed border-blue-400 rounded-2xl z-50 flex items-center justify-center pointer-events-none animate-fade-in m-2">
+          <div className="text-center text-white p-6 bg-black/60 rounded-xl backdrop-blur-sm">
+            <ImageIcon size={48} className="mx-auto mb-3 text-blue-300" />
+            <p className="text-xl font-bold">Drop files to attach</p>
+            <p className="text-sm text-gray-300">Images, text, code, PDFs and more</p>
+          </div>
+        </div>
+      )}
       <header className="flex justify-between items-center p-4 h-20 flex-shrink-0 border-b border-gray-800">
         <div className="flex items-center gap-2">
             {isMobile && (
@@ -255,7 +363,15 @@ const MainContent: React.FC<MainContentProps> = ({ isMobile, toggleSidebar, chat
       
       <footer className="px-4 md:px-8 lg:px-16 pb-6 flex-shrink-0 bg-[#131314]">
         <div className="max-w-4xl mx-auto">
-          <PromptInput onSubmit={onSubmit} isLoading={isLoading} />
+          <PromptInput
+            onSubmit={handlePromptSubmit}
+            isLoading={isLoading || isReadingFiles}
+            files={files}
+            setFiles={setFiles}
+            selectedMode={selectedMode}
+            setSelectedMode={setSelectedMode}
+            modes={modes}
+           />
         </div>
       </footer>
     </div>

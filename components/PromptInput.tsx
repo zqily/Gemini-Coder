@@ -1,12 +1,18 @@
-import React, { useState, useRef } from 'react';
-import { Plus, Send, X, File as FileIcon, LoaderCircle } from './icons';
-import type { AttachedFile } from '../types';
+import React, { useState, useRef, useEffect } from 'react';
+import { Plus, Send, X, File as FileIcon, LoaderCircle, ChevronRight, Check } from './icons';
+import type { AttachedFile, Mode, ModeId } from '../types';
 
 interface PromptInputProps {
-  onSubmit: (prompt: string, files: AttachedFile[]) => void;
+  onSubmit: (prompt: string) => void;
   isLoading: boolean;
+  files: AttachedFile[];
+  setFiles: React.Dispatch<React.SetStateAction<AttachedFile[]>>;
+  selectedMode: ModeId;
+  setSelectedMode: (mode: ModeId) => void;
+  modes: Record<ModeId, Mode>;
 }
 
+// NOTE: Duplicated from MainContent.tsx due to project constraints.
 const SUPPORTED_MIME_TYPES = [
   'image/png', 'image/jpeg', 'image/webp', 'image/heic', 'image/heif',
   'text/plain', 'text/html', 'text/css', 'text/javascript', 'application/x-javascript',
@@ -51,12 +57,26 @@ const FilePreview: React.FC<{ file: AttachedFile, onRemove: () => void }> = ({ f
     );
 };
 
-const PromptInput: React.FC<PromptInputProps> = ({ onSubmit, isLoading }) => {
+const PromptInput: React.FC<PromptInputProps> = ({ onSubmit, isLoading, files, setFiles, selectedMode, setSelectedMode, modes }) => {
   const [prompt, setPrompt] = useState('');
-  const [files, setFiles] = useState<AttachedFile[]>([]);
   const [isReadingFiles, setIsReadingFiles] = useState(false);
+  const [isPlusMenuOpen, setIsPlusMenuOpen] = useState(false);
+  
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const plusMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (plusMenuRef.current && !plusMenuRef.current.contains(event.target as Node)) {
+        setIsPlusMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
 
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFiles = Array.from(event.target.files || []);
@@ -103,9 +123,8 @@ const PromptInput: React.FC<PromptInputProps> = ({ onSubmit, isLoading }) => {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (isLoading || isReadingFiles || (!prompt.trim() && files.length === 0)) return;
-    onSubmit(prompt, files);
+    onSubmit(prompt);
     setPrompt('');
-    setFiles([]);
     if (textareaRef.current) {
         textareaRef.current.style.height = 'auto';
     }
@@ -123,15 +142,60 @@ const PromptInput: React.FC<PromptInputProps> = ({ onSubmit, isLoading }) => {
         </div>
       )}
       <div className="p-2 flex items-end w-full relative">
-        <button
-          type="button"
-          onClick={() => fileInputRef.current?.click()}
-          disabled={isLoading || isReadingFiles}
-          className="p-2 mr-1 rounded-full hover:bg-gray-700 transition-colors disabled:opacity-50 flex-shrink-0"
-          aria-label="Attach files"
-        >
-         {isReadingFiles ? <LoaderCircle className="animate-spin" size={24} /> : <Plus size={24} />}
-        </button>
+        <div ref={plusMenuRef} className="relative self-center">
+            {isPlusMenuOpen && (
+                <div className="absolute bottom-full mb-2 w-48 bg-[#2c2d2f] rounded-lg shadow-lg py-1.5 animate-fade-in-up-short origin-bottom-left">
+                    <button
+                        type="button"
+                        onClick={() => { fileInputRef.current?.click(); setIsPlusMenuOpen(false); }}
+                        className="w-full flex items-center gap-3 px-3 py-2 text-sm text-left text-gray-300 hover:bg-gray-700/70 transition-colors"
+                    >
+                        <FileIcon size={18} />
+                        <span>Add file(s)</span>
+                    </button>
+                    <div className="group relative px-1 -mx-1">
+                        <button
+                            type="button"
+                            className="w-full flex items-center justify-between gap-3 px-3 py-2 text-sm text-left text-gray-300 hover:bg-gray-700/70 transition-colors"
+                        >
+                            <div className="flex items-center gap-3">
+                                {React.createElement(modes[selectedMode].icon, { size: 18 })}
+                                <span>Modes</span>
+                            </div>
+                            <ChevronRight size={16} />
+                        </button>
+                        <div className="absolute left-full top-[-4px] w-48 bg-[#2c2d2f] rounded-lg shadow-lg py-1.5 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity duration-150">
+                            {Object.values(modes).map(mode => (
+                                <button
+                                    key={mode.id}
+                                    type="button"
+                                    onClick={() => {
+                                        setSelectedMode(mode.id);
+                                        setIsPlusMenuOpen(false);
+                                    }}
+                                    className={`w-full flex items-center justify-between gap-3 px-3 py-2 text-sm text-left transition-colors ${selectedMode === mode.id ? 'text-blue-400' : 'text-gray-300 hover:bg-gray-700/70'}`}
+                                >
+                                    <div className="flex items-center gap-3">
+                                        {React.createElement(mode.icon, { size: 18 })}
+                                        <span>{mode.name}</span>
+                                    </div>
+                                    {selectedMode === mode.id && <Check size={16} />}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            )}
+            <button
+              type="button"
+              onClick={() => setIsPlusMenuOpen(p => !p)}
+              disabled={isLoading || isReadingFiles}
+              className="p-2 mr-1 rounded-full hover:bg-gray-700 transition-colors disabled:opacity-50 flex-shrink-0"
+              aria-label="Attach files or select mode"
+            >
+            {isReadingFiles ? <LoaderCircle className="animate-spin" size={24} /> : <Plus size={24} />}
+            </button>
+        </div>
         <input
           type="file"
           multiple
@@ -158,7 +222,7 @@ const PromptInput: React.FC<PromptInputProps> = ({ onSubmit, isLoading }) => {
         <button
           type="submit"
           disabled={isLoading || isReadingFiles || (!prompt.trim() && files.length === 0)}
-          className="bg-blue-600 p-3 ml-2 rounded-full hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0 disabled:bg-gray-600"
+          className="bg-blue-600 p-3 ml-2 rounded-full hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0 self-center disabled:bg-gray-600"
           aria-label="Send prompt"
         >
           {isLoading ? <LoaderCircle className="animate-spin" size={20} /> : <Send size={20} />}
