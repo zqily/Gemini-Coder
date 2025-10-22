@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
-import { Folder, FolderOpen, FileText } from './icons';
+import { Folder, FolderOpen, FileText, Copy, ClipboardCopy, Check } from './icons';
 
 interface FileTreeProps {
   files: Map<string, string>;
   dirs: Set<string>;
+  onFileClick: (path: string) => void;
 }
 
 interface TreeNode {
@@ -14,49 +15,8 @@ interface TreeNode {
 }
 
 const buildTree = (files: Map<string, string>, dirs: Set<string>): TreeNode[] => {
-  const root: { [key: string]: TreeNode } = {};
   const allPaths = new Set([...files.keys(), ...dirs]);
 
-  for (const path of allPaths) {
-    let currentLevel = root;
-    const pathParts = path.split('/');
-    pathParts.forEach((part, index) => {
-      if (!currentLevel[part]) {
-        const isLastPart = index === pathParts.length - 1;
-        const isFile = isLastPart && files.has(path);
-        currentLevel[part] = {
-          name: part,
-          type: isFile ? 'file' : 'folder',
-          path: pathParts.slice(0, index + 1).join('/'),
-          children: isFile ? undefined : [],
-        };
-      }
-      if(currentLevel[part].type === 'folder') {
-         currentLevel = currentLevel[part].children!.reduce((acc, child) => {
-            acc[child.name] = child;
-            return acc;
-        }, {} as { [key: string]: TreeNode });
-      }
-    });
-  }
-
-  const result: TreeNode[] = [];
-  const convertChildren = (childrenObj: { [key: string]: TreeNode }): TreeNode[] => {
-      return Object.values(childrenObj).sort((a, b) => {
-        if (a.type === b.type) return a.name.localeCompare(b.name);
-        return a.type === 'folder' ? -1 : 1;
-      });
-  }
-
-  for(const key in root) {
-      const node = root[key];
-      if(node.children) {
-        // This reconstruction is tricky. We built a path map, not a tree.
-        // Let's rebuild the tree properly.
-      }
-  }
-
-  // A simpler way to build the tree
   const fileTree: TreeNode = { name: 'root', type: 'folder', path: '', children: [] };
   const nodeMap = new Map<string, TreeNode>([['', fileTree]]);
 
@@ -70,25 +30,64 @@ const buildTree = (files: Map<string, string>, dirs: Set<string>): TreeNode[] =>
     if (parentNode && parentNode.children) {
       const type = files.has(path) ? 'file' : 'folder';
       const newNode: TreeNode = { name, type, path, children: type === 'folder' ? [] : undefined };
-      parentNode.children.push(newNode);
-      if (type === 'folder') {
-        nodeMap.set(path, newNode);
+      
+      const existing = parentNode.children.find(c => c.name === name);
+      if (!existing) {
+        parentNode.children.push(newNode);
+        if (type === 'folder') {
+            nodeMap.set(path, newNode);
+        }
+      } else {
+        // If a directory was created first, then a file inside it, we might see the dir path then the file path.
+        // If a path for a folder already exists, ensure it has children array if it's now confirmed to be a folder.
+        if (type === 'folder' && !existing.children) {
+            existing.children = [];
+            nodeMap.set(path, existing);
+        }
       }
     }
   });
+
+  // Sort children at each level
+  for(const node of nodeMap.values()){
+    if(node.children){
+        node.children.sort((a,b) => {
+            if (a.type === b.type) return a.name.localeCompare(b.name);
+            return a.type === 'folder' ? -1 : 1;
+        });
+    }
+  }
 
   return fileTree.children || [];
 };
 
 
-const Node: React.FC<{ node: TreeNode; level: number }> = ({ node, level }) => {
+interface NodeProps {
+    node: TreeNode;
+    level: number;
+    onFileClick: (path: string) => void;
+    files: Map<string, string>;
+}
+
+const Node: React.FC<NodeProps> = ({ node, level, onFileClick, files }) => {
   const [isOpen, setIsOpen] = useState(true);
+  const [copiedItem, setCopiedItem] = useState<'name' | 'content' | null>(null);
   const isFolder = node.type === 'folder';
 
-  const toggleOpen = () => {
+  const handleContainerClick = () => {
     if (isFolder) {
       setIsOpen(!isOpen);
+    } else {
+      onFileClick(node.path);
     }
+  };
+
+  const handleCopy = (type: 'name' | 'content', textToCopy: string) => {
+    if (typeof textToCopy !== 'string') return;
+    navigator.clipboard.writeText(textToCopy).then(() => {
+      setCopiedItem(type);
+      setTimeout(() => setCopiedItem(null), 2000);
+    });
   };
 
   const Icon = isFolder ? (isOpen ? FolderOpen : Folder) : FileText;
@@ -96,17 +95,48 @@ const Node: React.FC<{ node: TreeNode; level: number }> = ({ node, level }) => {
   return (
     <div>
       <div
-        onClick={toggleOpen}
-        className="flex items-center p-1 rounded-md hover:bg-gray-700 cursor-pointer"
+        className="group flex items-center justify-between p-1 rounded-md hover:bg-gray-700/70"
         style={{ paddingLeft: `${level * 16}px` }}
       >
-        <Icon size={16} className="mr-2 flex-shrink-0" />
-        <span className="text-sm truncate">{node.name}</span>
+        <div 
+          onClick={handleContainerClick} 
+          className="flex items-center cursor-pointer flex-grow truncate mr-2"
+          title={node.path}
+        >
+          <Icon size={16} className="mr-2 flex-shrink-0" />
+          <span className="text-sm truncate">{node.name}</span>
+        </div>
+        <div className="flex items-center opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+          {!isFolder && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                handleCopy('content', files.get(node.path) || '');
+              }}
+              className="p-1 rounded hover:bg-gray-600"
+              title="Copy content"
+              aria-label="Copy file content"
+            >
+              {copiedItem === 'content' ? <Check size={14} className="text-green-400" /> : <ClipboardCopy size={14} />}
+            </button>
+          )}
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              handleCopy('name', node.name);
+            }}
+            className="p-1 rounded hover:bg-gray-600"
+            title="Copy name"
+            aria-label="Copy name"
+          >
+            {copiedItem === 'name' ? <Check size={14} className="text-green-400" /> : <Copy size={14} />}
+          </button>
+        </div>
       </div>
       {isFolder && isOpen && node.children && (
         <div>
           {node.children.map(child => (
-            <Node key={child.path} node={child} level={level + 1} />
+            <Node key={child.path} node={child} level={level + 1} onFileClick={onFileClick} files={files} />
           ))}
         </div>
       )}
@@ -114,13 +144,13 @@ const Node: React.FC<{ node: TreeNode; level: number }> = ({ node, level }) => {
   );
 };
 
-const FileTree: React.FC<FileTreeProps> = ({ files, dirs }) => {
+const FileTree: React.FC<FileTreeProps> = ({ files, dirs, onFileClick }) => {
   const tree = buildTree(files, dirs);
 
   return (
     <div className="text-gray-300 overflow-y-auto">
       {tree.map(node => (
-        <Node key={node.path} node={node} level={0} />
+        <Node key={node.path} node={node} level={0} onFileClick={onFileClick} files={files} />
       ))}
     </div>
   );

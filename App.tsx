@@ -3,6 +3,7 @@ import React, { useState, useCallback, useEffect, useRef } from 'react';
 import Sidebar from './components/Sidebar';
 import MainContent from './components/MainContent';
 import SettingsModal from './components/SettingsModal';
+import FileEditorModal from './components/FileEditorModal';
 import type { ChatMessage, AttachedFile, Mode, ModeId, ProjectContext, ChatPart } from './types';
 import { generateContentStream } from './services/geminiService';
 import { useApiKey } from './hooks/useApiKey';
@@ -86,6 +87,7 @@ const App: React.FC = () => {
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [selectedMode, setSelectedMode] = useState<ModeId>('default');
   const [projectContext, setProjectContext] = useState<ProjectContext | null>(null);
+  const [editingFile, setEditingFile] = useState<{ path: string; content: string } | null>(null);
   const cancellationRef = useRef(false);
   
   useEffect(() => {
@@ -146,6 +148,24 @@ const App: React.FC = () => {
         setProjectContext(null);
     }
   }, []);
+
+  const handleOpenFileEditor = useCallback((path: string) => {
+    if (projectContext?.files.has(path)) {
+        setEditingFile({ path, content: projectContext.files.get(path)! });
+    }
+  }, [projectContext]);
+
+  const handleSaveFile = useCallback((path: string, newContent: string) => {
+    setProjectContext(prev => {
+        if (!prev) return null;
+        return FileSystem.createFile(path, newContent, prev);
+    });
+  }, []);
+
+  const handleCloseFileEditor = () => {
+    setEditingFile(null);
+  };
+
 
   const executeFunctionCall = useCallback(async (fc: FunctionCall): Promise<any> => {
     const { name, args } = fc;
@@ -320,6 +340,7 @@ const App: React.FC = () => {
         onProjectSync={handleProjectSync}
         projectContext={projectContext}
         onUnlinkProject={handleUnlinkProject}
+        onOpenFileEditor={handleOpenFileEditor}
       />
       <MainContent
         isSidebarOpen={isSidebarOpen}
@@ -341,6 +362,14 @@ const App: React.FC = () => {
         apiKey={apiKey}
         setApiKey={setApiKey}
       />
+      {editingFile && (
+        <FileEditorModal
+          filePath={editingFile.path}
+          initialContent={editingFile.content}
+          onClose={handleCloseFileEditor}
+          onSave={handleSaveFile}
+        />
+      )}
     </div>
   );
 };

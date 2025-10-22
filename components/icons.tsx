@@ -23,6 +23,8 @@ import {
   GitBranch,
   FolderOpen,
   Wrench,
+  Save,
+  ClipboardCopy,
 } from 'lucide-react';
 
 export {
@@ -50,4 +52,6 @@ export {
   GitBranch,
   FolderOpen,
   Wrench,
+  Save,
+  ClipboardCopy,
 };

@@ -153,31 +153,34 @@ const CodeBlock: React.FC<{ language: string; codeString: string }> = ({ languag
   );
 };
 
-const MarkdownRenderer: React.FC<{ content: string }> = ({ content }) => {
-  return (
-    <ReactMarkdown
-      remarkPlugins={[remarkGfm]}
-      components={{
-        code({ node, inline, className, children, ...props }: React.ComponentProps<'code'> & { node?: any; inline?: boolean }) {
-          const match = /language-(\w+)/.exec(className || '');
-          const codeString = String(children);
-          return !inline ? (
-            <CodeBlock 
-              language={match ? match[1] : ''} 
-              codeString={codeString} 
-            />
-          ) : (
-            <code className={className} {...props}>
-              {children}
-            </code>
-          );
-        },
-      }}
-    >
-      {content}
-    </ReactMarkdown>
-  );
-};
+const MarkdownRenderer: React.FC<{ content: string }> = ({ content }) => (
+  <ReactMarkdown
+    remarkPlugins={[remarkGfm]}
+    components={{
+      code({ inline, className, children, ...props }) {
+        const match = /language-(\w+)/.exec(className || '');
+        const codeString = String(children).trim();
+
+        if (!inline && match) {
+          return <CodeBlock language={match[1]} codeString={codeString} />;
+        }
+
+        // Inline code fix
+        return (
+          <code
+            className="bg-gray-700/50 text-blue-300 px-1 py-0.5 rounded text-sm font-mono"
+            {...props}
+          >
+            {children}
+          </code>
+        );
+      },
+    }}
+  >
+    {content}
+  </ReactMarkdown>
+);
+
 
 const isFunctionCallPart = (part: ChatPart): part is FunctionCallPart => 'functionCall' in part;
 const isFunctionResponsePart = (part: ChatPart): part is FunctionResponsePart => 'functionResponse' in part;

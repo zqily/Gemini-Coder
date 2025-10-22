@@ -14,9 +14,10 @@ interface SidebarProps {
   onProjectSync: (files: FileList) => void;
   projectContext: ProjectContext | null;
   onUnlinkProject: () => void;
+  onOpenFileEditor: (path: string) => void;
 }
 
-const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen, onNewChat, onOpenSettings, onProjectSync, projectContext, onUnlinkProject }) => {
+const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen, onNewChat, onOpenSettings, onProjectSync, projectContext, onUnlinkProject, onOpenFileEditor }) => {
   const directoryInputRef = useRef<HTMLInputElement>(null);
 
   const handleProjectSyncClick = () => {
@@ -97,7 +98,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen, onNewChat, onOpenS
                     <Trash2 size={14} />
                 </button>
             </div>
-             <FileTree files={projectContext.files} dirs={projectContext.dirs} />
+             <FileTree files={projectContext.files} dirs={projectContext.dirs} onFileClick={onOpenFileEditor} />
           </div>
       )}
 
