@@ -1,4 +1,3 @@
-
 export interface ChatPart {
   text?: string;
   inlineData?: {

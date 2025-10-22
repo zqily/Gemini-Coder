@@ -1,13 +1,20 @@
-
 import { GoogleGenAI, Chat } from "@google/genai";
 import type { ChatMessage } from '../types';
 
-// FIX: Update function signature to remove apiKey.
-export const runChat = async (modelName: string, history: ChatMessage[]) => {
-  // FIX: API Key must be read from environment variables.
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
+/**
+ * Initiates a chat stream with the Google Gemini API.
+ * @param apiKey - The user's Google AI API key.
+ * @param modelName - The name of the model to use (e.g., 'gemini-flash-latest').
+ * @param history - The conversation history to provide context.
+ * @returns A promise that resolves to the chat stream.
+ * @throws An error if the API key is missing.
+ */
+export const runChat = async (apiKey: string, modelName: string, history: ChatMessage[]) => {
+  if (!apiKey) {
+    throw new Error("API Key is missing. Please add it in settings.");
+  }
+  const ai = new GoogleGenAI({ apiKey });
 
-  // FIX: Use the new chat API `ai.chats.create` instead of deprecated `ai.models.create`.
   const chat: Chat = ai.chats.create({ 
     model: modelName,
     history: history.slice(0, -1) // All but the last message
@@ -15,8 +22,6 @@ export const runChat = async (modelName: string, history: ChatMessage[]) => {
 
   const lastMessage = history[history.length - 1];
   
-  // FIX: The `sendMessageStream` takes an object with a `message` property.
-  // The parts from the last message are passed here.
   const result = await chat.sendMessageStream({ message: lastMessage.parts });
 
   return result;

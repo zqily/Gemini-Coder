@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { X } from './icons';
 
@@ -45,7 +44,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, apiKey, 
               placeholder="Enter your API key"
             />
              <p className="text-xs text-gray-500 mt-2">
-                Your key is saved locally in your browser and never sent to our servers.
+                Your key is managed in the app's memory and is gone when you close the tab.
              </p>
           </div>
         </div>

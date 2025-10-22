@@ -1,5 +1,4 @@
-
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef } from 'react';
 import { Plus, Send, X, File as FileIcon, ImageIcon, LoaderCircle } from './icons';
 import type { AttachedFile } from '../types';
 

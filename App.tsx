@@ -1,23 +1,42 @@
-
 import React, { useState, useCallback } from 'react';
 import Sidebar from './components/Sidebar';
 import MainContent from './components/MainContent';
+import SettingsModal from './components/SettingsModal';
 import type { ChatMessage, AttachedFile } from './types';
 import { runChat } from './services/geminiService';
 
+/**
+ * The main application component.
+ * Manages the overall application state including chat history, API key,
+ * and UI states like sidebar and modal visibility.
+ */
 const App: React.FC = () => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [selectedModel, setSelectedModel] = useState('gemini-flash-latest');
+  const [apiKey, setApiKey] = useState('');
+  const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
 
+  /**
+   * Clears the current chat history to start a new conversation.
+   */
   const handleNewChat = () => {
     setChatHistory([]);
   };
 
+  /**
+   * Handles the submission of a new prompt from the user.
+   * It constructs the user message, updates the chat history,
+   * and calls the Gemini API to get a response.
+   */
   const handlePromptSubmit = useCallback(async (prompt: string, files: AttachedFile[]) => {
-    // FIX: Removed API key check to align with environment variable guidelines.
-    if (!prompt && files.length === 0) return;
+    if (!apiKey) {
+      alert("Please set your Gemini API key in the settings.");
+      setIsSettingsModalOpen(true);
+      return;
+    }
+    if (!prompt.trim() && files.length === 0) return;
 
     setIsLoading(true);
 
@@ -43,8 +62,7 @@ const App: React.FC = () => {
     setChatHistory(updatedChatHistory);
     
     try {
-      // FIX: Call runChat without apiKey as it's now handled by environment variables.
-      const stream = await runChat(selectedModel, updatedChatHistory);
+      const stream = await runChat(apiKey, selectedModel, updatedChatHistory);
       let modelResponse = "";
       const modelMessage: ChatMessage = { role: 'model', parts: [{ text: '' }] };
       let currentHistory = [...updatedChatHistory, modelMessage];
@@ -63,12 +81,11 @@ const App: React.FC = () => {
         role: 'model',
         parts: [{ text: `Error: ${error instanceof Error ? error.message : 'An unknown error occurred'}` }]
       };
-      setChatHistory(prev => [...prev, errorMessage]);
+      setChatHistory(prev => [...prev.slice(0, -1), errorMessage]);
     } finally {
       setIsLoading(false);
     }
-  // FIX: Removed apiKey from dependency array.
-  }, [chatHistory, selectedModel]);
+  }, [apiKey, chatHistory, selectedModel]);
 
   return (
     <div className="flex h-screen w-full bg-[#131314] text-gray-200 font-sans">
@@ -76,7 +93,7 @@ const App: React.FC = () => {
         isOpen={isSidebarOpen}
         setIsOpen={setIsSidebarOpen}
         onNewChat={handleNewChat}
-        // FIX: Removed onOpenSettings prop as settings modal is removed.
+        onOpenSettings={() => setIsSettingsModalOpen(true)}
       />
       <MainContent
         isSidebarOpen={isSidebarOpen}
@@ -86,7 +103,12 @@ const App: React.FC = () => {
         setSelectedModel={setSelectedModel}
         onSubmit={handlePromptSubmit}
       />
-      {/* FIX: Removed SettingsModal to adhere to API key guidelines. */}
+      <SettingsModal
+        isOpen={isSettingsModalOpen}
+        onClose={() => setIsSettingsModalOpen(false)}
+        apiKey={apiKey}
+        setApiKey={setApiKey}
+      />
     </div>
   );
 };

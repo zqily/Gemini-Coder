@@ -1,4 +1,3 @@
-
 import React, { useState, useRef, useEffect } from 'react';
 import { HelpCircle, ChevronDown, Sparkles, LoaderCircle, ImageIcon, File as FileIcon } from './icons';
 import PromptInput from './PromptInput';
@@ -18,9 +17,8 @@ const ModelSelector: React.FC<{ selectedModel: string; setSelectedModel: (model:
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // FIX: Model ID 'gemini-pro-latest' is deprecated. Replaced with 'gemini-2.5-pro'.
   const models = [
-    { id: 'gemini-2.5-pro', name: 'Gemini Pro' },
+    { id: 'gemini-1.5-pro-latest', name: 'Gemini Pro' },
     { id: 'gemini-flash-latest', name: 'Gemini Flash' },
   ];
 
@@ -97,7 +95,6 @@ const ChatBubble: React.FC<{ message: ChatMessage }> = ({ message }) => {
                         ))}
                     </div>
                 )}
-                {/* FIX: The `className` prop is not supported by `ReactMarkdown`. Wrap it in a div to apply styles. */}
                 {textPart && <div className="prose prose-invert max-w-none"><ReactMarkdown>{textPart}</ReactMarkdown></div>}
              </div>
         </div>
