@@ -10,7 +10,10 @@ import {
   File,
   Image as ImageIcon,
   LoaderCircle,
-  Sparkles
+  Sparkles,
+  User,
+  Copy,
+  Check,
 } from 'lucide-react';
 
 export {
@@ -25,5 +28,8 @@ export {
   File,
   ImageIcon,
   LoaderCircle,
-  Sparkles
+  Sparkles,
+  User,
+  Copy,
+  Check,
 };

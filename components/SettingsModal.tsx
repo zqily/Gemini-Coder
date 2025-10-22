@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { X } from './icons';
 
 interface SettingsModalProps {
@@ -10,10 +10,33 @@ interface SettingsModalProps {
 
 const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, apiKey, setApiKey }) => {
   const [localKey, setLocalKey] = useState(apiKey);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setLocalKey(apiKey);
+    if (isOpen) {
+        // Autofocus the input when the modal opens
+        setTimeout(() => inputRef.current?.focus(), 100);
+    }
   }, [apiKey, isOpen]);
+
+  // Add ESC key listener to close modal
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        onClose();
+      }
+    };
+
+    if (isOpen) {
+      window.addEventListener('keydown', handleKeyDown);
+    }
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isOpen, onClose]);
+
 
   if (!isOpen) return null;
 
@@ -23,9 +46,9 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, apiKey, 
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 transition-opacity duration-300" onClick={onClose}>
-      <div className="bg-[#2c2d2f] rounded-lg shadow-xl p-8 w-full max-w-md relative animate-fade-in" onClick={(e) => e.stopPropagation()}>
-        <button onClick={onClose} className="absolute top-4 right-4 text-gray-400 hover:text-white">
+    <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 animate-fade-in" onClick={onClose}>
+      <div className="bg-[#2c2d2f] rounded-lg shadow-xl p-8 w-full max-w-md relative animate-fade-in-scale" onClick={(e) => e.stopPropagation()}>
+        <button onClick={onClose} className="absolute top-4 right-4 text-gray-400 hover:text-white" aria-label="Close settings">
           <X size={24} />
         </button>
         <h2 className="text-2xl font-bold mb-6 text-white">Settings</h2>
@@ -36,6 +59,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, apiKey, 
               Gemini API Key
             </label>
             <input
+              ref={inputRef}
               type="password"
               id="apiKey"
               value={localKey}
@@ -44,7 +68,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, apiKey, 
               placeholder="Enter your API key"
             />
              <p className="text-xs text-gray-500 mt-2">
-                Your API key is saved in your browser's local storage.
+                Your API key is saved securely in your browser's local storage.
              </p>
           </div>
         </div>

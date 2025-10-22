@@ -6,19 +6,37 @@ import type { ChatMessage, AttachedFile } from './types';
 import { runChat } from './services/geminiService';
 import { useApiKey } from './hooks/useApiKey';
 
+// Custom hook to detect window size
+const useWindowSize = () => {
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+
+  useEffect(() => {
+    const handleResize = () => {
+      setIsMobile(window.innerWidth < 768);
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  return isMobile;
+};
+
+
 /**
  * The main application component.
  * Manages the overall application state including chat history, API key,
  * and UI states like sidebar and modal visibility.
  */
 const App: React.FC = () => {
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const isMobile = useWindowSize();
+  const [isSidebarOpen, setIsSidebarOpen] = useState(!isMobile);
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [selectedModel, setSelectedModel] = useState('gemini-flash-latest');
+  const [selectedModel, setSelectedModel] = useState('gemini-1.5-flash');
   const [apiKey, setApiKey] = useApiKey();
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
-
+  
   // On initial load, open settings if no API key is found.
   useEffect(() => {
     if (!apiKey) {
@@ -32,7 +50,16 @@ const App: React.FC = () => {
    */
   const handleNewChat = () => {
     setChatHistory([]);
+    if (isMobile) {
+      setIsSidebarOpen(false);
+    }
   };
+  
+  /**
+   * Toggles the sidebar visibility.
+   */
+  const toggleSidebar = () => setIsSidebarOpen(prev => !prev);
+
 
   /**
    * Handles the submission of a new prompt from the user.
@@ -78,8 +105,8 @@ const App: React.FC = () => {
       setChatHistory(currentHistory);
 
       for await (const chunk of stream) {
-        const chunkText = chunk.text;
-        modelResponse += chunkText;
+        // FIX: Access .text as a property, not a function
+        modelResponse += chunk.text;
         currentHistory = [...updatedChatHistory, { role: 'model', parts: [{ text: modelResponse }] }];
         setChatHistory(currentHistory);
       }
@@ -90,7 +117,10 @@ const App: React.FC = () => {
         role: 'model',
         parts: [{ text: `Error: ${error instanceof Error ? error.message : 'An unknown error occurred'}` }]
       };
-      setChatHistory(prev => [...prev.slice(0, -1), errorMessage]);
+      setChatHistory(prev => {
+        const historyWithoutLastUserMessage = prev.filter(m => m !== newUserMessage);
+        return [...historyWithoutLastUserMessage, errorMessage]
+      });
     } finally {
       setIsLoading(false);
     }
@@ -103,9 +133,12 @@ const App: React.FC = () => {
         setIsOpen={setIsSidebarOpen}
         onNewChat={handleNewChat}
         onOpenSettings={() => setIsSettingsModalOpen(true)}
+        isMobile={isMobile}
       />
       <MainContent
         isSidebarOpen={isSidebarOpen}
+        toggleSidebar={toggleSidebar}
+        isMobile={isMobile}
         chatHistory={chatHistory}
         isLoading={isLoading}
         selectedModel={selectedModel}

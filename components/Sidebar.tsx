@@ -6,6 +6,7 @@ interface SidebarProps {
   setIsOpen: (isOpen: boolean) => void;
   onNewChat: () => void;
   onOpenSettings: () => void;
+  isMobile: boolean;
 }
 
 const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen, onNewChat, onOpenSettings }) => {
@@ -45,7 +46,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen, onNewChat, onOpenS
         >
           <Settings size={20} className="flex-shrink-0" />
            <div className={`overflow-hidden transition-all duration-200 ${isOpen ? 'w-full' : 'w-0 ml-0'}`}>
-             <span className="font-medium text-sm whitespace-nowrap">Settings & help</span>
+             <span className="font-medium text-sm whitespace-nowrap">Settings & API</span>
           </div>
         </button>
       </div>

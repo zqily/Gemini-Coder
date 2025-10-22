@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { Plus, Send, X, File as FileIcon, ImageIcon, LoaderCircle } from './icons';
+import { Plus, Send, X, File as FileIcon, LoaderCircle } from './icons';
 import type { AttachedFile } from '../types';
 
 interface PromptInputProps {
@@ -22,6 +22,33 @@ const fileToDataURL = (file: File): Promise<string> => {
     reader.onerror = error => reject(error);
     reader.readAsDataURL(file);
   });
+};
+
+const FilePreview: React.FC<{ file: AttachedFile, onRemove: () => void }> = ({ file, onRemove }) => {
+    const isImage = file.type.startsWith('image/');
+    const extension = file.name.split('.').pop()?.toUpperCase();
+
+    return (
+        <div className="relative group w-24 h-24 bg-gray-800 rounded-lg overflow-hidden animate-fade-in-up" title={file.name}>
+            {isImage ? (
+                <img src={file.content} alt={file.name} className="w-full h-full object-cover" />
+            ) : (
+                <div className="flex flex-col items-center justify-center h-full p-2 text-center">
+                    <FileIcon size={28} className="text-gray-400" />
+                    <p className="text-xs text-gray-400 mt-1.5 w-full truncate">{file.name}</p>
+                    {extension && <span className="text-[10px] font-bold text-gray-500">{extension}</span>}
+                </div>
+            )}
+             <button
+                type="button"
+                onClick={onRemove}
+                className="absolute top-1 right-1 bg-black/50 rounded-full p-0.5 text-white opacity-0 group-hover:opacity-100 transition-opacity"
+                aria-label={`Remove ${file.name}`}
+            >
+                <X size={14} />
+            </button>
+        </div>
+    );
 };
 
 const PromptInput: React.FC<PromptInputProps> = ({ onSubmit, isLoading }) => {
@@ -53,7 +80,6 @@ const PromptInput: React.FC<PromptInputProps> = ({ onSubmit, isLoading }) => {
       setFiles(prev => [...prev, ...newFiles]);
     } catch (error) {
       console.error("Error reading files:", error);
-      alert("There was an error processing some of your files.");
     } finally {
       setIsReadingFiles(false);
       if (event.target) event.target.value = '';
@@ -69,7 +95,7 @@ const PromptInput: React.FC<PromptInputProps> = ({ onSubmit, isLoading }) => {
     const textarea = textareaRef.current;
     if (textarea) {
         textarea.style.height = 'auto';
-        const maxHeight = 192; // max-h-48 in pixels
+        const maxHeight = 200; // max-h-50
         textarea.style.height = `${Math.min(textarea.scrollHeight, maxHeight)}px`;
     }
   };
@@ -86,26 +112,23 @@ const PromptInput: React.FC<PromptInputProps> = ({ onSubmit, isLoading }) => {
   };
 
   return (
-    <form onSubmit={handleSubmit} className="w-full">
+    <form onSubmit={handleSubmit} className={`w-full bg-[#1e1f20] transition-all duration-200 rounded-2xl focus-within:ring-2 focus-within:ring-blue-500/50 ${files.length > 0 ? 'shadow-lg' : ''}`}>
       {files.length > 0 && (
-        <div className="flex flex-wrap gap-2 mb-3">
-          {files.map((file, index) => (
-            <div key={index} className="bg-gray-700/80 rounded-full pl-3 pr-2 py-1 flex items-center gap-2 text-sm max-w-xs animate-fade-in-up">
-              {file.type.startsWith('image/') ? <ImageIcon size={16} /> : <FileIcon size={16} />}
-              <span className="truncate">{file.name}</span>
-              <button type="button" onClick={() => removeFile(index)} className="rounded-full hover:bg-gray-600 p-0.5">
-                <X size={14} />
-              </button>
+        <div className="p-3 border-b border-gray-700/50">
+            <div className="flex flex-wrap gap-3">
+             {files.map((file, index) => (
+                <FilePreview key={index} file={file} onRemove={() => removeFile(index)} />
+              ))}
             </div>
-          ))}
         </div>
       )}
-      <div className="bg-[#1e1f20] rounded-2xl p-2.5 flex items-end w-full relative transition-all duration-200 focus-within:ring-2 focus-within:ring-blue-500/50">
+      <div className="p-2 flex items-end w-full relative">
         <button
           type="button"
           onClick={() => fileInputRef.current?.click()}
           disabled={isLoading || isReadingFiles}
           className="p-2 mr-1 rounded-full hover:bg-gray-700 transition-colors disabled:opacity-50 flex-shrink-0"
+          aria-label="Attach files"
         >
          {isReadingFiles ? <LoaderCircle className="animate-spin" size={24} /> : <Plus size={24} />}
         </button>
@@ -121,7 +144,7 @@ const PromptInput: React.FC<PromptInputProps> = ({ onSubmit, isLoading }) => {
           ref={textareaRef}
           value={prompt}
           onChange={handleTextareaInput}
-          placeholder="Ask Gemini"
+          placeholder="Ask Gemini anything..."
           rows={1}
           className="flex-1 bg-transparent resize-none focus:outline-none placeholder-gray-500 text-base leading-relaxed max-h-48 self-center"
           disabled={isLoading}
@@ -135,7 +158,8 @@ const PromptInput: React.FC<PromptInputProps> = ({ onSubmit, isLoading }) => {
         <button
           type="submit"
           disabled={isLoading || isReadingFiles || (!prompt.trim() && files.length === 0)}
-          className="bg-[#292a2c] p-3 ml-2 rounded-full hover:bg-gray-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
+          className="bg-blue-600 p-3 ml-2 rounded-full hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0 disabled:bg-gray-600"
+          aria-label="Send prompt"
         >
           {isLoading ? <LoaderCircle className="animate-spin" size={20} /> : <Send size={20} />}
         </button>
