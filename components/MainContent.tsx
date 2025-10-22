@@ -157,16 +157,24 @@ const MarkdownRenderer: React.FC<{ content: string }> = ({ content }) => {
       remarkPlugins={[remarkGfm]}
       components={{
         code({ node, inline, className, children, ...props }: React.ComponentProps<'code'> & { node?: any; inline?: boolean }) {
-          const match = /language-(\w+)/.exec(className || '');
-          const codeString = String(children);
-          return !inline ? (
-            <CodeBlock 
-              language={match ? match[1] : ''} 
-              codeString={codeString} 
-            />
-          ) : (
-            <code className={className} {...props}>
-              {children}
+          const codeString = String(children).replace(/\n$/, '');
+          const hasLang = /language-(\w+)/.test(className || '');
+          // treat as inline when explicit inline OR when there's no language class and no newline
+          const isInline = Boolean(inline) || (!hasLang && !/\n/.test(codeString));
+
+          if (!isInline) {
+            const match = /language-(\w+)/.exec(className || '');
+            return <CodeBlock language={match ? match[1] : ''} codeString={codeString} />;
+          }
+
+          // Inline code styling: small monospace "pill" that stays inline
+          return (
+            <code
+              {...props}
+              className={`${className || ''} inline-block align-baseline font-mono text-xs px-1.5 py-0.5 rounded bg-[#1e1f20]`}
+              style={{ lineHeight: 1 }}
+            >
+              {codeString}
             </code>
           );
         },
@@ -176,6 +184,7 @@ const MarkdownRenderer: React.FC<{ content: string }> = ({ content }) => {
     </ReactMarkdown>
   );
 };
+
 
 const ChatBubble: React.FC<{ message: ChatMessage }> = ({ message }) => {
     const isUser = message.role === 'user';
