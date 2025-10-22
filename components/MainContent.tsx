@@ -53,6 +53,10 @@ interface MainContentProps {
   isMobile: boolean;
   chatHistory: ChatMessage[];
   isLoading: boolean;
+  attachedFiles: AttachedFile[];
+  setAttachedFiles: React.Dispatch<React.SetStateAction<AttachedFile[]>>;
+  isReadingFiles: boolean;
+  setIsReadingFiles: (isReading: boolean) => void;
   selectedModel: string;
   setSelectedModel: (model: string) => void;
   onSubmit: (prompt: string, files: AttachedFile[]) => void;
@@ -153,34 +157,31 @@ const CodeBlock: React.FC<{ language: string; codeString: string }> = ({ languag
   );
 };
 
-const MarkdownRenderer: React.FC<{ content: string }> = ({ content }) => (
-  <ReactMarkdown
-    remarkPlugins={[remarkGfm]}
-    components={{
-      code({ inline, className, children, ...props }) {
-        const match = /language-(\w+)/.exec(className || '');
-        const codeString = String(children).trim();
-
-        if (!inline && match) {
-          return <CodeBlock language={match[1]} codeString={codeString} />;
-        }
-
-        // Inline code fix
-        return (
-          <code
-            className="bg-gray-700/50 text-blue-300 px-1 py-0.5 rounded text-sm font-mono"
-            {...props}
-          >
-            {children}
-          </code>
-        );
-      },
-    }}
-  >
-    {content}
-  </ReactMarkdown>
-);
-
+const MarkdownRenderer: React.FC<{ content: string }> = ({ content }) => {
+  return (
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      components={{
+        code({ node, inline, className, children, ...props }: React.ComponentProps<'code'> & { node?: any; inline?: boolean }) {
+          const match = /language-(\w+)/.exec(className || '');
+          const codeString = String(children);
+          return !inline ? (
+            <CodeBlock 
+              language={match ? match[1] : ''} 
+              codeString={codeString} 
+            />
+          ) : (
+            <code className={className} {...props}>
+              {children}
+            </code>
+          );
+        },
+      }}
+    >
+      {content}
+    </ReactMarkdown>
+  );
+};
 
 const isFunctionCallPart = (part: ChatPart): part is FunctionCallPart => 'functionCall' in part;
 const isFunctionResponsePart = (part: ChatPart): part is FunctionResponsePart => 'functionResponse' in part;
@@ -289,11 +290,9 @@ const TypingIndicator = () => (
     </div>
 );
 
-const MainContent: React.FC<MainContentProps> = ({ isMobile, toggleSidebar, chatHistory, isLoading, selectedModel, setSelectedModel, onSubmit, onStop, selectedMode, setSelectedMode, modes }) => {
+const MainContent: React.FC<MainContentProps> = ({ isMobile, toggleSidebar, chatHistory, isLoading, attachedFiles, setAttachedFiles, isReadingFiles, setIsReadingFiles, selectedModel, setSelectedModel, onSubmit, onStop, selectedMode, setSelectedMode, modes }) => {
   const chatContainerRef = useRef<HTMLDivElement>(null);
-  const [files, setFiles] = useState<AttachedFile[]>([]);
   const [isDragging, setIsDragging] = useState(false);
-  const [isReadingFiles, setIsReadingFiles] = useState(false);
   
   const handleFileSelect = useCallback(async (selectedFiles: FileList | null) => {
     if (!selectedFiles || selectedFiles.length === 0) return;
@@ -309,13 +308,13 @@ const MainContent: React.FC<MainContentProps> = ({ isMobile, toggleSidebar, chat
           return { name: file.name, type: mimeType, size: file.size, content };
         });
       const newFiles = await Promise.all(newFilesPromises);
-      setFiles(prev => [...prev, ...newFiles]);
+      setAttachedFiles(prev => [...prev, ...newFiles]);
     } catch (error) {
       console.error("Error reading files:", error);
     } finally {
       setIsReadingFiles(false);
     }
-  }, []);
+  }, [setAttachedFiles, setIsReadingFiles]);
 
   useEffect(() => {
     let dragOverTimeout: number | undefined;
@@ -373,8 +372,7 @@ const MainContent: React.FC<MainContentProps> = ({ isMobile, toggleSidebar, chat
   };
   
   const handlePromptSubmit = (prompt: string) => {
-    onSubmit(prompt, files);
-    setFiles([]);
+    onSubmit(prompt, attachedFiles);
   };
 
   useEffect(() => {
@@ -435,8 +433,8 @@ const MainContent: React.FC<MainContentProps> = ({ isMobile, toggleSidebar, chat
             onSubmit={handlePromptSubmit}
             isLoading={isLoading || isReadingFiles}
             onStop={onStop}
-            files={files}
-            setFiles={setFiles}
+            files={attachedFiles}
+            setFiles={setAttachedFiles}
             selectedMode={selectedMode}
             setSelectedMode={setSelectedMode}
             modes={modes}

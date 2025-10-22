@@ -81,12 +81,15 @@ const App: React.FC = () => {
   const isMobile = useWindowSize();
   const [isSidebarOpen, setIsSidebarOpen] = useState(!isMobile);
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
+  const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
+  const [isReadingFiles, setIsReadingFiles] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [selectedModel, setSelectedModel] = useState('gemini-2.5-pro'); // Pro for function calling
   const [apiKey, setApiKey] = useApiKey();
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [selectedMode, setSelectedMode] = useState<ModeId>('default');
   const [projectContext, setProjectContext] = useState<ProjectContext | null>(null);
+  const [displayContext, setDisplayContext] = useState<ProjectContext | null>(null);
   const [editingFile, setEditingFile] = useState<{ path: string; content: string } | null>(null);
   const cancellationRef = useRef(false);
   
@@ -96,9 +99,51 @@ const App: React.FC = () => {
     }
   }, [apiKey]);
 
+  useEffect(() => {
+    const newContext: ProjectContext = {
+        files: new Map<string, string>(),
+        dirs: new Set<string>()
+    };
+
+    if (projectContext) {
+        projectContext.files.forEach((content, path) => newContext.files.set(path, content));
+        projectContext.dirs.forEach(dir => newContext.dirs.add(dir));
+    }
+
+    attachedFiles.forEach(file => {
+        // Simple check for text-based mime types
+        const isText = file.type.startsWith('text/') || 
+                       ['json', 'xml', 'javascript', 'typescript', 'csv', 'markdown', 'html', 'css'].some(t => file.type.includes(t));
+
+        if (isText) {
+             try {
+                const base64Content = file.content.split(',')[1];
+                if (base64Content) {
+                    const textContent = atob(base64Content);
+                    newContext.files.set(file.name, textContent);
+                } else {
+                    newContext.files.set(file.name, ''); // Handle empty file case
+                }
+            } catch (e) {
+                console.error("Could not decode file content for sidebar display:", file.name, e);
+                newContext.files.set(file.name, `[Error decoding content for ${file.name}]`);
+            }
+        } else {
+            newContext.files.set(file.name, `[Attached file: ${file.name} (${file.type})]`);
+        }
+    });
+
+    if (newContext.files.size > 0 || newContext.dirs.size > 0) {
+        setDisplayContext(newContext);
+    } else {
+        setDisplayContext(null);
+    }
+  }, [projectContext, attachedFiles]);
+
   const handleNewChat = () => {
     setChatHistory([]);
     setProjectContext(null); // Also clear project context
+    setAttachedFiles([]);
     if (isMobile) {
       setIsSidebarOpen(false);
     }
@@ -150,16 +195,18 @@ const App: React.FC = () => {
   }, []);
 
   const handleOpenFileEditor = useCallback((path: string) => {
-    if (projectContext?.files.has(path)) {
-        setEditingFile({ path, content: projectContext.files.get(path)! });
+    const content = displayContext?.files.get(path);
+    if (content !== undefined) {
+        setEditingFile({ path, content });
     }
-  }, [projectContext]);
+  }, [displayContext]);
 
   const handleSaveFile = useCallback((path: string, newContent: string) => {
     setProjectContext(prev => {
-        if (!prev) return null;
-        return FileSystem.createFile(path, newContent, prev);
+        const context = prev ?? { files: new Map(), dirs: new Set() };
+        return FileSystem.createFile(path, newContent, context);
     });
+    setAttachedFiles(prev => prev.filter(f => f.name !== path));
   }, []);
 
   const handleCloseFileEditor = () => {
@@ -326,6 +373,7 @@ const App: React.FC = () => {
     } finally {
       setIsLoading(false);
       cancellationRef.current = false;
+      setAttachedFiles([]);
     }
   }, [apiKey, chatHistory, selectedModel, selectedMode, projectContext, executeFunctionCall]);
 
@@ -338,7 +386,7 @@ const App: React.FC = () => {
         onOpenSettings={() => setIsSettingsModalOpen(true)}
         isMobile={isMobile}
         onProjectSync={handleProjectSync}
-        projectContext={projectContext}
+        projectContext={displayContext}
         onUnlinkProject={handleUnlinkProject}
         onOpenFileEditor={handleOpenFileEditor}
       />
@@ -348,6 +396,10 @@ const App: React.FC = () => {
         isMobile={isMobile}
         chatHistory={chatHistory}
         isLoading={isLoading}
+        attachedFiles={attachedFiles}
+        setAttachedFiles={setAttachedFiles}
+        isReadingFiles={isReadingFiles}
+        setIsReadingFiles={setIsReadingFiles}
         selectedModel={selectedModel}
         setSelectedModel={setSelectedModel}
         onSubmit={handlePromptSubmit}
