@@ -1,7 +1,9 @@
+
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { HelpCircle, ChevronDown, User, ImageIcon, File as FileIcon, Menu, Copy, Check, X } from './icons';
+import { HelpCircle, ChevronDown, User, ImageIcon, File as FileIcon, Menu, Copy, Check, X, Wrench } from './icons';
 import PromptInput from './PromptInput';
-import type { ChatMessage, AttachedFile, Mode, ModeId } from '../types';
+// FIX: Import TextPart and InlineDataPart for use in type guards.
+import type { ChatMessage, AttachedFile, Mode, ModeId, ChatPart, FunctionCallPart, FunctionResponsePart, TextPart, InlineDataPart } from '../types';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
@@ -157,24 +159,16 @@ const MarkdownRenderer: React.FC<{ content: string }> = ({ content }) => {
       remarkPlugins={[remarkGfm]}
       components={{
         code({ node, inline, className, children, ...props }: React.ComponentProps<'code'> & { node?: any; inline?: boolean }) {
-          const codeString = String(children).replace(/\n$/, '');
-          const hasLang = /language-(\w+)/.test(className || '');
-          // treat as inline when explicit inline OR when there's no language class and no newline
-          const isInline = Boolean(inline) || (!hasLang && !/\n/.test(codeString));
-
-          if (!isInline) {
-            const match = /language-(\w+)/.exec(className || '');
-            return <CodeBlock language={match ? match[1] : ''} codeString={codeString} />;
-          }
-
-          // Inline code styling: small monospace "pill" that stays inline
-          return (
-            <code
-              {...props}
-              className={`${className || ''} inline-block align-baseline font-mono text-xs px-1.5 py-0.5 rounded bg-[#1e1f20]`}
-              style={{ lineHeight: 1 }}
-            >
-              {codeString}
+          const match = /language-(\w+)/.exec(className || '');
+          const codeString = String(children);
+          return !inline ? (
+            <CodeBlock 
+              language={match ? match[1] : ''} 
+              codeString={codeString} 
+            />
+          ) : (
+            <code className={className} {...props}>
+              {children}
             </code>
           );
         },
@@ -185,32 +179,69 @@ const MarkdownRenderer: React.FC<{ content: string }> = ({ content }) => {
   );
 };
 
+const isFunctionCallPart = (part: ChatPart): part is FunctionCallPart => 'functionCall' in part;
+const isFunctionResponsePart = (part: ChatPart): part is FunctionResponsePart => 'functionResponse' in part;
 
 const ChatBubble: React.FC<{ message: ChatMessage }> = ({ message }) => {
     const isUser = message.role === 'user';
-    const textPart = message.parts.find(p => 'text' in p)?.text;
-    const fileParts = message.parts.filter(p => 'inlineData' in p);
+    const isModel = message.role === 'model';
+    const isTool = message.role === 'tool';
+
+    // FIX: Use explicit type guards to correctly narrow the type of ChatPart and allow safe property access.
+    const textPart = (message.parts.find((p): p is TextPart => 'text' in p))?.text;
+    const fileParts = message.parts.filter((p): p is InlineDataPart => 'inlineData' in p);
+    const functionCallParts = message.parts.filter(isFunctionCallPart);
+    const functionResponseParts = message.parts.filter(isFunctionResponsePart);
+
+    const Icon = isUser ? User : isTool ? Wrench : GeminiIcon;
+    const name = isUser ? 'You' : isTool ? 'Tool' : 'Gemini';
 
     return (
         <div className="flex flex-col mb-10 animate-fade-in-up">
             <div className="flex items-center space-x-3 mb-3">
-                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white text-sm flex-shrink-0 ${isUser ? 'bg-blue-600' : ''}`}>
-                    {isUser ? <User size={18} /> : <GeminiIcon size={28} />}
+                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white text-sm flex-shrink-0 ${isUser ? 'bg-blue-600' : isTool ? 'bg-gray-600' : ''}`}>
+                    <Icon size={isModel ? 28 : 18} />
                 </div>
-                <span className="font-semibold text-white">{isUser ? 'You' : 'Gemini'}</span>
+                <span className="font-semibold text-white">{name}</span>
             </div>
              <div className="ml-11">
                 {fileParts.length > 0 && (
                     <div className="flex flex-wrap gap-2 mb-2">
                         {fileParts.map((part, index) => (
                             <div key={index} className="bg-gray-700/50 rounded-lg p-2 flex items-center gap-2 text-sm">
-                                {part.inlineData?.mimeType.startsWith('image/') ? <ImageIcon size={16} /> : <FileIcon size={16} />}
-                                <span>File Attached ({part.inlineData?.mimeType})</span>
+                                {/* FIX: 'part' is now correctly typed as InlineDataPart, so 'inlineData' can be accessed safely. */}
+                                {part.inlineData.mimeType.startsWith('image/') ? <ImageIcon size={16} /> : <FileIcon size={16} />}
+                                <span>File Attached ({part.inlineData.mimeType})</span>
                             </div>
                         ))}
                     </div>
                 )}
                 {textPart && <div className="prose prose-invert max-w-none"><MarkdownRenderer content={textPart} /></div>}
+                {functionCallParts.length > 0 && (
+                     <div className="space-y-2">
+                        {functionCallParts.map((part, index) => (
+                             <div key={index} className="bg-gray-800/50 border border-gray-700/50 rounded-lg p-3 text-sm">
+                                {/* FIX: Handle optional 'name' and 'args' properties from FunctionCallPart. */}
+                                <p className="font-semibold text-gray-300">Tool Call: <code className="text-blue-400">{part.functionCall.name ?? ''}</code></p>
+                                <pre className="text-xs text-gray-400 mt-1 overflow-x-auto bg-black/20 p-2 rounded-md">
+                                    {JSON.stringify(part.functionCall.args ?? {}, null, 2)}
+                                </pre>
+                            </div>
+                        ))}
+                    </div>
+                )}
+                 {functionResponseParts.length > 0 && (
+                     <div className="space-y-2">
+                        {functionResponseParts.map((part, index) => (
+                             <div key={index} className="bg-gray-800/30 border border-gray-700/50 rounded-lg p-3 text-sm">
+                                <p className="font-semibold text-gray-300">Tool Result: <code className="text-blue-400">{part.functionResponse.name}</code></p>
+                                <pre className="text-xs text-gray-400 mt-1 overflow-x-auto bg-black/20 p-2 rounded-md">
+                                    {JSON.stringify(part.functionResponse.response, null, 2)}
+                                </pre>
+                            </div>
+                        ))}
+                    </div>
+                )}
              </div>
         </div>
     );
@@ -389,7 +420,7 @@ const MainContent: React.FC<MainContentProps> = ({ isMobile, toggleSidebar, chat
             ) : (
                  <div className="pt-8">
                     {chatHistory.map((msg, index) => <ChatBubble key={index} message={msg} />)}
-                    {isLoading && chatHistory.length > 0 && <TypingIndicator />}
+                    {isLoading && <TypingIndicator />}
                  </div>
             )}
         </div>

@@ -1,5 +1,8 @@
-import React from 'react';
-import { Menu, Plus, Settings } from './icons';
+import React, { useRef } from 'react';
+import { Menu, Plus, Settings, UploadCloud, GitBranch } from './icons';
+import FileTree from './FileTree';
+import type { ProjectContext } from '../types';
+
 
 interface SidebarProps {
   isOpen: boolean;
@@ -7,45 +10,93 @@ interface SidebarProps {
   onNewChat: () => void;
   onOpenSettings: () => void;
   isMobile: boolean;
+  onProjectSync: (files: FileList) => void;
+  projectContext: ProjectContext | null;
 }
 
-const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen, onNewChat, onOpenSettings }) => {
+const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen, onNewChat, onOpenSettings, onProjectSync, projectContext }) => {
+  const directoryInputRef = useRef<HTMLInputElement>(null);
+
+  const handleProjectSyncClick = () => {
+    directoryInputRef.current?.click();
+  };
+
+  const handleDirectoryChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    if (event.target.files) {
+      onProjectSync(event.target.files);
+    }
+    // Reset the input value to allow selecting the same folder again
+    event.target.value = ''; 
+  };
+  
   return (
     <div
       className={`bg-[#1e1f20] flex flex-col transition-all duration-300 ease-in-out ${
-        isOpen ? 'w-64 p-4' : 'w-20 p-3'
+        isOpen ? 'w-72 p-4' : 'w-20 p-3'
       }`}
     >
+      <input
+        type="file"
+        ref={directoryInputRef}
+        onChange={handleDirectoryChange}
+        className="hidden"
+        // @ts-ignore
+        webkitdirectory="true"
+        directory="true"
+      />
       <div className="flex-shrink-0">
         <button
           onClick={() => setIsOpen(!isOpen)}
           className="p-2 rounded-full hover:bg-gray-700 transition-all hover:scale-105 active:scale-95"
+          aria-label={isOpen ? 'Close sidebar' : 'Open sidebar'}
         >
           <Menu size={24} />
         </button>
       </div>
 
-      <div className="mt-6 flex-shrink-0">
+      <div className="mt-6 flex-shrink-0 space-y-2">
         <button
           onClick={onNewChat}
           className={`flex items-center w-full p-2.5 rounded-xl transition-colors ${
-            isOpen ? 'bg-[#3c3d3f] hover:bg-[#4b4c4e]' : 'hover:bg-gray-700 justify-center'
+            isOpen ? 'bg-[#3c3d3f] hover:bg-[#4b4c4e] justify-start' : 'hover:bg-gray-700 justify-center'
           }`}
         >
           <Plus size={24} className="flex-shrink-0" />
-          <div className={`overflow-hidden transition-all duration-200 ${isOpen ? 'w-full' : 'w-0 ml-0'}`}>
+          <div className={`overflow-hidden transition-all duration-200 ${isOpen ? 'w-auto ml-3' : 'w-0 ml-0'}`}>
              <span className="font-medium text-sm whitespace-nowrap">New chat</span>
           </div>
         </button>
+        <button
+          onClick={handleProjectSyncClick}
+          className={`flex items-center w-full p-2.5 rounded-xl transition-colors ${
+            isOpen ? 'hover:bg-gray-700/70 justify-start' : 'hover:bg-gray-700 justify-center'
+          }`}
+        >
+          <UploadCloud size={24} className="flex-shrink-0" />
+           <div className={`overflow-hidden transition-all duration-200 ${isOpen ? 'w-auto ml-3' : 'w-0 ml-0'}`}>
+             <span className="font-medium text-sm whitespace-nowrap">Sync Project</span>
+          </div>
+        </button>
       </div>
+      
+      {projectContext && isOpen && (
+          <div className="mt-6 pt-4 border-t border-gray-700/60 flex-1 overflow-y-auto overflow-x-hidden">
+             <div className="flex items-center gap-2 mb-3 px-1 text-gray-400">
+                <GitBranch size={16}/>
+                <h3 className="font-semibold text-xs uppercase tracking-wider">Project Files</h3>
+            </div>
+             <FileTree files={projectContext.files} dirs={projectContext.dirs} />
+          </div>
+      )}
 
-      <div className="mt-auto flex-shrink-0 space-y-2">
+
+      <div className="mt-auto flex-shrink-0 space-y-2 pt-4 border-t border-gray-700/60">
         <button
           onClick={onOpenSettings}
           className={`flex items-center w-full p-2 rounded-lg hover:bg-gray-700 transition-colors ${!isOpen && 'justify-center'}`}
         >
           <Settings size={20} className="flex-shrink-0" />
-           <div className={`overflow-hidden transition-all duration-200 ${isOpen ? 'w-full' : 'w-0 ml-0'}`}>
+           <div className={`overflow-hidden transition-all duration-200 ${isOpen ? 'w-auto ml-2' : 'w-0 ml-0'}`}>
              <span className="font-medium text-sm whitespace-nowrap">Settings & API</span>
           </div>
         </button>

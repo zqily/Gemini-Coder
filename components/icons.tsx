@@ -8,7 +8,7 @@ import {
   Send,
   ChevronDown,
   File,
-  Image as ImageIcon,
+  ImageIcon,
   LoaderCircle,
   User,
   Copy,
@@ -16,6 +16,13 @@ import {
   Bot,
   CodeXml,
   ChevronRight,
+  Folder,
+  FileText,
+  UploadCloud,
+  Trash2,
+  GitBranch,
+  FolderOpen,
+  Wrench,
 } from 'lucide-react';
 
 export {
@@ -36,4 +43,11 @@ export {
   Bot,
   CodeXml,
   ChevronRight,
+  Folder,
+  FileText,
+  UploadCloud,
+  Trash2,
+  GitBranch,
+  FolderOpen,
+  Wrench,
 };
