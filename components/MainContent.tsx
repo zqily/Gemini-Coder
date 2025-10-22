@@ -10,7 +10,7 @@ import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 // File handling utilities
 const SUPPORTED_MIME_TYPES = [
   'image/png', 'image/jpeg', 'image/webp', 'image/heic', 'iage/heif',
-  'text/plain', 'text/html', 'text/css', 'text/javascript', m'application/x-javascript',
+  'text/plain', 'text/html', 'text/css', 'text/javascript', 'application/x-javascript',
   'text/x-typescript', 'application/x-typescript', 'text/csv', 'text/markdown',
   'text/x-python', 'application/x-python-code', 'application/json', 'text/xml', 'application/rtf',
   'application/pdf'
