@@ -225,11 +225,24 @@ const App: React.FC = () => {
   const handleProjectSync = useCallback(async (fileList: FileList) => {
     const files = Array.from(fileList);
     let isIgnored = (path: string) => false;
+    
+    const gitignoreFile = files.find(f => (f as any).webkitRelativePath.endsWith('.gitignore'));
+    const gcignoreFile = files.find(f => (f as any).webkitRelativePath.endsWith('.gcignore'));
+    
+    let combinedIgnoreContent = '';
 
-    const gitignoreFile = files.find(f => f.name.endsWith('.gitignore'));
     if (gitignoreFile) {
-      const gitignoreContent = await gitignoreFile.text();
-      isIgnored = createIsIgnored(gitignoreContent);
+        const gitignoreContent = await gitignoreFile.text();
+        combinedIgnoreContent += gitignoreContent + '\n';
+    }
+
+    if (gcignoreFile) {
+        const gcignoreContent = await gcignoreFile.text();
+        combinedIgnoreContent += gcignoreContent;
+    }
+
+    if (combinedIgnoreContent.trim()) {
+      isIgnored = createIsIgnored(combinedIgnoreContent);
     }
     
     const newProjectContext: ProjectContext = { files: new Map(), dirs: new Set() };
@@ -241,14 +254,18 @@ const App: React.FC = () => {
         const isGitPath = /(^|\/)\.git(\/|$)/.test(path);
 
         if (path && !isIgnored(path) && !isGitPath) {
-            const content = await file.text();
-            newProjectContext.files.set(path, content);
-            // Add parent directories
-            const parts = path.split('/');
-            let currentPath = '';
-            for (let i = 0; i < parts.length - 1; i++) {
-                currentPath = currentPath ? `${currentPath}/${parts[i]}` : parts[i];
-                newProjectContext.dirs.add(currentPath);
+            try {
+                const content = await file.text();
+                newProjectContext.files.set(path, content);
+                // Add parent directories
+                const parts = path.split('/');
+                let currentPath = '';
+                for (let i = 0; i < parts.length - 1; i++) {
+                    currentPath = currentPath ? `${currentPath}/${parts[i]}` : parts[i];
+                    newProjectContext.dirs.add(currentPath);
+                }
+            } catch (e) {
+                console.warn(`Could not read file ${path} as text. Skipping.`, e);
             }
         }
     }

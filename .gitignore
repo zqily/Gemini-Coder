@@ -26,10 +26,4 @@ dist-ssr
 converter.py
 versions/
 target.txt
-metadata.json
-package-log.json
-package.json
-README.md
-tsconfig.json
-vite.config.ts
 start.bat
