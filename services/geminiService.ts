@@ -1,3 +1,4 @@
+import React from 'react';
 import { GoogleGenAI, FunctionDeclaration, GenerateContentResponse } from "@google/genai";
 import type { ChatMessage } from '../types';
 

@@ -1,4 +1,6 @@
 
+import React from 'react';
+
 export type ModeId = 'default' | 'simple-coder';
 
 export interface Mode {

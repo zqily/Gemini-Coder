@@ -6,9 +6,10 @@ interface FileEditorModalProps {
   initialContent: string;
   onClose: () => void;
   onSave: (path: string, content: string) => void;
+  isLoading: boolean;
 }
 
-const FileEditorModal: React.FC<FileEditorModalProps> = ({ filePath, initialContent, onClose, onSave }) => {
+const FileEditorModal: React.FC<FileEditorModalProps> = ({ filePath, initialContent, onClose, onSave, isLoading }) => {
   const [content, setContent] = useState(initialContent);
   const [isCopied, setIsCopied] = useState(false);
 
@@ -68,7 +69,9 @@ const FileEditorModal: React.FC<FileEditorModalProps> = ({ filePath, initialCont
           <textarea
             value={content}
             onChange={(e) => setContent(e.target.value)}
-            className="w-full h-full bg-[#131314] text-gray-300 p-4 resize-none focus:outline-none font-mono text-sm leading-relaxed"
+            readOnly={isLoading}
+            disabled={isLoading}
+            className="w-full h-full bg-[#131314] text-gray-300 p-4 resize-none focus:outline-none font-mono text-sm leading-relaxed disabled:opacity-70 disabled:cursor-not-allowed"
             spellCheck="false"
           />
         </main>
@@ -76,7 +79,8 @@ const FileEditorModal: React.FC<FileEditorModalProps> = ({ filePath, initialCont
         <footer className="p-3 border-t border-gray-700/50 flex justify-end flex-shrink-0">
           <button
             onClick={handleSave}
-            className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-md transition-colors"
+            disabled={isLoading}
+            className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-md transition-colors disabled:bg-gray-500 disabled:cursor-not-allowed"
           >
             <Save size={16} className="inline-block mr-2" />
             Save Changes

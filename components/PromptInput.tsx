@@ -59,8 +59,10 @@ const PromptInput: React.FC<PromptInputProps> = ({ onSubmit, isLoading, onStop, 
     setIsReadingFiles(true);
     try {
       const newFilesPromises = selectedFiles
-        .filter(file => ALL_ACCEPTED_MIME_TYPES.includes(file.type))
-        .map(async file => {
+        // FIX: Add explicit type 'File' to the 'file' parameter.
+        .filter((file: File) => ALL_ACCEPTED_MIME_TYPES.includes(file.type))
+        // FIX: Add explicit type 'File' to the 'file' parameter.
+        .map(async (file: File) => {
           const content = await fileToDataURL(file);
           const mimeType = CONVERTIBLE_TO_TEXT_MIME_TYPES[file.type] || file.type;
           return {
@@ -156,7 +158,8 @@ const PromptInput: React.FC<PromptInputProps> = ({ onSubmit, isLoading, onStop, 
       )}
       <div>
         <div className="px-4 pt-3 pb-1 flex items-center gap-2">
-            {Object.values(modes).map(mode => (
+            {/* FIX: Add explicit type 'Mode' to the 'mode' parameter. */}
+            {Object.values(modes).map((mode: Mode) => (
               <button
                 key={mode.id}
                 type="button"

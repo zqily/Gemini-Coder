@@ -11,6 +11,7 @@ interface FileTreeProps {
   onFileClick: (path: string) => void;
   excludedPaths: Set<string>;
   onTogglePathExclusion: (path: string) => void;
+  isLoading: boolean;
 }
 
 interface TreeNode {
@@ -77,9 +78,10 @@ interface NodeProps {
     deletedItems: ProjectContext;
     excludedPaths: Set<string>;
     onTogglePathExclusion: (path: string) => void;
+    isLoading: boolean;
 }
 
-const Node: React.FC<NodeProps> = ({ node, level, onFileClick, allFiles, originalContext, deletedItems, excludedPaths, onTogglePathExclusion }) => {
+const Node: React.FC<NodeProps> = ({ node, level, onFileClick, allFiles, originalContext, deletedItems, excludedPaths, onTogglePathExclusion, isLoading }) => {
   const [isOpen, setIsOpen] = useState(true);
   const [copiedItem, setCopiedItem] = useState<'name' | 'content' | null>(null);
   const [isAltPressed, setIsAltPressed] = useState(false);
@@ -148,6 +150,8 @@ const Node: React.FC<NodeProps> = ({ node, level, onFileClick, allFiles, origina
   };
 
   const handleContainerClick = (e: React.MouseEvent) => {
+    if (isLoading) return;
+
     if (e.altKey || e.ctrlKey || e.shiftKey) {
         e.preventDefault();
     }
@@ -178,6 +182,13 @@ const Node: React.FC<NodeProps> = ({ node, level, onFileClick, allFiles, origina
   };
   
   const getDynamicProps = () => {
+    if (isLoading) {
+        return {
+            hoverClass: '',
+            title: 'Actions are disabled while Gemini is responding.'
+        }
+    }
+    
     let hoverClass = 'hover:bg-gray-700/70';
     let title = node.path;
 
@@ -201,20 +212,21 @@ const Node: React.FC<NodeProps> = ({ node, level, onFileClick, allFiles, origina
   return (
     <div>
       <div
-        className={`group flex items-center justify-between p-1 rounded-md transition-colors duration-100 ${hoverClass}`}
+        className={`group flex items-center justify-between p-1 rounded-md transition-colors duration-100 ${hoverClass} ${isLoading ? 'cursor-not-allowed opacity-70' : ''}`}
         style={{ paddingLeft: `${level * 16}px` }}
       >
         <div 
           onClick={handleContainerClick} 
-          className="flex items-center cursor-pointer flex-grow truncate mr-2"
+          className={`flex items-center flex-grow truncate mr-2 ${isLoading ? 'cursor-not-allowed' : 'cursor-pointer'}`}
           title={title}
         >
           <Icon size={16} className={`mr-2 flex-shrink-0 ${statusClasses}`} />
           <span className={`text-sm truncate ${statusClasses}`}>{node.name}</span>
           {statusIndicator}
         </div>
-        <div className="flex items-center opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+        <div className={`flex items-center transition-opacity flex-shrink-0 ${isLoading ? 'opacity-0' : 'opacity-0 group-hover:opacity-100'}`}>
           <button
+            disabled={isLoading}
             onClick={(e) => {
                 e.stopPropagation();
                 onTogglePathExclusion(node.path);
@@ -227,6 +239,7 @@ const Node: React.FC<NodeProps> = ({ node, level, onFileClick, allFiles, origina
           </button>
           {!isFolder && (
             <button
+              disabled={isLoading}
               onClick={(e) => {
                 e.stopPropagation();
                 handleCopy('content', allFiles.get(node.path) || '');
@@ -239,6 +252,7 @@ const Node: React.FC<NodeProps> = ({ node, level, onFileClick, allFiles, origina
             </button>
           )}
           <button
+            disabled={isLoading}
             onClick={(e) => {
               e.stopPropagation();
               handleCopy('name', node.name);
@@ -254,7 +268,7 @@ const Node: React.FC<NodeProps> = ({ node, level, onFileClick, allFiles, origina
       {isFolder && isOpen && node.children && (
         <div>
           {node.children.map(child => (
-            <Node key={child.path} node={child} level={level + 1} onFileClick={onFileClick} allFiles={allFiles} originalContext={originalContext} deletedItems={deletedItems} excludedPaths={excludedPaths} onTogglePathExclusion={onTogglePathExclusion} />
+            <Node key={child.path} node={child} level={level + 1} onFileClick={onFileClick} allFiles={allFiles} originalContext={originalContext} deletedItems={deletedItems} excludedPaths={excludedPaths} onTogglePathExclusion={onTogglePathExclusion} isLoading={isLoading} />
           ))}
         </div>
       )}
@@ -262,13 +276,13 @@ const Node: React.FC<NodeProps> = ({ node, level, onFileClick, allFiles, origina
   );
 };
 
-const FileTree: React.FC<FileTreeProps> = ({ allFiles, allDirs, originalContext, deletedItems, onFileClick, excludedPaths, onTogglePathExclusion }) => {
+const FileTree: React.FC<FileTreeProps> = ({ allFiles, allDirs, originalContext, deletedItems, onFileClick, excludedPaths, onTogglePathExclusion, isLoading }) => {
   const tree = buildTree(allFiles, allDirs);
 
   return (
     <div className="text-gray-300 overflow-y-auto">
       {tree.map(node => (
-        <Node key={node.path} node={node} level={0} onFileClick={onFileClick} allFiles={allFiles} originalContext={originalContext} deletedItems={deletedItems} excludedPaths={excludedPaths} onTogglePathExclusion={onTogglePathExclusion} />
+        <Node key={node.path} node={node} level={0} onFileClick={onFileClick} allFiles={allFiles} originalContext={originalContext} deletedItems={deletedItems} excludedPaths={excludedPaths} onTogglePathExclusion={onTogglePathExclusion} isLoading={isLoading} />
       ))}
     </div>
   );

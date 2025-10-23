@@ -1,4 +1,5 @@
 
+
 import React, { useRef } from 'react';
 import { Menu, Plus, Settings, UploadCloud, GitBranch, Trash2 } from './icons';
 import FileTree from './FileTree';
@@ -19,9 +20,10 @@ interface SidebarProps {
   onOpenFileEditor: (path: string) => void;
   excludedPaths: Set<string>;
   onTogglePathExclusion: (path: string) => void;
+  isLoading: boolean;
 }
 
-const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen, onNewChat, onOpenSettings, onProjectSync, displayContext, originalContext, deletedItems, onUnlinkProject, onOpenFileEditor, excludedPaths, onTogglePathExclusion }) => {
+const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen, onNewChat, onOpenSettings, onProjectSync, displayContext, originalContext, deletedItems, onUnlinkProject, onOpenFileEditor, excludedPaths, onTogglePathExclusion, isLoading }) => {
   const directoryInputRef = useRef<HTMLInputElement>(null);
 
   const handleProjectSyncClick = () => {
@@ -64,7 +66,8 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen, onNewChat, onOpenS
       <div className="mt-6 flex-shrink-0 space-y-2">
         <button
           onClick={onNewChat}
-          className={`flex items-center w-full p-2.5 rounded-xl transition-colors ${
+          disabled={isLoading}
+          className={`flex items-center w-full p-2.5 rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
             isOpen ? 'bg-[#3c3d3f] hover:bg-[#4b4c4e] justify-start' : 'hover:bg-gray-700 justify-center'
           }`}
         >
@@ -75,7 +78,8 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen, onNewChat, onOpenS
         </button>
         <button
           onClick={handleProjectSyncClick}
-          className={`flex items-center w-full p-2.5 rounded-xl transition-colors ${
+          disabled={isLoading}
+          className={`flex items-center w-full p-2.5 rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
             isOpen ? 'hover:bg-gray-700/70 justify-start' : 'hover:bg-gray-700 justify-center'
           }`}
         >
@@ -95,7 +99,8 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen, onNewChat, onOpenS
                 </div>
                 <button
                     onClick={onUnlinkProject}
-                    className="p-1 rounded-md hover:bg-gray-700 hover:text-red-400 transition-colors"
+                    disabled={isLoading}
+                    className="p-1 rounded-md hover:bg-gray-700 hover:text-red-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     aria-label="Unlink project"
                     title="Unlink project"
                 >
@@ -110,6 +115,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen, onNewChat, onOpenS
                 onFileClick={onOpenFileEditor}
                 excludedPaths={excludedPaths}
                 onTogglePathExclusion={onTogglePathExclusion}
+                isLoading={isLoading}
              />
           </div>
       )}
@@ -118,7 +124,8 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen, onNewChat, onOpenS
       <div className="mt-auto flex-shrink-0 space-y-2 pt-4 border-t border-gray-700/60">
         <button
           onClick={onOpenSettings}
-          className={`flex items-center w-full p-2 rounded-lg hover:bg-gray-700 transition-colors ${!isOpen && 'justify-center'}`}
+          disabled={isLoading}
+          className={`flex items-center w-full p-2 rounded-lg hover:bg-gray-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${!isOpen && 'justify-center'}`}
         >
           <Settings size={20} className="flex-shrink-0" />
            <div className={`overflow-hidden transition-all duration-200 ${isOpen ? 'w-auto ml-2' : 'w-0 ml-0'}`}>

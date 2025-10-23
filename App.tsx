@@ -67,7 +67,8 @@ const App: React.FC = () => {
   
   useEffect(() => {
     // This context is for rendering the file tree. It shows everything: current + deleted + attached.
-    const mergedFiles = new Map([
+    // FIX: Add explicit types to new Map() to avoid it being Map<unknown, unknown>.
+    const mergedFiles = new Map<string, string>([
       ...(deletedItems?.files || []),
       ...(projectContext?.files || [])
     ]);
@@ -399,7 +400,8 @@ const App: React.FC = () => {
                if (excludedPaths.has(path)) return true;
                for (const excluded of excludedPaths) {
                  // Exclude if it's a descendant of an excluded folder
-                 if (path.startsWith(excluded + '/')) {
+                 // FIX: Coerce 'excluded' to string using a template literal to satisfy strict type checking.
+                 if (path.startsWith(`${excluded}/`)) {
                    return true;
                  }
                }
@@ -615,6 +617,7 @@ const App: React.FC = () => {
         onOpenFileEditor={handleOpenFileEditor}
         excludedPaths={excludedPaths}
         onTogglePathExclusion={handleTogglePathExclusion}
+        isLoading={isLoading}
       />
       <MainContent
         isSidebarOpen={isSidebarOpen}
@@ -654,6 +657,7 @@ const App: React.FC = () => {
           initialContent={editingFile.content}
           onClose={handleCloseFileEditor}
           onSave={handleSaveFile}
+          isLoading={isLoading}
         />
       )}
     </div>
