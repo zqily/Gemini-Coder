@@ -320,7 +320,7 @@ const WelcomeScreen: React.FC<{ onExampleClick: (prompt: string) => void }> = ({
     return (
          <div className="flex flex-col h-full justify-center items-center text-center pb-24">
             <img src="/assets/gemini.svg" alt="Gemini Logo" className="w-20 h-20 mb-6" />
-            <h1 className="text-5xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-purple-500 animate-shimmer">
+            <h1 className="text-5xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-purple-500 animate-flow-gradient">
                 Hello, how can I help?
             </h1>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-12 w-full max-w-2xl">

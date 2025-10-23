@@ -104,15 +104,15 @@
     animation: fade-in-scale 0.2s ease-out forwards;
   }
 
-
-  /* Shimmering gradient animation for the welcome text */
-  @keyframes shimmer {
-    0% { background-position: -200% center; }
-    100% { background-position: 200% center; }
+  /* Aurora gradient animation for the welcome text */
+  @keyframes flow-gradient {
+    0% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
   }
-  .animate-shimmer {
-    background-size: 200% auto;
-    animation: shimmer 4s linear infinite;
+  .animate-flow-gradient {
+    background-size: 300% 300%;
+    animation: flow-gradient 12s ease-in-out infinite;
   }
 
   /* Animation for model response content */
