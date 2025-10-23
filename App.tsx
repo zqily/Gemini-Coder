@@ -43,9 +43,8 @@ const MODES: Record<ModeId, Mode> = {
     icon: CodeXml,
     systemInstruction: `You are an expert programmer. Your primary purpose is to help the user with their code. You have been granted a set of tools to modify a virtual file system. Use these tools when the user asks for code changes, new files, or refactoring.
 
-If no project is loaded, your first step MUST be to call the 'createProject' tool to initialize the file system before using any other file system tools.
-
-**Crucially, you must complete the user's entire request in a single turn. Do not perform one file modification and then stop. You must plan all the required changes and then issue all the necessary function calls in the same response.** Announce which files you are modifying before you make a change. When you are finished with all file modifications, let the user know you are done and write a summary of your changes.`
+**Crucially, you must complete the user's entire request in a single turn. Do not perform one file modification and then stop. You must plan all the required changes and then issue all the necessary function calls in the same response.** Announce which files you are modifying before you make a change. When you are finished with all file modifications, let the user know you are done and write a summary of your changes.`,
+    systemInstructionNoProject: `You are an expert programmer. Your primary purpose is to help the user with their code. Write all code directly into your response. When you are finished, let the user know you are done and write a summary of the code you provided.`
   }
 };
 
@@ -72,13 +71,6 @@ const FILE_SYSTEM_TOOLS: FunctionDeclaration[] = [
     }
 ];
 
-const CREATE_PROJECT_TOOL: FunctionDeclaration = {
-    name: 'createProject',
-    description: 'Initializes a new, empty project with a given name. When no project context is available, this tool MUST be called before any other file system tools.',
-    parameters: { type: Type.OBJECT, properties: { projectName: { type: Type.STRING, description: 'The name for the new project.' } }, required: ['projectName'] }
-};
-
-
 const EMPTY_CONTEXT: ProjectContext = { files: new Map(), dirs: new Set() };
 
 /**
@@ -86,57 +78,44 @@ const EMPTY_CONTEXT: ProjectContext = { files: new Map(), dirs: new Set() };
  * It takes the current project context and returns the new context after the operation.
  * It does not have any side effects (like calling React state setters).
  * @param fc The FunctionCall object from the model.
- * @param currentContext The current state of the project files and directories. Can be null if no project exists yet.
+ * @param currentContext The current state of the project files and directories.
  * @param currentDeleted The current state of deleted items.
  * @returns An object containing the result of the operation and the new project/deleted contexts.
  */
-const executeFunctionCall = (fc: FunctionCall, currentContext: ProjectContext | null, currentDeleted: ProjectContext): { result: any, newContext: ProjectContext, newDeleted: ProjectContext } => {
+const executeFunctionCall = (fc: FunctionCall, currentContext: ProjectContext, currentDeleted: ProjectContext): { result: any, newContext: ProjectContext, newDeleted: ProjectContext } => {
     const { name, args } = fc;
     let result: any = { success: true };
+    let newContext = currentContext;
     let newDeleted = currentDeleted;
 
     if (!args) {
-        const errorContext = currentContext ?? { files: new Map(), dirs: new Set() };
-        return { result: { success: false, error: `Function call '${name || 'unknown'}' is missing arguments.` }, newContext: errorContext, newDeleted };
+        return { result: { success: false, error: `Function call '${name || 'unknown'}' is missing arguments.` }, newContext, newDeleted };
     }
-    
-    // Handle project creation separately as it initializes the context.
-    if (name === 'createProject') {
-        const newContext: ProjectContext = { files: new Map(), dirs: new Set() };
-        result.message = `Created new project: ${args.projectName as string}`;
-        // Return early as it doesn't depend on a previous context.
-        return { result, newContext, newDeleted };
-    }
-    
-    // For all other functions, ensure a context exists.
-    // This gracefully handles the case where the model uses a file tool without calling createProject first.
-    const context = currentContext ?? { files: new Map(), dirs: new Set() };
-    let newContext = context;
 
     try {
         switch (name) {
             case 'writeFile':
-                newContext = FileSystem.createFile(args.path as string, args.content as string, context);
+                newContext = FileSystem.createFile(args.path as string, args.content as string, currentContext);
                 result.message = `Wrote to ${args.path as string}`;
                 break;
             case 'createFolder':
-                newContext = FileSystem.createFolder(args.path as string, context);
+                newContext = FileSystem.createFolder(args.path as string, currentContext);
                 result.message = `Created folder ${args.path as string}`;
                 break;
             case 'move':
-                newContext = FileSystem.movePath(args.sourcePath as string, args.destinationPath as string, context);
+                newContext = FileSystem.movePath(args.sourcePath as string, args.destinationPath as string, currentContext);
                 result.message = `Moved ${args.sourcePath as string} to ${args.destinationPath as string}`;
                 break;
             case 'deletePath':
                 const pathToDelete = args.path as string;
-                const subtreeToDelete = FileSystem.extractSubtree(pathToDelete, context);
+                const subtreeToDelete = FileSystem.extractSubtree(pathToDelete, currentContext);
                 
                 if (subtreeToDelete.files.size > 0 || subtreeToDelete.dirs.size > 0) {
                     newDeleted = {
                         files: new Map([...currentDeleted.files, ...subtreeToDelete.files]),
                         dirs: new Set([...currentDeleted.dirs, ...subtreeToDelete.dirs])
                     };
-                    newContext = FileSystem.deletePath(pathToDelete, context);
+                    newContext = FileSystem.deletePath(pathToDelete, currentContext);
                     result.message = `Deleted ${pathToDelete}`;
                 } else {
                      result = { success: false, error: `Path not found for deletion: ${pathToDelete}` };
@@ -470,6 +449,7 @@ const App: React.FC = () => {
 
         let historyForApi = cleanHistory(updatedChatHistory);
         const isCoderMode = selectedMode.includes('coder');
+        const isProjectSynced = projectContext !== null;
         
         if (projectContext && isCoderMode) {
              const filteredContext: ProjectContext = { files: new Map(), dirs: new Set() };
@@ -525,17 +505,13 @@ const App: React.FC = () => {
             });
         };
         
-        const systemInstruction = MODES[selectedMode].systemInstruction;
-        
-        let tools: { functionDeclarations: FunctionDeclaration[] }[] | undefined;
-        if (isCoderMode) {
-            const availableTools = projectContext === null
-                ? [...FILE_SYSTEM_TOOLS, CREATE_PROJECT_TOOL]
-                : FILE_SYSTEM_TOOLS;
-            tools = [{ functionDeclarations: availableTools }];
-        } else {
-            tools = undefined;
+        const mode = MODES[selectedMode];
+        let systemInstruction = mode.systemInstruction;
+        if (isCoderMode && !isProjectSynced) {
+            systemInstruction = (mode as any).systemInstructionNoProject;
         }
+
+        const tools = isCoderMode && isProjectSynced ? [{ functionDeclarations: FILE_SYSTEM_TOOLS }] : undefined;
 
         const response = await generateContentWithRetries(
             apiKey, selectedModel, historyForApi, systemInstruction, tools,
@@ -572,16 +548,15 @@ const App: React.FC = () => {
 
             // If there were function calls, execute them now
             if (functionCalls.length > 0) {
-                const wasProjectInitiallyNull = projectContext === null;
                 // Batch process all function calls from the model's response
-                let accumulatedContext: ProjectContext | null = projectContext;
+                let accumulatedContext = projectContext;
                 let accumulatedDeleted = deletedItems;
                 const functionResponses: ChatPart[] = [];
     
                 for (const fc of functionCalls) {
                     if (cancellationRef.current) throw new Error('Cancelled by user');
     
-                    const { result, newContext, newDeleted } = executeFunctionCall(fc, accumulatedContext, accumulatedDeleted);
+                    const { result, newContext, newDeleted } = executeFunctionCall(fc, accumulatedContext!, accumulatedDeleted);
                     
                     accumulatedContext = newContext;
                     accumulatedDeleted = newDeleted;
@@ -597,9 +572,6 @@ const App: React.FC = () => {
                 if (cancellationRef.current) throw new Error('Cancelled by user');
     
                 // Update React state once with the final accumulated context for this turn
-                if (wasProjectInitiallyNull && accumulatedContext) {
-                    setOriginalProjectContext(accumulatedContext);
-                }
                 setProjectContext(accumulatedContext);
                 setDeletedItems(accumulatedDeleted);
                 

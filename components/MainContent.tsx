@@ -7,43 +7,8 @@ import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import GeminiIcon from './GeminiIcon';
+import { ALL_ACCEPTED_MIME_TYPES, CONVERTIBLE_TO_TEXT_MIME_TYPES, fileToDataURL } from '../utils/fileUpload';
 
-// File handling utilities
-
-const NATIVELY_SUPPORTED_MIME_TYPES = [
-  'image/png', 'image/jpeg', 'image/webp', 'image/heic', 'image/heif',
-  'text/plain', 'text/html', 'text/css', 'text/javascript', 'application/x-javascript',
-  'text/x-typescript', 'application/x-typescript', 'text/csv', 'text/markdown',
-  'text/x-python', 'application/x-python-code', 'application/json', 'text/xml', 'application/rtf',
-  'application/pdf'
-];
-
-// A map of text-based MIME types to convert to 'text/plain' for wider compatibility
-const CONVERTIBLE_TO_TEXT_MIME_TYPES: Record<string, string> = {
-    'image/svg+xml': 'text/plain',
-    'application/x-sh': 'text/plain',
-    'text/x-c': 'text/plain',
-    'text/x-csharp': 'text/plain',
-    'text/x-c++': 'text/plain',
-    'text/x-java-source': 'text/plain',
-    'text/x-php': 'text/plain',
-    'text/x-ruby': 'text/plain',
-    'text/x-go': 'text/plain',
-    'text/rust': 'text/plain',
-    'application/toml': 'text/plain',
-    'text/yaml': 'text/plain',
-};
-
-const ALL_ACCEPTED_MIME_TYPES = [...NATIVELY_SUPPORTED_MIME_TYPES, ...Object.keys(CONVERTIBLE_TO_TEXT_MIME_TYPES)];
-
-const fileToDataURL = (file: File): Promise<string> => {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result as string);
-    reader.onerror = error => reject(error);
-    reader.readAsDataURL(file);
-  });
-};
 
 interface MainContentProps {
   isSidebarOpen: boolean;
@@ -57,7 +22,7 @@ interface MainContentProps {
   setIsReadingFiles: (isReading: boolean) => void;
   selectedModel: string;
   setSelectedModel: (model: string) => void;
-  onSubmit: (prompt: string, files: AttachedFile[]) => void;
+  onSubmit: (prompt: string) => void;
   onStop: () => void;
   selectedMode: ModeId;
   setSelectedMode: (mode: ModeId) => void;
@@ -70,8 +35,8 @@ const ModelSelector: React.FC<{ selectedModel: string; setSelectedModel: (model:
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   const models = [
-    { id: 'gemini-2.5-pro', name: 'Gemini Pro' },
-    { id: 'gemini-flash-latest', name: 'Gemini Flash' },
+    { id: 'gemini-1.5-pro-latest', name: 'Gemini 1.5 Pro' },
+    { id: 'gemini-1.5-flash-latest', name: 'Gemini 1.5 Flash' },
   ];
 
   const currentModelName = models.find(m => m.id === selectedModel)?.name || 'Select Model';
@@ -161,26 +126,62 @@ const MarkdownRenderer: React.FC<{ content: string }> = ({ content }) => {
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
       components={{
-        code({ node, inline, className, children, ...props }: React.ComponentProps<'code'> & { node?: any; inline?: boolean }) {
-          const match = /language-(\w+)/.exec(className || '');
-          const codeString = String(children);
-          return !inline ? (
-            <CodeBlock 
-              language={match ? match[1] : ''} 
-              codeString={codeString} 
-            />
-          ) : (
-            <code className={className} {...props}>
-              {children}
-            </code>
-          );
-        },
+      code({
+        node,
+        inline,
+        className,
+        children,
+        ...props
+      }: React.ComponentProps<'code'> & { node?: any; inline?: boolean }) {
+        // Recursively extract text from children (handles arrays / nested nodes)
+        const extractText = (ch: any): string => {
+          if (ch == null) return '';
+          if (Array.isArray(ch)) return ch.map(extractText).join('');
+          if (typeof ch === 'string' || typeof ch === 'number') return String(ch);
+          // If it's a React element, try to get its children
+          if (typeof ch === 'object' && 'props' in ch) return extractText((ch as any).props?.children);
+          return '';
+        };
+        const raw = extractText(children).replace(/\u200B/g, '');
+        const trimmed = raw.trim();
+        // Remove ONLY leading/trailing backticks (any count), but keep internal backticks if intentional
+        const cleaned = trimmed.replace(/^`+|`+$/g, '');
+
+        // Detect language class e.g. language-js
+        const langMatch = /language-(\w+)/.exec(className || '');
+        const detectedLanguage = langMatch ? langMatch[1] : '';
+
+        // Block if fenced (language class) or contains newline (multiline)
+        const isBlock = Boolean(detectedLanguage) || cleaned.includes('\n');
+
+        if (isBlock) {
+          // Remove possible fenced triple-backticks for safety and trim extra newlines
+          const blockCode = cleaned.replace(/^```+|```+$/g, '').replace(/^\n+|\n+$/g, '');
+          return <CodeBlock language={detectedLanguage} codeString={blockCode} />;
+        }
+
+        // Inline styling: orange/yellow text with subtle matching background
+        return (
+          <code
+            className="inline-block align-baseline font-mono text-sm px-1 py-[0.125rem] rounded"
+            {...props}
+            style={{
+              color: '#f6c348', // yellow-orange text
+              backgroundColor: 'rgba(246,195,72,0.08)', // subtle matching bg
+              border: '1px solid rgba(246,195,72,0.12)',
+            }}
+          >
+            {cleaned}
+          </code>
+        );
+      }
       }}
     >
       {content}
     </ReactMarkdown>
   );
 };
+
 
 interface ChatBubbleProps {
   message: ChatMessage;
@@ -412,11 +413,11 @@ const MainContent: React.FC<MainContentProps> = ({ isMobile, toggleSidebar, chat
   }, [handleFileSelect]);
 
   const handleExampleSubmit = (prompt: string) => {
-    onSubmit(prompt, []);
+    onSubmit(prompt);
   };
   
   const handlePromptSubmit = (prompt: string) => {
-    onSubmit(prompt, attachedFiles);
+    onSubmit(prompt);
   };
 
   useEffect(() => {

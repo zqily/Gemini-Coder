@@ -5,6 +5,7 @@ export interface Mode {
   id: ModeId;
   name: string;
   systemInstruction?: string;
+  systemInstructionNoProject?: string;
   icon: React.ElementType;
 }
 
