@@ -569,15 +569,19 @@ const App: React.FC = () => {
             let finalSystemInstruction = '';
             const filesExist = !!projectFileContext;
             
+            const functionCallingSuffix = ' You MUST perform all necessary file system modifications (writeFile, createFolder, etc.) in a single turn by making multiple, parallel function calls. Do not stop after one function call if more are needed. Review your plan and ensure all file operations are executed at once.';
+
             if (!filesExist && !phase5Skipped) {
-                finalSystemInstruction = 'Implement the revisions from the consolidated review. Explain what file(s) will be created, their purpose, and how to run the resulting project. Generate code and call necessary functions.';
+                finalSystemInstruction = 'Implement the revisions from the consolidated review. Explain what file(s) will be created, their purpose, and how to run the resulting project.';
             } else if (filesExist && !phase5Skipped) {
-                finalSystemInstruction = 'Apply the revisions from the consolidated review to the existing codebase. Explain what file(s) will be created, modified, or deleted, why the changes are being made, and how to run the updated project. Crucially, compare between the original project/file state and the new, updated one, NOT the intermediate draft. Generate code and call necessary functions.';
+                finalSystemInstruction = 'Apply the revisions from the consolidated review to the existing codebase. Explain what file(s) will be created, modified, or deleted, why the changes are being made, and how to run the updated project. Crucially, compare between the original project/file state and the new, updated one, NOT the intermediate draft.';
             } else if (!filesExist && phase5Skipped) {
-                finalSystemInstruction = 'Implement the draft from Phase 3 into the new codebase. Explain what file(s) will be created, their purpose, and how to run the project. Generate code and call necessary functions.';
+                finalSystemInstruction = 'Implement the draft from Phase 3 into the new codebase. Explain what file(s) will be created, their purpose, and how to run the project.';
             } else { // filesExist && phase5Skipped
-                finalSystemInstruction = 'Implement the draft from Phase 3 into the existing codebase. Explain what file(s) will be created, modified, or deleted, why the changes are being made, and how to run the updated project. Generate code and call necessary functions.';
+                finalSystemInstruction = 'Implement the draft from Phase 3 into the existing codebase. Explain what file(s) will be created, modified, or deleted, why the changes are being made, and how to run the updated project.';
             }
+            
+            finalSystemInstruction += functionCallingSuffix;
 
             const finalHistory = [...baseHistory];
             const finalUserContent = `Code Draft:\n${codeDraft}\n\n${consolidatedReview ? `Consolidated Review:\n${consolidatedReview}` : ''}`;

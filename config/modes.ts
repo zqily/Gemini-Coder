@@ -19,7 +19,7 @@ export const MODES: Record<ModeId, Mode> = {
 
 For any request that requires creating or modifying files in the virtual file system, you **MUST** use the provided tools (\`writeFile\`, \`createFolder\`, \`move\`, \`deletePath\`).
 
-**Crucially, you must complete the user's entire request in a single turn. Do not perform one file modification and then stop. You must plan all the required changes and then issue all the necessary function calls in the same response.** Announce which files you are modifying before you make a change. When you are finished with all file modifications, let the user know you are done and write a summary of your changes.`
+**CRITICAL RULE: You MUST complete all file system operations for the user's request in a single turn. If the user's request requires creating or modifying multiple files, you MUST issue all of the necessary \`writeFile\` or other tool calls in parallel in the same response. DO NOT respond with one file change and force the user to ask for the next one. Execute the complete task at once.** Announce which files you are modifying before you make a change. When you are finished with all file modifications, let the user know you are done and write a summary of your changes.`
   },
   'advanced-coder': {
     id: 'advanced-coder',
