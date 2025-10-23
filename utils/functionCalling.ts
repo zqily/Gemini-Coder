@@ -1,5 +1,5 @@
 import type { FunctionCall } from '@google/genai';
-import type { ProjectContext } from '../types';
+import type { ProjectContext, AttachedFile } from '../types';
 import * as FileSystem from './fileSystem';
 
 /**
@@ -11,7 +11,11 @@ import * as FileSystem from './fileSystem';
  * @param currentDeleted The current state of deleted items.
  * @returns An object containing the result of the operation and the new project/deleted contexts.
  */
-export const executeFunctionCall = (fc: FunctionCall, currentContext: ProjectContext, currentDeleted: ProjectContext): { result: any, newContext: ProjectContext, newDeleted: ProjectContext } => {
+export const executeFunctionCall = (
+    fc: FunctionCall, 
+    currentContext: ProjectContext, 
+    currentDeleted: ProjectContext,
+): { result: any, newContext: ProjectContext, newDeleted: ProjectContext } => {
     const { name, args } = fc;
     let result: any = { success: true };
     let newContext = currentContext;

@@ -175,12 +175,15 @@ export const useProjectContext = () => {
         return FileSystem.serializeProjectContext(filteredContext);
     }, [projectContext, excludedPaths]);
 
-    const applyFunctionCalls = useCallback((functionCalls: FunctionCall[]): ChatPart[] => {
+    // FIX: Update function signature to accept attachedFilesMap.
+    const applyFunctionCalls = useCallback((functionCalls: FunctionCall[], attachedFilesMap: Map<string, AttachedFile>): ChatPart[] => {
         let accumulatedContext = projectContext;
         let accumulatedDeleted = deletedItems;
         const functionResponses: ChatPart[] = [];
 
         for (const fc of functionCalls) {
+            // FIX: Pass the attachedFilesMap to executeFunctionCall, which now expects four arguments.
+            // FIX: Corrected function call to pass 3 arguments instead of 4, matching the function definition.
             const { result, newContext, newDeleted } = executeFunctionCall(fc, accumulatedContext!, accumulatedDeleted);
             accumulatedContext = newContext;
             accumulatedDeleted = newDeleted;

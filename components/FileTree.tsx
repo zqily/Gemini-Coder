@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Folder, FolderOpen, FileText, Copy, ClipboardCopy, Check, Eye, EyeOff } from './icons';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { Folder, FolderOpen, FileText, Copy, ClipboardCopy, Check, Eye, EyeOff, FilePlus, FolderPlus, Pencil, Trash2 } from './icons';
 import type { ProjectContext } from '../types';
 
 
@@ -12,6 +12,12 @@ interface FileTreeProps {
   excludedPaths: Set<string>;
   onTogglePathExclusion: (path: string) => void;
   isLoading: boolean;
+  onCreateFile: (path: string) => void;
+  onCreateFolder: (path: string) => void;
+  onDeletePath: (path: string) => void;
+  onRenamePath: (oldPath: string, newPath: string) => void;
+  creatingIn: { path: string; type: 'file' | 'folder' } | null;
+  setCreatingIn: (state: { path: string; type: 'file' | 'folder' } | null) => void;
 }
 
 interface TreeNode {
@@ -45,8 +51,6 @@ const buildTree = (files: Map<string, string>, dirs: Set<string>): TreeNode[] =>
             nodeMap.set(path, newNode);
         }
       } else {
-        // If a directory was created first, then a file inside it, we might see the dir path then the file path.
-        // If a path for a folder already exists, ensure it has children array if it's now confirmed to be a folder.
         if (type === 'folder' && !existing.children) {
             existing.children = [];
             nodeMap.set(path, existing);
@@ -55,7 +59,6 @@ const buildTree = (files: Map<string, string>, dirs: Set<string>): TreeNode[] =>
     }
   });
 
-  // Sort children at each level
   for(const node of nodeMap.values()){
     if(node.children){
         node.children.sort((a,b) => {
@@ -68,222 +71,496 @@ const buildTree = (files: Map<string, string>, dirs: Set<string>): TreeNode[] =>
   return fileTree.children || [];
 };
 
+const EditInput: React.FC<{
+  initialValue: string;
+  onCommit: (newValue: string) => void;
+  onCancel: () => void;
+  isFolder: boolean;
+}> = ({ initialValue, onCommit, onCancel, isFolder }) => {
+  const [value, setValue] = useState(initialValue);
+  const inputRef = useRef<HTMLInputElement>(null);
 
-interface NodeProps {
-    node: TreeNode;
-    level: number;
-    onFileClick: (path: string) => void;
-    allFiles: Map<string, string>;
-    originalContext: ProjectContext | null;
-    deletedItems: ProjectContext;
-    excludedPaths: Set<string>;
-    onTogglePathExclusion: (path: string) => void;
-    isLoading: boolean;
-}
-
-const Node: React.FC<NodeProps> = ({ node, level, onFileClick, allFiles, originalContext, deletedItems, excludedPaths, onTogglePathExclusion, isLoading }) => {
-  const [isOpen, setIsOpen] = useState(true);
-  const [copiedItem, setCopiedItem] = useState<'name' | 'content' | null>(null);
-  const [isAltPressed, setIsAltPressed] = useState(false);
-  const [isCtrlPressed, setIsCtrlPressed] = useState(false);
-  const [isShiftPressed, setIsShiftPressed] = useState(false);
-  const isFolder = node.type === 'folder';
-  
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-        if (e.key === 'Alt') {
-            e.preventDefault(); // Prevent browser menu focus
-            setIsAltPressed(true);
-        }
-        if (e.key === 'Control') setIsCtrlPressed(true);
-        if (e.key === 'Shift') setIsShiftPressed(true);
-    };
-    const handleKeyUp = (e: KeyboardEvent) => {
-        if (e.key === 'Alt') setIsAltPressed(false);
-        if (e.key === 'Control') setIsCtrlPressed(false);
-        if (e.key === 'Shift') setIsShiftPressed(false);
-    };
-    const handleBlur = () => {
-        // Reset if window loses focus
-        setIsAltPressed(false);
-        setIsCtrlPressed(false);
-        setIsShiftPressed(false);
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    window.addEventListener('keyup', handleKeyUp);
-    window.addEventListener('blur', handleBlur);
-
-    return () => {
-        window.removeEventListener('keydown', handleKeyDown);
-        window.removeEventListener('keyup', handleKeyUp);
-        window.removeEventListener('blur', handleBlur);
-    };
+    inputRef.current?.focus();
+    inputRef.current?.select();
   }, []);
 
-  const isDeleted = deletedItems.files.has(node.path) || deletedItems.dirs.has(node.path);
-  const isExcluded = excludedPaths.has(node.path);
-  const isCreated = !isDeleted && originalContext && !originalContext.files.has(node.path) && !originalContext.dirs.has(node.path);
-  const isModified = !isDeleted && !isCreated && node.type === 'file' && originalContext && originalContext.files.get(node.path) !== allFiles.get(node.path);
-
-  let statusClasses = 'text-gray-300';
-  let statusIndicator: React.ReactNode = null;
-  if (isDeleted) {
-    statusClasses = 'text-red-400/80 line-through';
-    statusIndicator = <span className="font-mono text-xs ml-1 text-red-400/80">[D]</span>;
-  } else if (isExcluded) {
-    statusClasses = 'text-gray-500 italic';
-  } else if (isCreated) {
-    statusClasses = 'text-green-400';
-    statusIndicator = <span className="font-mono text-xs ml-1 text-green-400">[A]</span>;
-  } else if (isModified) {
-    statusClasses = 'text-blue-400';
-    statusIndicator = <span className="font-mono text-xs ml-1 text-blue-400">[M]</span>;
-  }
-
-  const handleCopy = (type: 'name' | 'content', textToCopy: string) => {
-    if (typeof textToCopy !== 'string') return;
-    navigator.clipboard.writeText(textToCopy).then(() => {
-      setCopiedItem(type);
-      setTimeout(() => setCopiedItem(null), 2000);
-    });
-  };
-
-  const handleContainerClick = (e: React.MouseEvent) => {
-    if (isLoading) return;
-
-    if (e.altKey || e.ctrlKey || e.shiftKey) {
-        e.preventDefault();
-    }
-
-    if (e.altKey) {
-        onTogglePathExclusion(node.path);
-        return;
-    }
-    if (e.ctrlKey) {
-        if (isFolder) {
-            handleCopy('name', node.name);
-        } else {
-            handleCopy('content', allFiles.get(node.path) || '');
-        }
-        return;
-    }
-    if (e.shiftKey) {
-        handleCopy('name', node.name);
-        return;
-    }
-
-    // Default action (no modifier)
-    if (isFolder) {
-        setIsOpen(!isOpen);
-    } else {
-        onFileClick(node.path);
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      onCommit(value);
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      onCancel();
     }
   };
-  
-  const getDynamicProps = () => {
-    if (isLoading) {
-        return {
-            hoverClass: '',
-            title: 'Actions are disabled while Gemini is responding.'
-        }
-    }
-    
-    let hoverClass = 'hover:bg-gray-700/70';
-    let title = node.path;
 
-    if (isAltPressed) {
-        hoverClass = 'hover:bg-gray-600';
-        title = `Alt-click to ${isExcluded ? 'include' : 'exclude'} this path from context`;
-    } else if (isCtrlPressed) {
-        hoverClass = isFolder ? 'hover:bg-yellow-800/50' : 'hover:bg-green-800/50';
-        title = isFolder ? 'Ctrl-click to copy name' : 'Ctrl-click to copy content';
-    } else if (isShiftPressed) {
-        hoverClass = 'hover:bg-yellow-800/50';
-        title = 'Shift-click to copy name';
-    }
-    
-    return { hoverClass, title };
-  };
-
-  const { hoverClass, title } = getDynamicProps();
-  const Icon = isFolder ? (isOpen ? FolderOpen : Folder) : FileText;
+  const Icon = isFolder ? Folder : FileText;
 
   return (
-    <div>
-      <div
-        className={`group flex items-center justify-between p-1 rounded-md transition-colors duration-100 ${hoverClass} ${isLoading ? 'cursor-not-allowed opacity-70' : ''}`}
-        style={{ paddingLeft: `${level * 16}px` }}
-      >
-        <div 
-          onClick={handleContainerClick} 
-          className={`flex items-center flex-grow truncate mr-2 ${isLoading ? 'cursor-not-allowed' : 'cursor-pointer'}`}
-          title={title}
-        >
-          <Icon size={16} className={`mr-2 flex-shrink-0 ${statusClasses}`} />
-          <span className={`text-sm truncate ${statusClasses}`}>{node.name}</span>
-          {statusIndicator}
-        </div>
-        <div className={`flex items-center transition-opacity flex-shrink-0 ${isLoading ? 'opacity-0' : 'opacity-0 group-hover:opacity-100'}`}>
-          <button
-            disabled={isLoading}
-            onClick={(e) => {
-                e.stopPropagation();
-                onTogglePathExclusion(node.path);
-            }}
-            className="p-1 rounded hover:bg-gray-600"
-            title={isExcluded ? 'Include in context (Alt+Click)' : 'Exclude from context (Alt+Click)'}
-            aria-label={isExcluded ? 'Include in context' : 'Exclude from context'}
-            >
-            {isExcluded ? <EyeOff size={14} className="text-gray-500"/> : <Eye size={14} />}
-          </button>
-          {!isFolder && (
-            <button
-              disabled={isLoading}
-              onClick={(e) => {
-                e.stopPropagation();
-                handleCopy('content', allFiles.get(node.path) || '');
-              }}
-              className="p-1 rounded hover:bg-gray-600"
-              title="Copy content"
-              aria-label="Copy file content"
-            >
-              {copiedItem === 'content' ? <Check size={14} className="text-green-400" /> : <ClipboardCopy size={14} />}
-            </button>
-          )}
-          <button
-            disabled={isLoading}
-            onClick={(e) => {
-              e.stopPropagation();
-              handleCopy('name', node.name);
-            }}
-            className="p-1 rounded hover:bg-gray-600"
-            title="Copy name"
-            aria-label="Copy name"
-          >
-            {copiedItem === 'name' ? <Check size={14} className="text-green-400" /> : <Copy size={14} />}
-          </button>
-        </div>
-      </div>
-      {isFolder && isOpen && node.children && (
-        <div>
-          {node.children.map(child => (
-            <Node key={child.path} node={child} level={level + 1} onFileClick={onFileClick} allFiles={allFiles} originalContext={originalContext} deletedItems={deletedItems} excludedPaths={excludedPaths} onTogglePathExclusion={onTogglePathExclusion} isLoading={isLoading} />
-          ))}
-        </div>
-      )}
+    <div className="flex items-center p-1 rounded-md">
+      <Icon size={16} className="mr-2 flex-shrink-0 text-gray-300" />
+      <input
+        ref={inputRef}
+        type="text"
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onBlur={() => onCancel()}
+        onKeyDown={handleKeyDown}
+        className="text-sm bg-gray-700 text-white focus:outline-none focus:ring-1 focus:ring-blue-500 rounded-sm px-1 w-full"
+        spellCheck="false"
+      />
     </div>
   );
 };
 
-const FileTree: React.FC<FileTreeProps> = ({ allFiles, allDirs, originalContext, deletedItems, onFileClick, excludedPaths, onTogglePathExclusion, isLoading }) => {
+
+const FileTree: React.FC<FileTreeProps> = ({ 
+    allFiles, allDirs, originalContext, deletedItems, onFileClick, excludedPaths, onTogglePathExclusion, isLoading,
+    onCreateFile, onCreateFolder, onDeletePath, onRenamePath,
+    creatingIn, setCreatingIn
+}) => {
+  const [contextMenu, setContextMenu] = useState<{ x: number, y: number, path: string, type: 'file' | 'folder' } | null>(null);
+  const [editingPath, setEditingPath] = useState<string | null>(null);
+  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(() => new Set(['']));
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [draggedPath, setDraggedPath] = useState<string | null>(null);
+  const [dropTarget, setDropTarget] = useState<string | null>(null);
+  const dragCounter = useRef(0);
+  
+  const [copiedPath, setCopiedPath] = useState<string | null>(null);
+  const [isAltPressed, setIsAltPressed] = useState(false);
+  const [isCtrlPressed, setIsCtrlPressed] = useState(false);
+  const [isShiftPressed, setIsShiftPressed] = useState(false);
+
+
   const tree = buildTree(allFiles, allDirs);
 
+  const handleCancel = useCallback(() => {
+    setContextMenu(null);
+    setEditingPath(null);
+    setCreatingIn(null);
+  }, [setCreatingIn]);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+        if (e.key === 'Escape') {
+            handleCancel();
+        }
+        if (e.key === 'Alt') setIsAltPressed(true);
+        if (e.key === 'Control' || e.key === 'Meta') setIsCtrlPressed(true);
+        if (e.key === 'Shift') setIsShiftPressed(true);
+    };
+    const handleKeyUp = (e: KeyboardEvent) => {
+        if (e.key === 'Alt') setIsAltPressed(false);
+        if (e.key === 'Control' || e.key === 'Meta') setIsCtrlPressed(false);
+        if (e.key === 'Shift') setIsShiftPressed(false);
+    };
+    const handleBlur = () => {
+        setIsAltPressed(false);
+        setIsCtrlPressed(false);
+        setIsShiftPressed(false);
+    };
+    const handleClickOutside = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        handleCancel();
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    window.addEventListener('blur', handleBlur);
+    return () => {
+        document.removeEventListener('mousedown', handleClickOutside);
+        window.removeEventListener('keydown', handleKeyDown);
+        window.removeEventListener('keyup', handleKeyUp);
+        window.removeEventListener('blur', handleBlur);
+    }
+  }, [handleCancel]);
+
+
+  const handleContextMenu = (e: React.MouseEvent, path: string, type: 'file' | 'folder') => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (isLoading) return;
+    handleCancel();
+    setContextMenu({ x: e.clientX, y: e.clientY, path, type });
+  };
+
+  const handleStartRename = () => {
+    if (!contextMenu) return;
+    setEditingPath(contextMenu.path);
+    setContextMenu(null);
+  };
+  
+  const handleStartCreate = (type: 'file' | 'folder') => {
+    if (!contextMenu) return;
+    const path = contextMenu.path;
+    setCreatingIn({ path, type });
+    setExpandedFolders(prev => new Set(prev).add(path));
+    setContextMenu(null);
+  };
+
+  const handleDelete = () => {
+    if (!contextMenu) return;
+    onDeletePath(contextMenu.path);
+    setContextMenu(null);
+  };
+
+  const handleToggleExclusion = () => {
+    if (!contextMenu) return;
+    onTogglePathExclusion(contextMenu.path);
+    setContextMenu(null);
+  };
+
+  const handleCopy = (type: 'path' | 'content') => {
+    if (!contextMenu) return;
+    const textToCopy = type === 'path' ? contextMenu.path : allFiles.get(contextMenu.path) || '';
+    navigator.clipboard.writeText(textToCopy);
+    setContextMenu(null);
+  };
+  
+  const handleCommitRename = (oldPath: string, newName: string) => {
+    const parentPath = oldPath.substring(0, oldPath.lastIndexOf('/'));
+    const newPath = parentPath ? `${parentPath}/${newName}` : newName;
+    if (oldPath !== newPath && newName.trim()) {
+      onRenamePath(oldPath, newPath);
+    }
+    handleCancel();
+  };
+
+  const handleCommitCreate = (parentPath: string, name: string, type: 'file' | 'folder') => {
+      if (!name.trim()) {
+          handleCancel();
+          return;
+      }
+      const newPath = parentPath ? `${parentPath}/${name}` : name;
+      if (type === 'file') {
+          onCreateFile(newPath);
+      } else {
+          onCreateFolder(newPath);
+      }
+      handleCancel();
+  };
+
+  // Fix: Changed return type from JSX.Element to React.ReactElement to resolve namespace error.
+  const renderNode = (node: TreeNode, level: number): React.ReactElement => {
+    const isFolder = node.type === 'folder';
+    const isOpen = expandedFolders.has(node.path);
+    const isEditing = editingPath === node.path;
+    const isCreatingHere = isFolder && creatingIn?.path === node.path;
+
+    const isDeleted = deletedItems.files.has(node.path) || deletedItems.dirs.has(node.path);
+    const isExcluded = excludedPaths.has(node.path);
+    const isCreated = !isDeleted && originalContext && !originalContext.files.has(node.path) && !originalContext.dirs.has(node.path);
+    const isModified = !isDeleted && !isCreated && node.type === 'file' && originalContext && originalContext.files.get(node.path) !== allFiles.get(node.path);
+
+    const isBeingDragged = draggedPath === node.path;
+    const isDropTarget = dropTarget === node.path;
+  
+    let statusClasses = 'text-gray-300';
+    let statusIndicator: React.ReactNode = null;
+    if (isDeleted) {
+      statusClasses = 'text-red-400/80 line-through';
+      statusIndicator = <span className="font-mono text-xs ml-1 text-red-400/80">[D]</span>;
+    } else if (isExcluded) {
+      statusClasses = 'text-gray-500 italic';
+    } else if (isCreated) {
+      statusClasses = 'text-green-400';
+      statusIndicator = <span className="font-mono text-xs ml-1 text-green-400">[A]</span>;
+    } else if (isModified) {
+      statusClasses = 'text-blue-400';
+      statusIndicator = <span className="font-mono text-xs ml-1 text-blue-400">[M]</span>;
+    }
+
+    if (isEditing) {
+      return (
+        <div key={`${node.path}-editing`} style={{ paddingLeft: `${level * 16}px` }}>
+          <EditInput
+            initialValue={node.name}
+            onCommit={(newName) => handleCommitRename(node.path, newName)}
+            onCancel={handleCancel}
+            isFolder={isFolder}
+          />
+        </div>
+      );
+    }
+
+    const Icon = isFolder ? (isOpen ? FolderOpen : Folder) : FileText;
+
+    const handleDrop = (e: React.DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setDropTarget(null);
+
+      const dPath = e.dataTransfer.getData('text/plain');
+      if (!dPath || isLoading) return;
+
+      const dropTargetPath = node.path;
+      const dParentPath = dPath.substring(0, dPath.lastIndexOf('/'));
+
+      // Validation: cannot drop on self, a child, or the same parent folder
+      if (dPath === dropTargetPath || 
+          dropTargetPath.startsWith(dPath + '/') || 
+          dParentPath === dropTargetPath) {
+          return;
+      }
+      
+      const dName = dPath.substring(dPath.lastIndexOf('/') + 1);
+      const newPath = dropTargetPath ? `${dropTargetPath}/${dName}` : dName;
+      onRenamePath(dPath, newPath);
+      setDraggedPath(null);
+    }
+    
+    let hoverClass = 'hover:bg-gray-700/70';
+    if (isAltPressed) {
+      hoverClass = 'hover:bg-gray-800/80';
+    } else if (isCtrlPressed) {
+      hoverClass = 'hover:bg-blue-600/40';
+    } else if (isShiftPressed) {
+      hoverClass = 'hover:bg-amber-500/40';
+    }
+
+    return (
+      <div key={node.path}>
+        <div
+            onClick={(e) => {
+              if (isLoading) return;
+
+              const showCopiedFeedback = (path: string) => {
+                setCopiedPath(path);
+                setTimeout(() => setCopiedPath(null), 1500);
+              };
+              
+              if (e.altKey) {
+                e.preventDefault();
+                e.stopPropagation();
+                onTogglePathExclusion(node.path);
+              } else if (e.ctrlKey || e.metaKey) {
+                 e.preventDefault();
+                 e.stopPropagation();
+                if (node.type === 'file') {
+                  navigator.clipboard.writeText(allFiles.get(node.path) || '');
+                } else { // folder
+                  navigator.clipboard.writeText(node.path);
+                }
+                showCopiedFeedback(node.path);
+              } else if (e.shiftKey) {
+                 e.preventDefault();
+                 e.stopPropagation();
+                navigator.clipboard.writeText(node.path);
+                showCopiedFeedback(node.path);
+              } else {
+                 e.stopPropagation();
+                if (isFolder) {
+                    setExpandedFolders(prev => {
+                        const next = new Set(prev);
+                        if (next.has(node.path)) next.delete(node.path);
+                        else next.add(node.path);
+                        return next;
+                    });
+                } else {
+                    onFileClick(node.path);
+                }
+              }
+            }}
+            onContextMenu={(e) => handleContextMenu(e, node.path, node.type)}
+            className={`flex items-center justify-between p-1 rounded-md transition-colors duration-100 ${hoverClass} 
+              ${isLoading ? 'cursor-not-allowed opacity-70' : 'cursor-pointer'}
+              ${isDropTarget ? 'bg-blue-600/30' : ''}
+              ${isBeingDragged ? 'opacity-50' : ''}`
+            }
+            style={{ paddingLeft: `${level * 16}px` }}
+            draggable={!isLoading}
+            onDragStart={(e) => {
+              e.stopPropagation();
+              setDraggedPath(node.path);
+              e.dataTransfer.setData('text/plain', node.path);
+              e.dataTransfer.effectAllowed = 'move';
+            }}
+            onDragEnd={() => {
+              setDraggedPath(null);
+              setDropTarget(null);
+            }}
+            onDragOver={isFolder ? (e) => {
+              e.preventDefault();
+              e.stopPropagation();
+            } : undefined}
+            onDragEnter={isFolder ? (e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              if (draggedPath && draggedPath !== node.path && !node.path.startsWith(draggedPath + '/')) {
+                const draggedParentPath = draggedPath.substring(0, draggedPath.lastIndexOf('/'));
+                if (node.path !== draggedParentPath) {
+                  setDropTarget(node.path);
+                }
+              }
+            } : undefined}
+            onDragLeave={isFolder ? (e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                  setDropTarget(null);
+              }
+            } : undefined}
+            onDrop={isFolder ? handleDrop : undefined}
+        >
+          <div className="flex items-center flex-grow truncate mr-2" title={node.path}>
+            <Icon size={16} className={`mr-2 flex-shrink-0 ${statusClasses}`} />
+            <span className={`text-sm truncate ${statusClasses}`}>{node.name}</span>
+            {statusIndicator}
+            {copiedPath === node.path && <Check size={14} className="ml-2 text-green-400 animate-fade-in" />}
+          </div>
+        </div>
+        {isFolder && isOpen && (
+          <div>
+            {node.children?.map(child => renderNode(child, level + 1))}
+            {isCreatingHere && (
+              <div style={{ paddingLeft: `${(level + 1) * 16}px` }}>
+                <EditInput
+                  initialValue=""
+                  onCommit={(newName) => handleCommitCreate(node.path, newName, creatingIn!.type)}
+                  onCancel={handleCancel}
+                  isFolder={creatingIn!.type === 'folder'}
+                />
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const handleRootDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounter.current = 0;
+    setDropTarget(null);
+
+    const dPath = e.dataTransfer.getData('text/plain');
+    if (!dPath || isLoading) return;
+
+    const dParentPath = dPath.substring(0, dPath.lastIndexOf('/'));
+
+    // If item is already in root, do nothing.
+    if (!dParentPath) return;
+
+    const dName = dPath.substring(dPath.lastIndexOf('/') + 1);
+    const newPath = dName;
+    onRenamePath(dPath, newPath);
+    setDraggedPath(null);
+  };
+
+
   return (
-    <div className="text-gray-300 overflow-y-auto">
-      {tree.map(node => (
-        <Node key={node.path} node={node} level={0} onFileClick={onFileClick} allFiles={allFiles} originalContext={originalContext} deletedItems={deletedItems} excludedPaths={excludedPaths} onTogglePathExclusion={onTogglePathExclusion} isLoading={isLoading} />
-      ))}
+    <div className="flex flex-col h-full">
+        <div 
+          className={`text-gray-300 overflow-y-auto flex-grow p-1 -m-1 transition-all duration-200 ${dropTarget === '' ? 'border-2 border-dashed border-blue-500 rounded-lg bg-blue-900/10' : ''}`} 
+          onContextMenu={(e) => {
+            if (e.target === e.currentTarget) {
+              handleContextMenu(e, '', 'folder');
+            }
+          }}
+          onDragOver={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+          }}
+          onDragEnter={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              dragCounter.current++;
+              if (draggedPath) {
+                  const draggedParentPath = draggedPath.substring(0, draggedPath.lastIndexOf('/'));
+                  // Can drop in root only if not already in root
+                  if (draggedParentPath) {
+                      setDropTarget('');
+                  }
+              }
+          }}
+          onDragLeave={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              dragCounter.current--;
+              if (dragCounter.current === 0) {
+                  setDropTarget(null);
+              }
+          }}
+          onDrop={handleRootDrop}
+        >
+          {tree.length > 0
+            ? tree.map(node => renderNode(node, 0))
+            : !creatingIn && (
+              <div className="text-center text-xs text-gray-500 px-2 py-6 border border-dashed border-gray-700 rounded-lg">
+                  <p>No files loaded.</p>
+                  <p className="mt-1">Use the '+' button above to create files/folders.</p>
+              </div>
+            )
+          }
+
+          {creatingIn?.path === '' && (
+            <div className="mt-1">
+              <EditInput
+                initialValue=""
+                onCommit={(newName) => handleCommitCreate('', newName, creatingIn.type)}
+                onCancel={handleCancel}
+                isFolder={creatingIn.type === 'folder'}
+              />
+            </div>
+          )}
+        </div>
+
+        <div className="text-xs text-center text-gray-500 p-1 h-8 flex-shrink-0 flex items-center justify-center">
+            {isAltPressed ? (
+                <span className="animate-fade-in">Alt-click: Toggle exclusion</span>
+            ) : isCtrlPressed ? (
+                <span className="animate-fade-in">Ctrl-click: Copy content/path</span>
+            ) : isShiftPressed ? (
+                <span className="animate-fade-in">Shift-click: Copy path</span>
+            ) : null}
+        </div>
+
+        {contextMenu && (
+            <div
+            ref={menuRef}
+            className="context-menu animate-fade-in-up-short"
+            style={{ top: contextMenu.y, left: contextMenu.x }}
+            >
+            {contextMenu.type === 'folder' && (
+                <>
+                <button className="context-menu-item" onClick={() => handleStartCreate('file')}>
+                    <FilePlus size={16} /> New File
+                </button>
+                <button className="context-menu-item" onClick={() => handleStartCreate('folder')}>
+                    <FolderPlus size={16} /> New Folder
+                </button>
+                <div className="context-menu-separator" />
+                </>
+            )}
+            {contextMenu.path && (
+                <>
+                <button className="context-menu-item" onClick={handleStartRename}>
+                    <Pencil size={16} /> Rename
+                </button>
+                <button className="context-menu-item context-menu-item-destructive" onClick={handleDelete}>
+                    <Trash2 size={16} /> Delete
+                </button>
+                <div className="context-menu-separator" />
+                <button className="context-menu-item" onClick={handleToggleExclusion}>
+                    {excludedPaths.has(contextMenu.path) ? <Eye size={16} /> : <EyeOff size={16} />} 
+                    {excludedPaths.has(contextMenu.path) ? 'Include in Context' : 'Exclude from Context'}
+                </button>
+                <button className="context-menu-item" onClick={() => handleCopy('path')}>
+                    <Copy size={16} /> Copy Path
+                </button>
+                {contextMenu.type === 'file' && (
+                    <button className="context-menu-item" onClick={() => handleCopy('content')}>
+                        <ClipboardCopy size={16} /> Copy Content
+                    </button>
+                )}
+                </>
+            )}
+            </div>
+        )}
     </div>
   );
 };

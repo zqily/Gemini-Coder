@@ -10,7 +10,8 @@ interface UseChatManagerProps {
   selectedMode: ModeId;
   projectContext: ProjectContext | null;
   getSerializableContext: () => string | null;
-  applyFunctionCalls: (calls: FunctionCall[]) => any[];
+  // FIX: Update the signature to include attachedFilesMap, which is needed for function calls that operate on attached files.
+  applyFunctionCalls: (calls: FunctionCall[], attachedFilesMap: Map<string, AttachedFile>) => any[];
 }
 
 export const useChatManager = ({
@@ -42,12 +43,15 @@ export const useChatManager = ({
     }
     if (!prompt.trim() && attachedFiles.length === 0) return;
 
+    // FIX: Capture attachedFiles for the current turn before they are cleared from state.
+    const filesForThisTurn = [...attachedFiles];
+
     setIsLoading(true);
     cancellationRef.current = false;
 
     const userParts: ChatPart[] = [];
     if (prompt) userParts.push({ text: prompt });
-    attachedFiles.forEach(file => {
+    filesForThisTurn.forEach(file => {
       userParts.push({
         inlineData: {
           mimeType: file.type,
@@ -186,7 +190,9 @@ export const useChatManager = ({
             if (functionCalls.length > 0) {
                 if (cancellationRef.current) throw new Error('Cancelled by user');
                 
-                const functionResponses = applyFunctionCalls(functionCalls);
+                // FIX: Create a map of attached files and pass it to applyFunctionCalls.
+                const attachedFilesMap = new Map(filesForThisTurn.map(f => [f.name, f]));
+                const functionResponses = applyFunctionCalls(functionCalls, attachedFilesMap);
                 
                 if (cancellationRef.current) throw new Error('Cancelled by user');
                 

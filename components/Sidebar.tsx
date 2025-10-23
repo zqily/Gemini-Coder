@@ -1,7 +1,5 @@
-
-
-import React, { useRef } from 'react';
-import { Menu, Plus, Settings, UploadCloud, GitBranch, Trash2 } from './icons';
+import React, { useRef, useState, useEffect } from 'react';
+import { Menu, Plus, Settings, UploadCloud, Folder, Trash2, FilePlus, FolderPlus } from './icons';
 import FileTree from './FileTree';
 import type { ProjectContext } from '../types';
 
@@ -21,10 +19,43 @@ interface SidebarProps {
   excludedPaths: Set<string>;
   onTogglePathExclusion: (path: string) => void;
   isLoading: boolean;
+  onCreateFile: (path: string) => void;
+  onCreateFolder: (path: string) => void;
+  onDeletePath: (path: string) => void;
+  onRenamePath: (oldPath: string, newPath: string) => void;
+  creatingIn: { path: string; type: 'file' | 'folder' } | null;
+  setCreatingIn: (state: { path: string; type: 'file' | 'folder' } | null) => void;
 }
 
-const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen, onNewChat, onOpenSettings, onProjectSync, displayContext, originalContext, deletedItems, onUnlinkProject, onOpenFileEditor, excludedPaths, onTogglePathExclusion, isLoading }) => {
+const Sidebar: React.FC<SidebarProps> = ({ 
+    isOpen, setIsOpen, onNewChat, onOpenSettings, onProjectSync, 
+    displayContext, originalContext, deletedItems, onUnlinkProject, 
+    onOpenFileEditor, excludedPaths, onTogglePathExclusion, isLoading,
+    onCreateFile, onCreateFolder, onDeletePath, onRenamePath,
+    creatingIn, setCreatingIn
+}) => {
   const directoryInputRef = useRef<HTMLInputElement>(null);
+  const [isCreateMenuOpen, setCreateMenuOpen] = useState(false);
+  const createMenuRef = useRef<HTMLDivElement>(null);
+  const createButtonRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        isCreateMenuOpen &&
+        createMenuRef.current &&
+        !createMenuRef.current.contains(event.target as Node) &&
+        !createButtonRef.current?.contains(event.target as Node)
+      ) {
+        setCreateMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isCreateMenuOpen]);
+
 
   const handleProjectSyncClick = () => {
     directoryInputRef.current?.click();
@@ -85,39 +116,85 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen, onNewChat, onOpenS
         >
           <UploadCloud size={24} className="flex-shrink-0" />
            <div className={`overflow-hidden transition-all duration-200 ${isOpen ? 'w-auto ml-3' : 'w-0 ml-0'}`}>
-             <span className="font-medium text-sm whitespace-nowrap">Sync Project</span>
+             <span className="font-medium text-sm whitespace-nowrap">Upload Folder</span>
           </div>
         </button>
       </div>
       
-      {displayContext && isOpen && (
-          <div className="mt-6 pt-4 border-t border-gray-700/60 flex-1 overflow-y-auto overflow-x-hidden">
-             <div className="flex items-center justify-between gap-2 mb-3 px-1 text-gray-400">
-                <div className="flex items-center gap-2">
-                    <GitBranch size={16}/>
-                    <h3 className="font-semibold text-xs uppercase tracking-wider">Project Files</h3>
-                </div>
-                <button
-                    onClick={onUnlinkProject}
-                    disabled={isLoading}
-                    className="p-1 rounded-md hover:bg-gray-700 hover:text-red-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                    aria-label="Unlink project"
-                    title="Unlink project"
-                >
-                    <Trash2 size={14} />
-                </button>
+      {isOpen && (
+        <div className="mt-6 pt-4 border-t border-gray-700/60 flex-1 flex flex-col min-h-0">
+          {/* Persistent Header */}
+          <div className="group flex items-center justify-between gap-2 mb-2 px-1 text-gray-300 flex-shrink-0">
+            <div className="flex items-center gap-2">
+              <Folder size={16} />
+              <h3 className="font-semibold text-sm">Files</h3>
             </div>
-             <FileTree 
-                allFiles={displayContext.files} 
-                allDirs={displayContext.dirs} 
+            <div
+              className={`flex items-center gap-1 transition-opacity ${
+                displayContext
+                  ? 'opacity-0 group-hover:opacity-100 focus-within:opacity-100'
+                  : 'opacity-100'
+              }`}
+            >
+              <div className="relative">
+                <button
+                  ref={createButtonRef}
+                  onClick={() => setCreateMenuOpen(prev => !prev)}
+                  disabled={isLoading}
+                  className="p-1 rounded-md hover:bg-gray-700 hover:text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  aria-label="New file or folder"
+                  title="New file or folder"
+                >
+                  <Plus size={16} />
+                </button>
+                {isCreateMenuOpen && (
+                  <div
+                    ref={createMenuRef}
+                    className="context-menu animate-fade-in-up-short absolute top-full right-0 mt-1 z-10"
+                  >
+                    <button className="context-menu-item" onClick={() => { setCreatingIn({ path: '', type: 'file' }); setCreateMenuOpen(false); }}>
+                      <FilePlus size={16} /> New File
+                    </button>
+                    <button className="context-menu-item" onClick={() => { setCreatingIn({ path: '', type: 'folder' }); setCreateMenuOpen(false); }}>
+                      <FolderPlus size={16} /> New Folder
+                    </button>
+                  </div>
+                )}
+              </div>
+              {displayContext && (
+                <button
+                  onClick={onUnlinkProject}
+                  disabled={isLoading}
+                  className="p-1 rounded-md hover:bg-gray-700 hover:text-red-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  aria-label="Clear all files"
+                  title="Clear all files"
+                >
+                  <Trash2 size={14} />
+                </button>
+              )}
+            </div>
+          </div>
+          
+          {/* Scrollable Content Area */}
+          <div className="flex-1 overflow-y-auto overflow-x-hidden custom-scrollbar pr-1 -mr-2">
+            <FileTree 
+                allFiles={displayContext?.files ?? new Map()} 
+                allDirs={displayContext?.dirs ?? new Set()} 
                 originalContext={originalContext}
                 deletedItems={deletedItems}
                 onFileClick={onOpenFileEditor}
                 excludedPaths={excludedPaths}
                 onTogglePathExclusion={onTogglePathExclusion}
                 isLoading={isLoading}
-             />
+                onCreateFile={onCreateFile}
+                onCreateFolder={onCreateFolder}
+                onDeletePath={onDeletePath}
+                onRenamePath={onRenamePath}
+                creatingIn={creatingIn}
+                setCreatingIn={setCreatingIn}
+            />
           </div>
+        </div>
       )}
 
 

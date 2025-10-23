@@ -356,82 +356,8 @@ const TypingIndicator = ({ message }: { message?: string }) => (
 
 const MainContent: React.FC<MainContentProps> = ({ isMobile, toggleSidebar, chatHistory, isLoading, attachedFiles, setAttachedFiles, isReadingFiles, setIsReadingFiles, selectedModel, setSelectedModel, onSubmit, onStop, selectedMode, setSelectedMode, modes, sendWithCtrlEnter, apiKey, setApiKey, onDeleteMessage }) => {
   const chatContainerRef = useRef<HTMLDivElement>(null);
-  const [isDragging, setIsDragging] = useState(false);
   const [isHelpModalOpen, setIsHelpModalOpen] = useState(false);
   
-  const handleFileSelect = useCallback(async (selectedFiles: FileList | null) => {
-    if (!selectedFiles || selectedFiles.length === 0) return;
-
-    setIsReadingFiles(true);
-    try {
-      const newFilesPromises = Array.from(selectedFiles)
-        .filter(file => ALL_ACCEPTED_MIME_TYPES.includes(file.type))
-        .map(async file => {
-          const content = await fileToDataURL(file);
-          // Convert mime type if it's in our convertible list, otherwise use original
-          const mimeType = CONVERTIBLE_TO_TEXT_MIME_TYPES[file.type] || file.type;
-          return { name: file.name, type: mimeType, size: file.size, content };
-        });
-      const newFiles = await Promise.all(newFilesPromises);
-      setAttachedFiles(prev => [...prev, ...newFiles]);
-    } catch (error) {
-      console.error("Error reading files:", error);
-    } finally {
-      setIsReadingFiles(false);
-    }
-  }, [setAttachedFiles, setIsReadingFiles]);
-
-  useEffect(() => {
-    let dragOverTimeout: number | undefined;
-
-    const hideOverlay = () => {
-      setIsDragging(false);
-    };
-
-    const handleDragEnter = (e: DragEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-      // When re-entering, clear any lingering timeout to hide the overlay.
-      clearTimeout(dragOverTimeout);
-      if (e.dataTransfer && Array.from(e.dataTransfer.types).includes('Files')) {
-        setIsDragging(true);
-      }
-    };
-    
-    // Fires continuously while dragging over the window.
-    const handleDragOver = (e: DragEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-      // We're still dragging over, so reset the timeout.
-      clearTimeout(dragOverTimeout);
-      // If dragover stops firing (e.g., user moves cursor out of window), the timeout will hide the overlay.
-      dragOverTimeout = window.setTimeout(hideOverlay, 150);
-    };
-    
-    const handleDrop = (e: DragEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-      // A drop is a definitive end, so clear the timeout and hide the overlay.
-      clearTimeout(dragOverTimeout);
-      hideOverlay();
-      if (e.dataTransfer?.files && e.dataTransfer.files.length > 0) {
-        handleFileSelect(e.dataTransfer.files);
-      }
-    };
-
-    // Note: We don't need 'dragleave' because the 'dragover' timeout handles leaving the window.
-    window.addEventListener('dragenter', handleDragEnter);
-    window.addEventListener('dragover', handleDragOver);
-    window.addEventListener('drop', handleDrop);
-
-    return () => {
-      window.removeEventListener('dragenter', handleDragEnter);
-      window.removeEventListener('dragover', handleDragOver);
-      window.removeEventListener('drop', handleDrop);
-      clearTimeout(dragOverTimeout);
-    };
-  }, [handleFileSelect]);
-
   const handleExampleSubmit = (prompt: string) => {
     onSubmit(prompt);
   };
@@ -440,8 +366,6 @@ const MainContent: React.FC<MainContentProps> = ({ isMobile, toggleSidebar, chat
     onSubmit(prompt);
   };
   
-  // --- Start of corrected rendering logic ---
-
   const lastMessage = chatHistory[chatHistory.length - 1];
   const lastMessageIsModel = lastMessage?.role === 'model';
   
@@ -449,39 +373,19 @@ const MainContent: React.FC<MainContentProps> = ({ isMobile, toggleSidebar, chat
     ? (lastMessage.parts.find((p): p is TextPart => 'text' in p))?.text ?? ''
     : '';
 
-  // A status message is a temporary state update (e.g., "Retrying..."), not part of the actual streaming response.
   const isStatusUpdate = lastMessageIsModel && (
     lastMessageText.includes('Retrying') ||
     lastMessageText.startsWith('Model is overloaded') ||
     lastMessageText.startsWith('Error:')
   );
 
-  // The last message is a "placeholder" if we are loading and it's an empty model message or just a status update.
-  // An actual streaming response should not be considered a placeholder and should be rendered.
   const isLastMessageAPlaceholder = isLoading && lastMessageIsModel && (!lastMessageText.trim() || isStatusUpdate);
-
-  // Messages to render in bubbles. The placeholder is hidden and represented by the indicator.
   const messagesToRender = isLastMessageAPlaceholder ? chatHistory.slice(0, -1) : chatHistory;
-
-  // The text to display next to the typing indicator is only for status updates.
   const statusMessageForIndicator = isStatusUpdate ? lastMessageText : '';
-  
-  // The typing indicator should be shown whenever the model is thinking.
   const showTypingIndicator = isLoading;
   
-  // --- End of corrected rendering logic ---
-
   return (
     <div className="relative flex-1 flex flex-col h-screen bg-[#131314]">
-      {isDragging && (
-        <div className="absolute inset-0 bg-blue-900/40 border-2 border-dashed border-blue-400 rounded-2xl z-50 flex items-center justify-center pointer-events-none animate-fade-in m-2">
-          <div className="text-center text-white p-6 bg-black/60 rounded-xl backdrop-blur-sm">
-            <ImageIcon size={48} className="mx-auto mb-3 text-blue-300" />
-            <p className="text-xl font-bold">Drop files to attach</p>
-            <p className="text-sm text-gray-300">Images, text, code, PDFs and more</p>
-          </div>
-        </div>
-      )}
       <header className="flex justify-between items-center p-4 h-20 flex-shrink-0 border-b border-gray-800">
         <div className="flex items-center gap-2">
             {isMobile && (
@@ -543,8 +447,8 @@ const MainContent: React.FC<MainContentProps> = ({ isMobile, toggleSidebar, chat
             onSubmit={handlePromptSubmit}
             isLoading={isLoading || isReadingFiles}
             onStop={onStop}
-            files={attachedFiles}
-            setFiles={setAttachedFiles}
+            // Files are no longer managed here
+            onFileAddClick={() => { /* This will be handled by App.tsx */ }}
             selectedMode={selectedMode}
             setSelectedMode={setSelectedMode}
             modes={modes}

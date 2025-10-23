@@ -15,6 +15,7 @@ import * as FileSystem from './utils/fileSystem';
 import { executeFunctionCall } from './utils/functionCalling';
 import { MODES, FILE_SYSTEM_TOOLS } from './config/modes';
 import { Type, FunctionCall } from '@google/genai';
+import { ImageIcon } from './components/icons';
 
 // Custom hook to detect window size
 const useWindowSize = () => {
@@ -39,7 +40,6 @@ const App: React.FC = () => {
   const isMobile = useWindowSize();
   const [isSidebarOpen, setIsSidebarOpen] = useState(!isMobile);
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
-  const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
   const [isReadingFiles, setIsReadingFiles] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [selectedModel, setSelectedModel] = useSelectedModel();
@@ -57,7 +57,10 @@ const App: React.FC = () => {
   
   const [displayContext, setDisplayContext] = useState<ProjectContext | null>(null);
   const [editingFile, setEditingFile] = useState<{ path: string; content: string } | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
   const cancellationRef = useRef(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [creatingIn, setCreatingIn] = useState<{ path: string; type: 'file' | 'folder' } | null>(null);
   
   useEffect(() => {
     if (!apiKey) {
@@ -66,8 +69,7 @@ const App: React.FC = () => {
   }, [apiKey]);
   
   useEffect(() => {
-    // This context is for rendering the file tree. It shows everything: current + deleted + attached.
-    // FIX: Add explicit types to new Map() to avoid it being Map<unknown, unknown>.
+    // This context is for rendering the file tree. It shows everything: current + deleted.
     const mergedFiles = new Map<string, string>([
       ...(deletedItems?.files || []),
       ...(projectContext?.files || [])
@@ -82,44 +84,20 @@ const App: React.FC = () => {
         dirs: mergedDirs
     };
 
-    attachedFiles.forEach(file => {
-        // Simple check for text-based mime types
-        const isText = file.type.startsWith('text/') || 
-                       ['json', 'xml', 'javascript', 'typescript', 'csv', 'markdown', 'html', 'css'].some(t => file.type.includes(t));
-
-        if (isText) {
-             try {
-                const base64Content = file.content.split(',')[1];
-                if (base64Content) {
-                    const textContent = atob(base64Content);
-                    newContext.files.set(file.name, textContent);
-                } else {
-                    newContext.files.set(file.name, ''); // Handle empty file case
-                }
-            } catch (e) {
-                console.error("Could not decode file content for sidebar display:", file.name, e);
-                newContext.files.set(file.name, `[Error decoding content for ${file.name}]`);
-            }
-        } else {
-            newContext.files.set(file.name, `[Attached file: ${file.name} (${file.type})]`);
-        }
-    });
-
     if (newContext.files.size > 0 || newContext.dirs.size > 0) {
         setDisplayContext(newContext);
     } else {
         setDisplayContext(null);
     }
-  }, [projectContext, deletedItems, attachedFiles]);
-
+  }, [projectContext, deletedItems]);
 
   const handleNewChat = () => {
     setChatHistory([]);
     setProjectContext(null);
     setOriginalProjectContext(null);
     setDeletedItems(EMPTY_CONTEXT);
-    setAttachedFiles([]);
     setExcludedPaths(new Set());
+    setCreatingIn(null);
     if (isMobile) {
       setIsSidebarOpen(false);
     }
@@ -131,62 +109,148 @@ const App: React.FC = () => {
     cancellationRef.current = true;
   }, []);
 
-  const handleProjectSync = useCallback(async (fileList: FileList) => {
-    const files = Array.from(fileList);
-    let isIgnored = (path: string) => false;
-    
-    const gitignoreFile = files.find(f => (f as any).webkitRelativePath.endsWith('.gitignore'));
-    const gcignoreFile = files.find(f => (f as any).webkitRelativePath.endsWith('.gcignore'));
-    
-    let combinedIgnoreContent = '';
+  const handleAddFiles = useCallback(async (fileList: FileList) => {
+    setIsReadingFiles(true);
+    try {
+      const files = Array.from(fileList);
+      
+      const fileContents: { path: string, content: string }[] = [];
+      for (const file of files) {
+        // For single file adds, we use the file name as the path (no relative path)
+        const path = file.name;
+        try {
+          // This simplified text check is for display purposes. For the model, all files are context.
+          const isText = file.type.startsWith('text/') || file.size < 1000000; // Heuristic: Read files under 1MB as text
+          if (isText) {
+             const content = await file.text();
+             fileContents.push({ path, content });
+          } else {
+             fileContents.push({ path, content: `[Binary file: ${file.name} (${file.type}). Content not displayed.]`});
+          }
+        } catch (e) {
+            console.warn(`Could not read file ${path} as text. Treating as binary.`, e);
+            fileContents.push({ path, content: `[Binary file: ${file.name} (${file.type}). Content not displayed.]`});
+        }
+      }
 
-    if (gitignoreFile) {
-        const gitignoreContent = await gitignoreFile.text();
-        combinedIgnoreContent += gitignoreContent + '\n';
+      setProjectContext(prev => {
+          let tempContext = prev ? { files: new Map(prev.files), dirs: new Set(prev.dirs) } : EMPTY_CONTEXT;
+          for (const { path, content } of fileContents) {
+              tempContext = FileSystem.createFile(path, content, tempContext);
+          }
+          if (!originalProjectContext && tempContext.files.size > 0) {
+              setOriginalProjectContext(EMPTY_CONTEXT); // Mark that a project exists, but diffs are against an empty state
+          }
+          return tempContext;
+      });
+
+    } finally {
+      setIsReadingFiles(false);
     }
+  }, [originalProjectContext]);
 
-    if (gcignoreFile) {
-        const gcignoreContent = await gcignoreFile.text();
-        combinedIgnoreContent += gcignoreContent;
-    }
+  // Handler for replacing the entire project with an uploaded folder.
+  const handleFolderUpload = useCallback(async (fileList: FileList) => {
+    setIsReadingFiles(true);
+    try {
+        const files = Array.from(fileList);
+        let isIgnored = (path: string) => false;
+        
+        const gitignoreFile = files.find(f => (f as any).webkitRelativePath.endsWith('.gitignore'));
+        const gcignoreFile = files.find(f => (f as any).webkitRelativePath.endsWith('.gcignore'));
+        
+        let combinedIgnoreContent = '';
 
-    if (combinedIgnoreContent.trim()) {
-      isIgnored = createIsIgnored(combinedIgnoreContent);
-    }
-    
-    const newProjectContext: ProjectContext = { files: new Map(), dirs: new Set() };
-    for (const file of files) {
-        // webkitRelativePath is the property that contains the full path
-        const path = (file as any).webkitRelativePath;
+        if (gitignoreFile) {
+            const gitignoreContent = await gitignoreFile.text();
+            combinedIgnoreContent += gitignoreContent + '\n';
+        }
 
-        // Hardcoded rule to always ignore the .git directory
-        const isGitPath = /(^|\/)\.git(\/|$)/.test(path);
+        if (gcignoreFile) {
+            const gcignoreContent = await gcignoreFile.text();
+            combinedIgnoreContent += gcignoreContent;
+        }
 
-        if (path && !isIgnored(path) && !isGitPath) {
-            try {
-                const content = await file.text();
-                newProjectContext.files.set(path, content);
-                // Add parent directories
-                const parts = path.split('/');
-                let currentPath = '';
-                for (let i = 0; i < parts.length - 1; i++) {
-                    // Fix: Corrected typo from 'part' to 'parts[i]' to correctly reference the current path component.
-                    currentPath = currentPath ? `${currentPath}/${parts[i]}` : parts[i];
-                    newProjectContext.dirs.add(currentPath);
+        if (combinedIgnoreContent.trim()) {
+          isIgnored = createIsIgnored(combinedIgnoreContent);
+        }
+        
+        const newProjectContext: ProjectContext = { files: new Map(), dirs: new Set() };
+        for (const file of files) {
+            const path = (file as any).webkitRelativePath;
+            const isGitPath = /(^|\/)\.git(\/|$)/.test(path);
+
+            if (path && !isIgnored(path) && !isGitPath) {
+                try {
+                    const content = await file.text();
+                    newProjectContext.files.set(path, content);
+                    const parts = path.split('/');
+                    let currentPath = '';
+                    for (let i = 0; i < parts.length - 1; i++) {
+                        currentPath = currentPath ? `${currentPath}/${parts[i]}` : parts[i];
+                        newProjectContext.dirs.add(currentPath);
+                    }
+                } catch (e) {
+                    console.warn(`Could not read file ${path} as text. Skipping.`, e);
                 }
-            } catch (e) {
-                console.warn(`Could not read file ${path} as text. Skipping.`, e);
             }
         }
+        setProjectContext(newProjectContext);
+        setOriginalProjectContext(newProjectContext);
+        setDeletedItems(EMPTY_CONTEXT);
+        setExcludedPaths(new Set());
+    } finally {
+        setIsReadingFiles(false);
     }
-    setProjectContext(newProjectContext);
-    setOriginalProjectContext(newProjectContext);
-    setDeletedItems(EMPTY_CONTEXT);
-    setExcludedPaths(new Set());
   }, []);
 
+  useEffect(() => {
+    let dragOverTimeout: number | undefined;
+
+    const hideOverlay = () => {
+      setIsDragging(false);
+    };
+
+    const handleDragEnter = (e: DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      clearTimeout(dragOverTimeout);
+      if (e.dataTransfer && Array.from(e.dataTransfer.types).includes('Files')) {
+        setIsDragging(true);
+      }
+    };
+    
+    const handleDragOver = (e: DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      clearTimeout(dragOverTimeout);
+      dragOverTimeout = window.setTimeout(hideOverlay, 150);
+    };
+    
+    const handleDrop = (e: DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      clearTimeout(dragOverTimeout);
+      hideOverlay();
+      if (e.dataTransfer?.files && e.dataTransfer.files.length > 0) {
+        handleAddFiles(e.dataTransfer.files);
+      }
+    };
+
+    window.addEventListener('dragenter', handleDragEnter);
+    window.addEventListener('dragover', handleDragOver);
+    window.addEventListener('drop', handleDrop);
+
+    return () => {
+      window.removeEventListener('dragenter', handleDragEnter);
+      window.removeEventListener('dragover', handleDragOver);
+      window.removeEventListener('drop', handleDrop);
+      clearTimeout(dragOverTimeout);
+    };
+  }, [handleAddFiles]);
+
   const handleUnlinkProject = useCallback(() => {
-    if (window.confirm('Are you sure you want to unlink the project context?')) {
+    if (window.confirm('Are you sure you want to clear all files? This cannot be undone.')) {
         setProjectContext(null);
         setOriginalProjectContext(null);
         setDeletedItems(EMPTY_CONTEXT);
@@ -195,18 +259,17 @@ const App: React.FC = () => {
   }, []);
 
   const handleOpenFileEditor = useCallback((path: string) => {
-    const content = displayContext?.files.get(path);
+    const content = projectContext?.files.get(path);
     if (content !== undefined) {
         setEditingFile({ path, content });
     }
-  }, [displayContext]);
+  }, [projectContext]);
 
   const handleSaveFile = useCallback((path: string, newContent: string) => {
     setProjectContext(prev => {
         const context = prev ?? { files: new Map(), dirs: new Set() };
         return FileSystem.createFile(path, newContent, context);
     });
-    setAttachedFiles(prev => prev.filter(f => f.name !== path));
   }, []);
 
   const handleCloseFileEditor = () => {
@@ -214,7 +277,6 @@ const App: React.FC = () => {
   };
   
   const handleTogglePathExclusion = useCallback((path: string) => {
-    // Combine all known files and directories from current and deleted contexts
     const allDirs = new Set([
         ...(projectContext?.dirs || []),
         ...(deletedItems.dirs || [])
@@ -224,13 +286,11 @@ const App: React.FC = () => {
         ...(deletedItems.files || [])
     ]);
 
-    // A path is a directory if it's explicitly in the dirs set, or if any file path starts with it as a prefix.
     const isDirectory = allDirs.has(path) || Array.from(allFiles.keys()).some(p => p.startsWith(`${path}/`));
 
     setExcludedPaths(prev => {
         const newSet = new Set(prev);
         
-        // If it's just a file, toggle only itself.
         if (!isDirectory) {
             if (newSet.has(path)) {
                 newSet.delete(path);
@@ -240,20 +300,10 @@ const App: React.FC = () => {
             return newSet;
         }
 
-        // It's a directory. Determine the action based on its current state.
-        // If the folder is already excluded, we will include it and all its children.
-        // If it's not excluded, we will exclude it and all its children.
         const shouldExclude = !newSet.has(path);
-
-        const allPaths = new Set([
-            ...allFiles.keys(),
-            ...allDirs,
-        ]);
-
-        // Collect the directory itself and all its descendant paths.
+        const allPaths = new Set([...allFiles.keys(), ...allDirs]);
         const pathsToToggle = [path, ...Array.from(allPaths).filter(p => p.startsWith(`${path}/`))];
 
-        // Apply the action to all collected paths.
         for (const p of pathsToToggle) {
             if (shouldExclude) {
                 newSet.add(p);
@@ -261,7 +311,6 @@ const App: React.FC = () => {
                 newSet.delete(p);
             }
         }
-        
         return newSet;
     });
   }, [projectContext, deletedItems]);
@@ -272,17 +321,64 @@ const App: React.FC = () => {
         if (!messageToDelete) return prevHistory;
 
         const nextMessage = prevHistory[indexToDelete + 1];
-
         const isModelWithFunctionCall = messageToDelete.role === 'model' && messageToDelete.parts.some(p => 'functionCall' in p);
         const isNextMessageToolResponse = nextMessage?.role === 'tool';
 
         if (isModelWithFunctionCall && isNextMessageToolResponse) {
-            // Delete both the model's message and the tool's response
             return prevHistory.filter((_, index) => index !== indexToDelete && index !== indexToDelete + 1);
         } else {
-            // Delete only the selected message
             return prevHistory.filter((_, index) => index !== indexToDelete);
         }
+    });
+  }, []);
+
+  const handleCreateFile = useCallback((path: string) => {
+    setProjectContext(prev => {
+        const context = prev ?? EMPTY_CONTEXT;
+        if (FileSystem.pathExists(path, context)) {
+            alert(`Error: Path "${path}" already exists.`);
+            return context;
+        }
+        return FileSystem.createFile(path, '', context);
+    });
+  }, []);
+
+  const handleCreateFolder = useCallback((path: string) => {
+    setProjectContext(prev => {
+        const context = prev ?? EMPTY_CONTEXT;
+         if (FileSystem.pathExists(path, context)) {
+            alert(`Error: Path "${path}" already exists.`);
+            return context;
+        }
+        return FileSystem.createFolder(path, context);
+    });
+  }, []);
+
+  const handleDeletePath = useCallback((path: string) => {
+    if (window.confirm(`Are you sure you want to delete "${path}"? This cannot be undone.`)) {
+        setProjectContext(prev => {
+            if (!prev) return null;
+            const subtreeToDelete = FileSystem.extractSubtree(path, prev);
+
+             if (subtreeToDelete.files.size > 0 || subtreeToDelete.dirs.size > 0) {
+                 setDeletedItems(currentDeleted => ({
+                    files: new Map([...currentDeleted.files, ...subtreeToDelete.files]),
+                    dirs: new Set([...currentDeleted.dirs, ...subtreeToDelete.dirs])
+                }));
+             }
+            return FileSystem.deletePath(path, prev);
+        });
+    }
+  }, []);
+
+  const handleRenamePath = useCallback((oldPath: string, newPath: string) => {
+    setProjectContext(prev => {
+        const context = prev ?? EMPTY_CONTEXT;
+        if (FileSystem.pathExists(newPath, context)) {
+            alert(`Error: Path "${newPath}" already exists.`);
+            return context;
+        }
+        return FileSystem.movePath(oldPath, newPath, context);
     });
   }, []);
 
@@ -299,22 +395,10 @@ const App: React.FC = () => {
     
     let historyForGeneration: ChatMessage[];
     
-    if (prompt.trim() || attachedFiles.length > 0) {
-        const userParts: ChatPart[] = [];
-        if (prompt) userParts.push({ text: prompt });
-        attachedFiles.forEach(file => {
-          userParts.push({
-            inlineData: {
-              mimeType: file.type,
-              data: file.content.split(',')[1]
-            }
-          });
-        });
-
-        const newUserMessage: ChatMessage = { role: 'user', parts: userParts };
+    if (prompt.trim()) {
+        const newUserMessage: ChatMessage = { role: 'user', parts: [{ text: prompt }] };
         historyForGeneration = [...chatHistory, newUserMessage];
         setChatHistory(historyForGeneration);
-        setAttachedFiles([]);
     } else {
         const lastMessage = chatHistory[chatHistory.length - 1];
         if (lastMessage?.role === 'user') {
@@ -323,7 +407,6 @@ const App: React.FC = () => {
             return;
         }
     }
-
 
     setIsLoading(true);
     cancellationRef.current = false;
@@ -346,43 +429,27 @@ const App: React.FC = () => {
         });
     };
     
-    // Add a placeholder for the upcoming model response. This will be updated or removed.
     setChatHistory(prev => [...prev, { role: 'model', parts: [{ text: '' }] }]);
 
     try {
         const cleanHistory = (history: ChatMessage[]): ChatMessage[] => {
             return history.map(message => {
                 if (message.role === 'model') {
-                    const newParts = message.parts
-                        .map(part => {
-                            if ('text' in part && part.text) {
-                                let textToClean = part.text;
-                                const startTag = '<think>';
-                                const endTag = '</think>';
-                                
-                                const firstStartTagIndex = textToClean.indexOf(startTag);
-                                const lastEndTagIndex = textToClean.lastIndexOf(endTag);
-                                
-                                let cleanedText = textToClean;
-
-                                if (firstStartTagIndex !== -1 && lastEndTagIndex !== -1 && firstStartTagIndex < lastEndTagIndex) {
-                                    // The cleaned text for the history is only what comes *after* the thought block.
-                                    cleanedText = textToClean.substring(lastEndTagIndex + endTag.length).trim();
-                                }
-                                
-                                return { ...part, text: cleanedText };
+                    const newParts = message.parts.map(part => {
+                        if ('text' in part && part.text) {
+                            let textToClean = part.text;
+                            const startTag = '<think>';
+                            const endTag = '</think>';
+                            const firstStartTagIndex = textToClean.indexOf(startTag);
+                            const lastEndTagIndex = textToClean.lastIndexOf(endTag);
+                            let cleanedText = textToClean;
+                            if (firstStartTagIndex !== -1 && lastEndTagIndex !== -1 && firstStartTagIndex < lastEndTagIndex) {
+                                cleanedText = textToClean.substring(lastEndTagIndex + endTag.length).trim();
                             }
-                            return part;
-                        })
-                        .filter(part => {
-                            // Filter out parts that become empty after cleaning,
-                            // but keep non-text parts (like function calls).
-                            if ('text' in part) {
-                                return !!part.text;
-                            }
-                            return true;
-                        });
-
+                            return { ...part, text: cleanedText };
+                        }
+                        return part;
+                    }).filter(part => ('text' in part) ? !!part.text : true);
                     return { ...message, parts: newParts };
                 }
                 return message;
@@ -393,17 +460,13 @@ const App: React.FC = () => {
         const isCoderMode = selectedMode.includes('coder');
         const shouldUseStreaming = isStreamingEnabled && !isCoderMode;
         
-        if (projectContext) {
+        if (projectContext && projectContext.files.size > 0) {
              const filteredContext: ProjectContext = { files: new Map(), dirs: new Set() };
 
              const isPathExcluded = (path: string): boolean => {
                if (excludedPaths.has(path)) return true;
                for (const excluded of excludedPaths) {
-                 // Exclude if it's a descendant of an excluded folder
-                 // FIX: Coerce 'excluded' to string using a template literal to satisfy strict type checking.
-                 if (path.startsWith(`${excluded}/`)) {
-                   return true;
-                 }
+                 if (path.startsWith(`${excluded}/`)) return true;
                }
                return false;
              };
@@ -421,19 +484,15 @@ const App: React.FC = () => {
 
              const fileContext = FileSystem.serializeProjectContext(filteredContext);
              
-             const contextPreamble = isCoderMode 
-                ? `The user has provided this project context. Use your tools to operate on it. Do not output this context in your response.`
-                : `The user has provided the following files as context for their request. Use the contents of these files to inform your answer. Do not mention this context message in your response unless the user asks about it.`;
+             const contextPreamble = `The user has provided the following files as context for their request. Use the contents of these files to inform your answer. If they ask you to modify files, use the file system tools you have been provided. Do not mention this context message in your response unless the user asks about it.`;
 
              const contextMessage: ChatMessage = {
                  role: 'user',
                  parts: [{ text: `${contextPreamble}\n\n${fileContext}`}]
              };
-             // Inject the context message before the last message (the user's actual prompt).
              historyForApi.splice(historyForApi.length - 1, 0, contextMessage);
         }
         
-        // Inject the Chain-of-Thought priming message before every API call in coder mode.
         if (isCoderMode) {
             const thinkPrimerMessage: ChatMessage = {
                 role: 'model',
@@ -454,23 +513,8 @@ const App: React.FC = () => {
         };
         
         const mode = MODES[selectedMode];
-        let systemInstruction = mode.systemInstruction;
-        if (isCoderMode && !projectContext) {
-            systemInstruction = (mode as any).systemInstructionNoProject;
-        }
-
-        let tools;
-        if (isCoderMode) {
-            let coderTools = [...FILE_SYSTEM_TOOLS];
-            if (!projectContext) {
-                coderTools.unshift({
-                    name: 'createProject',
-                    description: 'Initializes a new project, giving it a name. This MUST be the first tool called when creating a new multi-file project from scratch. Do not use this if a project is already synced.',
-                    parameters: { type: Type.OBJECT, properties: { name: { type: Type.STRING, description: 'The name of the project, e.g., "React Website".' } }, required: ['name'] }
-                });
-            }
-            tools = [{ functionDeclarations: coderTools }];
-        }
+        const systemInstruction = mode.systemInstruction;
+        const tools = [{ functionDeclarations: FILE_SYSTEM_TOOLS }];
 
         if (shouldUseStreaming) {
             const stream = generateContentStreamWithRetries(
@@ -534,13 +578,8 @@ const App: React.FC = () => {
                     let accumulatedDeleted = deletedItems;
 
                     if (!projectContext) {
-                        const hasFsCalls = functionCalls.some(fc =>
-                            FILE_SYSTEM_TOOLS.some(tool => tool.name === fc.name) || fc.name === 'createProject'
-                        );
-                        if (hasFsCalls) {
-                            accumulatedContext = { files: new Map(), dirs: new Set() };
-                            setOriginalProjectContext(accumulatedContext);
-                        }
+                        accumulatedContext = EMPTY_CONTEXT;
+                        setOriginalProjectContext(EMPTY_CONTEXT);
                     }
 
                     if (accumulatedContext) {
@@ -548,16 +587,6 @@ const App: React.FC = () => {
                         for (const fc of functionCalls) {
                             if (cancellationRef.current) throw new Error('Cancelled by user');
                             
-                            if (fc.name === 'createProject') {
-                                functionResponses.push({
-                                    functionResponse: {
-                                        name: fc.name,
-                                        response: { success: true, message: `Project '${fc.args?.name || 'Untitled'}' created.` }
-                                    }
-                                });
-                                continue;
-                            }
-
                             const { result, newContext, newDeleted } = executeFunctionCall(fc, accumulatedContext, accumulatedDeleted);
                             accumulatedContext = newContext;
                             accumulatedDeleted = newDeleted;
@@ -598,18 +627,34 @@ const App: React.FC = () => {
       setIsLoading(false);
       cancellationRef.current = false;
     }
-  }, [apiKey, chatHistory, attachedFiles, selectedModel, selectedMode, projectContext, deletedItems, excludedPaths, isStreamingEnabled]);
+  }, [apiKey, chatHistory, selectedModel, selectedMode, projectContext, deletedItems, excludedPaths, isStreamingEnabled]);
 
 
   return (
     <div className="flex h-screen w-full bg-[#131314] text-gray-200 font-sans overflow-hidden">
+       {isDragging && (
+        <div className="absolute inset-0 bg-blue-900/40 border-2 border-dashed border-blue-400 rounded-2xl z-50 flex items-center justify-center pointer-events-none animate-fade-in m-2">
+          <div className="text-center text-white p-6 bg-black/60 rounded-xl backdrop-blur-sm">
+            <ImageIcon size={48} className="mx-auto mb-3 text-blue-300" />
+            <p className="text-xl font-bold">Drop files to add to project</p>
+            <p className="text-sm text-gray-300">Images, text, code, PDFs and more</p>
+          </div>
+        </div>
+      )}
+      <input
+        type="file"
+        multiple
+        ref={fileInputRef}
+        onChange={(e) => e.target.files && handleAddFiles(e.target.files)}
+        className="hidden"
+      />
       <Sidebar
         isOpen={isSidebarOpen}
         setIsOpen={setIsSidebarOpen}
         onNewChat={handleNewChat}
         onOpenSettings={() => setIsSettingsModalOpen(true)}
         isMobile={isMobile}
-        onProjectSync={handleProjectSync}
+        onProjectSync={handleFolderUpload}
         displayContext={displayContext}
         originalContext={originalProjectContext}
         deletedItems={deletedItems}
@@ -618,6 +663,12 @@ const App: React.FC = () => {
         excludedPaths={excludedPaths}
         onTogglePathExclusion={handleTogglePathExclusion}
         isLoading={isLoading}
+        onCreateFile={handleCreateFile}
+        onCreateFolder={handleCreateFolder}
+        onDeletePath={handleDeletePath}
+        onRenamePath={handleRenamePath}
+        creatingIn={creatingIn}
+        setCreatingIn={setCreatingIn}
       />
       <MainContent
         isSidebarOpen={isSidebarOpen}
@@ -625,8 +676,9 @@ const App: React.FC = () => {
         isMobile={isMobile}
         chatHistory={chatHistory}
         isLoading={isLoading}
-        attachedFiles={attachedFiles}
-        setAttachedFiles={setAttachedFiles}
+        // These are removed as App now manages file state globally
+        attachedFiles={[]} 
+        setAttachedFiles={() => {}}
         isReadingFiles={isReadingFiles}
         setIsReadingFiles={setIsReadingFiles}
         selectedModel={selectedModel}

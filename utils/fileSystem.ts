@@ -101,7 +101,7 @@ export const movePath = (sourcePath: string, destinationPath: string, context: P
         const content = context.files.get(sourcePath)!;
         const afterDelete = deletePath(sourcePath, context);
         newContext = createFile(destinationPath, content, afterDelete);
-    } else if (context.dirs.has(sourcePath)) { // It's a directory
+    } else if (context.dirs.has(sourcePath) || Array.from(context.files.keys()).some(k => k.startsWith(`${sourcePath}/`))) { // It's a directory
         const afterDelete = deletePath(sourcePath, context);
         const newDirs = new Set(afterDelete.dirs);
         newDirs.add(destinationPath);
@@ -198,4 +198,14 @@ export const serializeProjectContext = (context: ProjectContext): string => {
     output += `--- END FILE: ${path} ---\n\n`;
   }
   return output;
+};
+
+/**
+ * Checks if a given path already exists in the context.
+ * @param path The path to check.
+ * @param context The project context.
+ * @returns True if the path exists as a file or directory.
+ */
+export const pathExists = (path: string, context: ProjectContext): boolean => {
+    return context.files.has(path) || context.dirs.has(path);
 };
