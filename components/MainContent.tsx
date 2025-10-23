@@ -283,24 +283,30 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message, toolResponseMessage, o
                      <div className="space-y-3">
                         {functionCallParts.map((callPart, index) => {
                             const correspondingResponse = functionResponseParts[index];
+                            const responseData = correspondingResponse?.functionResponse?.response;
+                            const isSuccess = responseData?.success === true;
+                            const errorMessage = responseData?.error;
+                            const functionName = callPart.functionCall.name ?? 'unknown';
+
                             return (
-                                <div key={index} className="bg-gray-800/50 border border-gray-700/50 rounded-lg overflow-hidden text-sm">
-                                    {/* Tool Call Section */}
+                                <div key={index} className="bg-gray-800/50 border border-gray-700/50 rounded-lg overflow-hidden text-sm animate-fade-in-up-short">
                                     <div className="p-3">
-                                        <p className="font-semibold text-gray-300">Tool Call: <code className="text-blue-400">{callPart.functionCall.name ?? 'unknown'}</code></p>
+                                        <p className={`font-semibold ${correspondingResponse && !isSuccess ? 'text-red-400/90' : 'text-gray-300'}`}>
+                                            Tool Call:{' '}
+                                            <code className={`font-mono ${
+                                                !correspondingResponse ? 'text-blue-400' :
+                                                isSuccess ? 'text-green-400' : 'font-bold'
+                                            }`}>
+                                                {functionName}
+                                            </code>
+                                            {correspondingResponse && !isSuccess && (
+                                                <span className="font-normal text-xs pl-1 whitespace-pre-wrap"> - ERROR: {errorMessage || 'An unknown error occurred.'}</span>
+                                            )}
+                                        </p>
                                         <pre className="text-xs text-gray-400 mt-1 overflow-x-auto bg-black/20 p-2 rounded-md">
                                             {JSON.stringify(callPart.functionCall.args ?? {}, null, 2)}
                                         </pre>
                                     </div>
-                                    {/* Tool Result Section */}
-                                    {correspondingResponse && (
-                                        <div className="border-t border-gray-700/50 p-3 bg-black/10">
-                                            <p className="font-semibold text-gray-300">Tool Result: <code className="text-blue-400">{correspondingResponse.functionResponse.name}</code></p>
-                                            <pre className="text-xs text-gray-400 mt-1 overflow-x-auto bg-black/20 p-2 rounded-md">
-                                                {JSON.stringify(correspondingResponse.functionResponse.response, null, 2)}
-                                            </pre>
-                                        </div>
-                                    )}
                                 </div>
                             );
                         })}
