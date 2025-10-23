@@ -448,9 +448,8 @@ const App: React.FC = () => {
 
         let historyForApi = cleanHistory(updatedChatHistory);
         const isCoderMode = selectedMode.includes('coder');
-        const isProjectSynced = projectContext !== null;
         
-        if (projectContext && isCoderMode) {
+        if (projectContext) {
              const filteredContext: ProjectContext = { files: new Map(), dirs: new Set() };
 
              const isPathExcluded = (path: string): boolean => {
@@ -476,9 +475,14 @@ const App: React.FC = () => {
              }
 
              const fileContext = FileSystem.serializeProjectContext(filteredContext);
+             
+             const contextPreamble = isCoderMode 
+                ? `The user has provided this project context. Use your tools to operate on it. Do not output this context in your response.`
+                : `The user has provided the following files as context for their request. Use the contents of these files to inform your answer. Do not mention this context message in your response unless the user asks about it.`;
+
              const contextMessage: ChatMessage = {
                  role: 'user',
-                 parts: [{ text: `The user has provided this project context. Use your tools to operate on it. Do not output this context in your response.\n\n${fileContext}`}]
+                 parts: [{ text: `${contextPreamble}\n\n${fileContext}`}]
              };
              // Inject the context message before the last message (the user's actual prompt).
              historyForApi.splice(historyForApi.length - 1, 0, contextMessage);
@@ -506,11 +510,11 @@ const App: React.FC = () => {
         
         const mode = MODES[selectedMode];
         let systemInstruction = mode.systemInstruction;
-        if (isCoderMode && !isProjectSynced) {
+        if (isCoderMode && !projectContext) {
             systemInstruction = (mode as any).systemInstructionNoProject;
         }
 
-        const tools = isCoderMode && isProjectSynced ? [{ functionDeclarations: FILE_SYSTEM_TOOLS }] : undefined;
+        const tools = isCoderMode && projectContext ? [{ functionDeclarations: FILE_SYSTEM_TOOLS }] : undefined;
 
         const response = await generateContentWithRetries(
             apiKey, selectedModel, historyForApi, systemInstruction, tools,

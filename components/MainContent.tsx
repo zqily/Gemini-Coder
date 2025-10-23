@@ -35,8 +35,8 @@ const ModelSelector: React.FC<{ selectedModel: string; setSelectedModel: (model:
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   const models = [
-    { id: 'gemini-1.5-pro-latest', name: 'Gemini 1.5 Pro' },
-    { id: 'gemini-1.5-flash-latest', name: 'Gemini 1.5 Flash' },
+    { id: 'gemini-pro-latest', name: 'Gemini Pro' },
+    { id: 'gemini-flash-latest', name: 'Gemini Flash' },
   ];
 
   const currentModelName = models.find(m => m.id === selectedModel)?.name || 'Select Model';
