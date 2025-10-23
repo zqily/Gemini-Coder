@@ -480,6 +480,60 @@ const App: React.FC = () => {
         role: 'model',
         parts: [{ text: "Alright, before providing the final response, I will think step-by-step through the reasoning process and put it inside a <think> block using this format:\n\n```jsx\n<think>\nHuman request: (My interpretation of Human's request)\nHigh-level Plan: (A high level plan of what I'm going to do)\nDetailed Plan: (A more detailed plan that expands on the above plan)\n</think>\n```" }]
     };
+    
+    // Schema for both Simple and Advanced coder final implementation
+    const fileOpsResponseSchema = {
+        type: Type.OBJECT,
+        properties: {
+            summary: {
+                type: Type.STRING,
+                description: "A detailed summary of the changes made, explaining what was created/modified/deleted and why. This will be shown to the user. If the user asks for a simple script, write it here inside a markdown code block."
+            },
+            writeFiles: {
+                type: Type.ARRAY,
+                description: "A list of files to write content to. Creates the file if it does not exist, and overwrites it if it does.",
+                items: {
+                    type: Type.OBJECT,
+                    properties: {
+                        path: { type: Type.STRING },
+                        content: { type: Type.STRING }
+                    },
+                    required: ['path', 'content']
+                }
+            },
+            createFolders: {
+                type: Type.ARRAY,
+                description: "A list of new directories to create.",
+                items: {
+                    type: Type.OBJECT,
+                    properties: { path: { type: Type.STRING } },
+                    required: ['path']
+                }
+            },
+            moves: {
+                type: Type.ARRAY,
+                description: "A list of files or folders to move/rename.",
+                items: {
+                    type: Type.OBJECT,
+                    properties: {
+                        sourcePath: { type: Type.STRING },
+                        destinationPath: { type: Type.STRING }
+                    },
+                    required: ['sourcePath', 'destinationPath']
+                }
+            },
+            deletePaths: {
+                type: Type.ARRAY,
+                description: "A list of files or folders to delete.",
+                items: {
+                    type: Type.OBJECT,
+                    properties: { path: { type: Type.STRING } },
+                    required: ['path']
+                }
+            }
+        },
+        required: ['summary']
+    };
 
     try {
         if (selectedMode === 'advanced-coder') {
@@ -563,42 +617,64 @@ const App: React.FC = () => {
                 consolidatedReview = extractTextWithoutThink(reviewResult.text);
                 await cancellableSleep(5000);
             }
+             
+            // Phase 6: Final Implementation (JSON based)
+            onStatusUpdate('Phase 6/6: Generating final implementation...');
+            const finalSystemInstruction = `You are a file system operations generator. Your sole purpose is to generate a JSON object representing all necessary file system operations and a summary for the user.
 
-            // Phase 6: Final Implementation
-            onStatusUpdate('Phase 6/6: Final implementation...');
-            let finalSystemInstruction = '';
-            const filesExist = !!projectFileContext;
-            
-            const functionCallingSuffix = ' You MUST perform all necessary file system modifications (writeFile, createFolder, etc.) in a single turn by making multiple, parallel function calls. Do not stop after one function call if more are needed. Review your plan and ensure all file operations are executed at once.';
-
-            if (!filesExist && !phase5Skipped) {
-                finalSystemInstruction = 'Implement the revisions from the consolidated review. Explain what file(s) will be created, their purpose, and how to run the resulting project.';
-            } else if (filesExist && !phase5Skipped) {
-                finalSystemInstruction = 'Apply the revisions from the consolidated review to the existing codebase. Explain what file(s) will be created, modified, or deleted, why the changes are being made, and how to run the updated project. Crucially, compare between the original project/file state and the new, updated one, NOT the intermediate draft.';
-            } else if (!filesExist && phase5Skipped) {
-                finalSystemInstruction = 'Implement the draft from Phase 3 into the new codebase. Explain what file(s) will be created, their purpose, and how to run the project.';
-            } else { // filesExist && phase5Skipped
-                finalSystemInstruction = 'Implement the draft from Phase 3 into the existing codebase. Explain what file(s) will be created, modified, or deleted, why the changes are being made, and how to run the updated project.';
-            }
-            
-            finalSystemInstruction += functionCallingSuffix;
+Your entire output MUST be a single JSON object that strictly adheres to the provided schema. Do not output any other text, reasoning, or markdown. The JSON object must contain:
+1.  A 'summary' (string): A detailed, user-facing explanation of the changes.
+2.  'writeFiles' (array, optional): An array of objects, each with 'path' and 'content', for files to be created or overwritten.
+3.  'createFolders' (array, optional): An array of objects, each with a 'path' for new directories.
+4.  'moves' (array, optional): An array of objects, each with 'sourcePath' and 'destinationPath'.
+5.  'deletePaths' (array, optional): An array of objects, each with a 'path' to be deleted.`;
 
             const finalHistory = [...baseHistory];
-            const finalUserContent = `Code Draft:\n${codeDraft}\n\n${consolidatedReview ? `Consolidated Review:\n${consolidatedReview}` : ''}`;
+            const finalUserContent = `Here is the context for the final implementation. Generate the JSON output containing the summary and file system operations.\n\nCode Draft:\n${codeDraft}\n\n${consolidatedReview ? `Consolidated Review:\n${consolidatedReview}` : 'No issues were found in the draft.'}`;
             finalHistory.push({ role: 'user', parts: [{ text: finalUserContent }] });
-            finalHistory.push(thinkPrimerMessage);
 
-            const response = await generateContentWithRetries(apiKey, 'gemini-2.5-pro', finalHistory, finalSystemInstruction, [{ functionDeclarations: FILE_SYSTEM_TOOLS }], cancellationRef, onStatusUpdate, cancellableSleep);
+            const finalImplementationConfig = { responseMimeType: "application/json", responseSchema: fileOpsResponseSchema };
+            const response = await generateContentWithRetries(apiKey, 'gemini-2.5-pro', finalHistory, finalSystemInstruction, undefined, cancellationRef, onStatusUpdate, cancellableSleep, finalImplementationConfig);
+
             if (cancellationRef.current) throw new Error('Cancelled by user');
             
-            const modelResponseText = response.text;
-            const functionCalls = response.functionCalls ?? [];
+            let summaryText = '';
+            let functionCalls: FunctionCall[] = [];
 
-            if (!modelResponseText && functionCalls.length === 0) {
+            try {
+                const jsonResponse = JSON.parse(response.text);
+                summaryText = jsonResponse.summary || "No summary provided.";
+                functionCalls = [];
+                if (jsonResponse.writeFiles && Array.isArray(jsonResponse.writeFiles)) {
+                    jsonResponse.writeFiles.forEach((op: any) => {
+                        functionCalls.push({ name: 'writeFile', args: { path: op.path, content: op.content } });
+                    });
+                }
+                if (jsonResponse.createFolders && Array.isArray(jsonResponse.createFolders)) {
+                    jsonResponse.createFolders.forEach((op: any) => {
+                        functionCalls.push({ name: 'createFolder', args: { path: op.path } });
+                    });
+                }
+                if (jsonResponse.moves && Array.isArray(jsonResponse.moves)) {
+                    jsonResponse.moves.forEach((op: any) => {
+                        functionCalls.push({ name: 'move', args: { sourcePath: op.sourcePath, destinationPath: op.destinationPath } });
+                    });
+                }
+                if (jsonResponse.deletePaths && Array.isArray(jsonResponse.deletePaths)) {
+                    jsonResponse.deletePaths.forEach((op: any) => {
+                        functionCalls.push({ name: 'deletePath', args: { path: op.path } });
+                    });
+                }
+            } catch (e) {
+                console.error("Failed to parse JSON response from model:", response.text, e);
+                summaryText = `An error occurred while processing the model's response. The raw response is provided below.\n\n---\n\n\`\`\`json\n${response.text}\n\`\`\``;
+            }
+
+            if (!summaryText && functionCalls.length === 0) {
                 setChatHistory(prev => prev.slice(0, -1));
             } else {
                 const modelTurnParts: ChatPart[] = [];
-                if (modelResponseText) modelTurnParts.push({ text: modelResponseText });
+                if (summaryText) modelTurnParts.push({ text: summaryText });
                 functionCalls.forEach(fc => modelTurnParts.push({ functionCall: fc }));
         
                 const modelTurnWithMessage: ChatMessage = { role: 'model', parts: modelTurnParts };
@@ -632,27 +708,108 @@ const App: React.FC = () => {
                     setChatHistory(prev => [...prev, toolResponseMessage]);
                 }
             }
+        } else if (selectedMode === 'simple-coder' && projectContext) {
+            let historyForApi = [...historyForGeneration];
+            const projectFileContext = getProjectContextString();
+            if (projectFileContext) {
+                 const contextPreamble = `The user has provided the following files as context for their request. Use the contents of these files to inform your answer.`;
+                 historyForApi.splice(historyForApi.length - 1, 0, { role: 'user', parts: [{ text: `${contextPreamble}\n\n${projectFileContext}`}] });
+            }
+            historyForApi.push(thinkPrimerMessage);
+            
+            const systemInstruction = MODES['simple-coder'].systemInstruction!;
+            const modelConfig = { responseMimeType: "application/json", responseSchema: fileOpsResponseSchema };
+            
+            // Use Pro model for reliability with JSON schema
+            const response = await generateContentWithRetries(apiKey, 'gemini-2.5-pro', historyForApi, systemInstruction, undefined, cancellationRef, onStatusUpdate, cancellableSleep, modelConfig);
+            if (cancellationRef.current) throw new Error('Cancelled by user');
+
+            let summaryText = '';
+            let functionCalls: FunctionCall[] = [];
+
+            try {
+                const jsonResponse = JSON.parse(response.text);
+                summaryText = jsonResponse.summary || "No summary provided.";
+
+                functionCalls = [];
+                if (jsonResponse.writeFiles && Array.isArray(jsonResponse.writeFiles)) {
+                    jsonResponse.writeFiles.forEach((op: any) => {
+                        functionCalls.push({ name: 'writeFile', args: { path: op.path, content: op.content } });
+                    });
+                }
+                if (jsonResponse.createFolders && Array.isArray(jsonResponse.createFolders)) {
+                    jsonResponse.createFolders.forEach((op: any) => {
+                        functionCalls.push({ name: 'createFolder', args: { path: op.path } });
+                    });
+                }
+                if (jsonResponse.moves && Array.isArray(jsonResponse.moves)) {
+                    jsonResponse.moves.forEach((op: any) => {
+                        functionCalls.push({ name: 'move', args: { sourcePath: op.sourcePath, destinationPath: op.destinationPath } });
+                    });
+                }
+                if (jsonResponse.deletePaths && Array.isArray(jsonResponse.deletePaths)) {
+                    jsonResponse.deletePaths.forEach((op: any) => {
+                        functionCalls.push({ name: 'deletePath', args: { path: op.path } });
+                    });
+                }
+            } catch (e) {
+                console.error("Failed to parse JSON response from model:", response.text, e);
+                summaryText = `An error occurred while processing the model's response. The raw response is provided below.\n\n---\n\n\`\`\`json\n${response.text}\n\`\`\``;
+            }
+            
+            if (!summaryText && functionCalls.length === 0) {
+                setChatHistory(prev => prev.slice(0, -1));
+            } else {
+                 const modelTurnParts: ChatPart[] = [];
+                if (summaryText) modelTurnParts.push({ text: summaryText });
+                functionCalls.forEach(fc => modelTurnParts.push({ functionCall: fc }));
+        
+                const modelTurnWithMessage: ChatMessage = { role: 'model', parts: modelTurnParts };
+
+                setChatHistory(prev => {
+                    const newHistory = [...prev];
+                    newHistory[newHistory.length - 1] = modelTurnWithMessage;
+                    return newHistory;
+                });
+
+                if (functionCalls.length > 0) {
+                    let accumulatedContext = projectContext ?? EMPTY_CONTEXT;
+                    if (!projectContext) setOriginalProjectContext(EMPTY_CONTEXT);
+                    let accumulatedDeleted = deletedItems;
+                    const functionResponses: ChatPart[] = [];
+
+                    for (const fc of functionCalls) {
+                        if (cancellationRef.current) throw new Error('Cancelled by user');
+                        const { result, newContext, newDeleted } = executeFunctionCall(fc, accumulatedContext, accumulatedDeleted);
+                        accumulatedContext = newContext;
+                        accumulatedDeleted = newDeleted;
+                        functionResponses.push({ functionResponse: { name: fc.name!, response: result } });
+                    }
+                    
+                    if (cancellationRef.current) throw new Error('Cancelled by user');
+        
+                    setProjectContext(accumulatedContext);
+                    setDeletedItems(accumulatedDeleted);
+                    
+                    const toolResponseMessage: ChatMessage = { role: 'tool', parts: functionResponses };
+                    setChatHistory(prev => [...prev, toolResponseMessage]);
+                }
+            }
+
         } else {
-            // Existing logic for Simple Coder and Default modes
-            const cleanHistory = (history: ChatMessage[]): ChatMessage[] => history.map(m => m.role === 'model' ? { ...m, parts: m.parts.filter(p => !('functionCall' in p)) } : m);
-            let historyForApi = cleanHistory(historyForGeneration);
-            const isCoderMode = selectedMode.includes('coder');
-            const shouldUseStreaming = isStreamingEnabled && !isCoderMode;
+            // Default mode, or Simple Coder without a project
+            let historyForApi = [...historyForGeneration];
+            const shouldUseStreaming = isStreamingEnabled;
             
             const projectFileContext = getProjectContextString();
             if (projectFileContext) {
-                 const contextPreamble = `The user has provided the following files as context for their request. Use the contents of these files to inform your answer. If they ask you to modify files, use the file system tools you have been provided. Do not mention this context message in your response unless the user asks about it.`;
+                 const contextPreamble = `The user has provided the following files as context for their request. Use the contents of these files to inform your answer. Do not mention this context message in your response unless the user asks about it.`;
                  historyForApi.splice(historyForApi.length - 1, 0, { role: 'user', parts: [{ text: `${contextPreamble}\n\n${projectFileContext}`}] });
-            }
-            
-            if (isCoderMode) {
-                historyForApi.push(thinkPrimerMessage);
             }
             
             const mode = MODES[selectedMode];
             const systemInstruction = mode.systemInstruction;
-            const tools = isCoderMode ? [{ functionDeclarations: FILE_SYSTEM_TOOLS }] : undefined;
-
+            
             if (shouldUseStreaming) {
                 const stream = generateContentStreamWithRetries( apiKey, activeModel, historyForApi, systemInstruction, cancellationRef, onStatusUpdate, cancellableSleep );
                 let fullResponseText = '';
@@ -674,41 +831,19 @@ const App: React.FC = () => {
                 if (cancellationRef.current) throw new Error('Cancelled by user');
                 if (!fullResponseText.trim()) setChatHistory(prev => prev.slice(0, -1));
             } else {
-                const response = await generateContentWithRetries( apiKey, activeModel, historyForApi, systemInstruction, tools, cancellationRef, onStatusUpdate, cancellableSleep );
+                const response = await generateContentWithRetries( apiKey, activeModel, historyForApi, systemInstruction, undefined, cancellationRef, onStatusUpdate, cancellableSleep );
                 if (cancellationRef.current) throw new Error('Cancelled by user');
                 const modelResponseText = response.text;
-                const functionCalls = response.functionCalls ?? [];
-
-                if (!modelResponseText && functionCalls.length === 0) {
+               
+                if (!modelResponseText) {
                     setChatHistory(prev => prev.slice(0, -1));
                 } else {
-                    const modelTurnParts: ChatPart[] = [];
-                    if (modelResponseText) modelTurnParts.push({ text: modelResponseText });
-                    functionCalls.forEach(fc => modelTurnParts.push({ functionCall: fc }));
-                    const modelTurnWithMessage: ChatMessage = { role: 'model', parts: modelTurnParts };
+                    const modelTurnWithMessage: ChatMessage = { role: 'model', parts: [{ text: modelResponseText }] };
                     setChatHistory(prev => {
                         const newHistory = [...prev];
                         newHistory[newHistory.length - 1] = modelTurnWithMessage;
                         return newHistory;
                     });
-                    if (functionCalls.length > 0) {
-                        let accumulatedContext = projectContext ?? EMPTY_CONTEXT;
-                        if (!projectContext) setOriginalProjectContext(EMPTY_CONTEXT);
-                        let accumulatedDeleted = deletedItems;
-                        const functionResponses: ChatPart[] = [];
-                        for (const fc of functionCalls) {
-                            if (cancellationRef.current) throw new Error('Cancelled by user');
-                            const { result, newContext, newDeleted } = executeFunctionCall(fc, accumulatedContext, accumulatedDeleted);
-                            accumulatedContext = newContext;
-                            accumulatedDeleted = newDeleted;
-                            functionResponses.push({ functionResponse: { name: fc.name!, response: result } });
-                        }
-                        if (cancellationRef.current) throw new Error('Cancelled by user');
-                        setProjectContext(accumulatedContext);
-                        setDeletedItems(accumulatedDeleted);
-                        const toolResponseMessage: ChatMessage = { role: 'tool', parts: functionResponses };
-                        setChatHistory(prev => [...prev, toolResponseMessage]);
-                    }
                 }
             }
         }

@@ -11,6 +11,7 @@ import type { ChatMessage } from '../types';
  * @param history - The full conversation history.
  * @param systemInstruction - Optional system instruction.
  * @param tools - Optional function calling tools.
+ * @param additionalConfig - Optional additional configuration for the request, like responseSchema.
  * @returns A promise that resolves to the generation response.
  */
 export const generateContent = async (
@@ -18,22 +19,22 @@ export const generateContent = async (
   modelName: string,
   history: ChatMessage[],
   systemInstruction?: string,
-  tools?: { functionDeclarations: FunctionDeclaration[] }[]
+  tools?: { functionDeclarations: FunctionDeclaration[] }[],
+  additionalConfig?: object
 ): Promise<GenerateContentResponse> => {
   if (!apiKey) {
     throw new Error("API Key is missing. Please add it in settings.");
   }
   const ai = new GoogleGenAI({ apiKey });
 
-  // The config needs to be constructed carefully, as some properties might be undefined.
-  const config: { systemInstruction?: string, tools?: any } = {};
+  const config: { systemInstruction?: string, tools?: any, [key: string]: any } = { ...additionalConfig };
   if (systemInstruction) config.systemInstruction = systemInstruction;
   if (tools) config.tools = tools;
 
   const request = {
     model: modelName,
     contents: history,
-    config,
+    config: Object.keys(config).length > 0 ? config : undefined,
   };
 
   const response = await ai.models.generateContent(request);
@@ -51,6 +52,7 @@ export const generateContent = async (
  * @param cancellationRef - A React ref to check if the user has cancelled the request.
  * @param onStatusUpdate - A callback to update the UI with status messages (e.g., "Retrying...").
  * @param cancellableSleep - A sleep function that can be interrupted by the cancellationRef.
+ * @param additionalConfig - Optional additional configuration for the request.
  * @returns A promise that resolves to the generation response, or throws an error if all retries fail.
  */
 export const generateContentWithRetries = async (
@@ -61,7 +63,8 @@ export const generateContentWithRetries = async (
   tools: { functionDeclarations: FunctionDeclaration[] }[] | undefined,
   cancellationRef: React.MutableRefObject<boolean>,
   onStatusUpdate: (message: string) => void,
-  cancellableSleep: (ms: number) => Promise<void>
+  cancellableSleep: (ms: number) => Promise<void>,
+  additionalConfig?: object
 ): Promise<GenerateContentResponse> => {
     let retries503 = 0;
     const initialDelay503 = 10000;
@@ -78,7 +81,7 @@ export const generateContentWithRetries = async (
         }
         
         try {
-            const response = await generateContent(apiKey, modelName, history, systemInstruction, tools);
+            const response = await generateContent(apiKey, modelName, history, systemInstruction, tools, additionalConfig);
             return response; // Success, return response object and exit loop
         } catch (error: any) {
             if (cancellationRef.current) throw error;
@@ -162,6 +165,7 @@ export const generateContentWithRetries = async (
  * @param cancellationRef A React ref to check for user cancellation.
  * @param onStatusUpdate A callback to update the UI with status messages.
  * @param cancellableSleep A sleep function that can be interrupted.
+ * @param additionalConfig - Optional additional configuration for the request.
  * @returns An async generator that yields generation response chunks.
  */
 export const generateContentStreamWithRetries = async function* (
@@ -171,19 +175,20 @@ export const generateContentStreamWithRetries = async function* (
     systemInstruction: string | undefined,
     cancellationRef: React.MutableRefObject<boolean>,
     onStatusUpdate: (message: string) => void,
-    cancellableSleep: (ms: number) => Promise<void>
+    cancellableSleep: (ms: number) => Promise<void>,
+    additionalConfig?: object
   ): AsyncGenerator<GenerateContentResponse> {
       if (!apiKey) {
           throw new Error("API Key is missing. Please add it in settings.");
       }
       const ai = new GoogleGenAI({ apiKey });
-      const config: { systemInstruction?: string } = {};
+      const config: { systemInstruction?: string, [key: string]: any } = { ...additionalConfig };
       if (systemInstruction) config.systemInstruction = systemInstruction;
   
       const request = {
           model: modelName,
           contents: history,
-          config,
+          config: Object.keys(config).length > 0 ? config : undefined,
       };
   
       let retries503 = 0;

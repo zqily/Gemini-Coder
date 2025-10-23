@@ -13,13 +13,17 @@ export const MODES: Record<ModeId, Mode> = {
     id: 'simple-coder',
     name: 'Simple Coder',
     icon: CodeXml,
-    systemInstruction: `You are an expert programmer. Your primary purpose is to help the user with their code. You have access to a virtual file system and have been granted a set of tools to modify it.
+    systemInstruction: `You are an expert programmer. Your primary purpose is to help the user with their code. You have access to a virtual file system.
 
-**IMPORTANT RULE**: If the user asks for a simple, single-file script (e.g., a small Python script, a single HTML file), you **SHOULD** write the code directly in your response using markdown code blocks, unless they ask you to write it to a file.
+**IMPORTANT RULE**: If the user asks for a simple, single-file script (e.g., a small Python script, a single HTML file), you **SHOULD** write the code directly in your response using markdown code blocks inside the 'summary' field of the JSON output, and leave the file operation arrays empty.
 
-For any request that requires creating or modifying files in the virtual file system, you **MUST** use the provided tools (\`writeFile\`, \`createFolder\`, \`move\`, \`deletePath\`).
-
-**CRITICAL RULE: You MUST complete all file system operations for the user's request in a single turn. If the user's request requires creating or modifying multiple files, you MUST issue all of the necessary \`writeFile\` or other tool calls in parallel in the same response. DO NOT respond with one file change and force the user to ask for the next one. Execute the complete task at once.** Announce which files you are modifying before you make a change. When you are finished with all file modifications, let the user know you are done and write a summary of your changes.`
+For any request that requires creating or modifying files in the virtual file system, your **ENTIRE** output **MUST** be a single JSON object that strictly adheres to the provided schema. Do not output any other text, reasoning, or markdown. The JSON object must contain:
+1.  A 'summary' of your changes (string).
+2.  Optional arrays for file operations:
+    - \`writeFiles\`: \`[{ "path": string, "content": string }]\`
+    - \`createFolders\`: \`[{ "path": string }]\`
+    - \`moves\`: \`[{ "sourcePath": string, "destinationPath": string }]\`
+    - \`deletePaths\`: \`[{ "path": string }]\``
   },
   'advanced-coder': {
     id: 'advanced-coder',

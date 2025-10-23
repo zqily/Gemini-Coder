@@ -546,7 +546,7 @@ const FileTree: React.FC<FileTreeProps> = ({
                 </button>
                 <div className="context-menu-separator" />
                 <button className="context-menu-item" onClick={handleToggleExclusion}>
-                    {excludedPaths.has(contextMenu.path) ? <Eye size={16} /> : <EyeOff size={16} />} 
+                  {excludedPaths.has(contextMenu.path) ? <Eye size={16} /> : <EyeOff size={16} />} 
                     {excludedPaths.has(contextMenu.path) ? 'Include in Context' : 'Exclude from Context'}
                 </button>
                 <button className="context-menu-item" onClick={() => handleCopy('path')}>
