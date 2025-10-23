@@ -28,6 +28,7 @@ import {
   ClipboardCopy,
   Eye,
   EyeOff,
+  BrainCircuit,
 } from 'lucide-react';
 
 export {
@@ -59,4 +60,5 @@ export {
   ClipboardCopy,
   Eye,
   EyeOff,
+  BrainCircuit,
 };

@@ -41,7 +41,9 @@ const MODES: Record<ModeId, Mode> = {
     id: 'simple-coder',
     name: 'Simple Coder',
     icon: CodeXml,
-    systemInstruction: "You are an expert programmer. Your primary purpose is to help the user with their code. You have been granted a set of tools to modify a virtual file system. Use these tools when the user asks for code changes, new files, or refactoring. **Crucially, you must complete the user's entire request in a single turn. Do not perform one file modification and then stop. You must plan all the required changes and then issue all the necessary function calls in the same response.** Announce which files you are modifying before you make a change. When you are finished with all file modifications, let the user know you are done and write a summary of your changes."
+    systemInstruction: `You are an expert programmer. Your primary purpose is to help the user with their code. You have been granted a set of tools to modify a virtual file system. Use these tools when the user asks for code changes, new files, or refactoring.
+
+**Crucially, you must complete the user's entire request in a single turn. Do not perform one file modification and then stop. You must plan all the required changes and then issue all the necessary function calls in the same response.** Announce which files you are modifying before you make a change. When you are finished with all file modifications, let the user know you are done and write a summary of your changes.`
   }
 };
 
@@ -405,7 +407,46 @@ const App: React.FC = () => {
     setChatHistory(prev => [...prev, { role: 'model', parts: [{ text: '' }] }]);
 
     try {
-        let historyForApi = [...updatedChatHistory];
+        const cleanHistory = (history: ChatMessage[]): ChatMessage[] => {
+            return history.map(message => {
+                if (message.role === 'model') {
+                    const newParts = message.parts
+                        .map(part => {
+                            if ('text' in part && part.text) {
+                                let textToClean = part.text;
+                                const startTag = '<think>';
+                                const endTag = '</think>';
+                                
+                                const firstStartTagIndex = textToClean.indexOf(startTag);
+                                const lastEndTagIndex = textToClean.lastIndexOf(endTag);
+                                
+                                let cleanedText = textToClean;
+
+                                if (firstStartTagIndex !== -1 && lastEndTagIndex !== -1 && firstStartTagIndex < lastEndTagIndex) {
+                                    // The cleaned text for the history is only what comes *after* the thought block.
+                                    cleanedText = textToClean.substring(lastEndTagIndex + endTag.length).trim();
+                                }
+                                
+                                return { ...part, text: cleanedText };
+                            }
+                            return part;
+                        })
+                        .filter(part => {
+                            // Filter out parts that become empty after cleaning,
+                            // but keep non-text parts (like function calls).
+                            if ('text' in part) {
+                                return !!part.text;
+                            }
+                            return true;
+                        });
+
+                    return { ...message, parts: newParts };
+                }
+                return message;
+            }).filter(message => message.parts.length > 0);
+        };
+
+        let historyForApi = cleanHistory(updatedChatHistory);
         const isCoderMode = selectedMode.includes('coder');
         
         if (projectContext && isCoderMode) {
@@ -442,6 +483,15 @@ const App: React.FC = () => {
              historyForApi.splice(historyForApi.length - 1, 0, contextMessage);
         }
         
+        // Inject the Chain-of-Thought priming message before every API call in coder mode.
+        if (isCoderMode) {
+            const thinkPrimerMessage: ChatMessage = {
+                role: 'model',
+                parts: [{ text: "Alright, before providing the final response, I will think step-by-step through the reasoning process and put it inside a <think> block using this format:\n\n```jsx\n<think>\nHuman request: (My interpretation of Human's request)\nHigh-level Plan: (A high level plan of what I'm going to do)\nDetailed Plan: (A more detailed plan that expands on the above plan)\n</think>\n```" }]
+            };
+            historyForApi.push(thinkPrimerMessage);
+        }
+
         const onStatusUpdate = (message: string) => {
             setChatHistory(prev => {
                 const newHistory = [...prev];
