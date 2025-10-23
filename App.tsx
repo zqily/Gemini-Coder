@@ -13,8 +13,8 @@ import { useStreamingSetting } from './hooks/useStreamingSetting';
 import { createIsIgnored } from './utils/gitignore';
 import * as FileSystem from './utils/fileSystem';
 import { executeFunctionCall } from './utils/functionCalling';
-import { MODES, FILE_SYSTEM_TOOLS } from './config/modes';
-import { Type, FunctionCall } from '@google/genai';
+import { MODES, FILE_SYSTEM_TOOLS, NO_PROBLEM_DETECTED_TOOL } from './config/modes';
+import { Type, FunctionCall, GenerateContentResponse } from '@google/genai';
 import { ImageIcon } from './components/icons';
 
 // Custom hook to detect window size
@@ -388,9 +388,11 @@ const App: React.FC = () => {
       setIsSettingsModalOpen(true);
       return;
     }
-    if (!selectedModel) {
-      alert("Please select a model before sending a prompt.");
-      return;
+    
+    let activeModel = selectedModel;
+    if (!activeModel && selectedMode !== 'advanced-coder') {
+        alert("Please select a model before sending a prompt.");
+        return;
     }
     
     let historyForGeneration: ChatMessage[];
@@ -430,131 +432,160 @@ const App: React.FC = () => {
     };
     
     setChatHistory(prev => [...prev, { role: 'model', parts: [{ text: '' }] }]);
+    
+    const onStatusUpdate = (message: string) => {
+        setChatHistory(prev => {
+            const newHistory = [...prev];
+            const lastMessage = newHistory[newHistory.length - 1];
+            if (lastMessage && lastMessage.role === 'model') {
+                newHistory[newHistory.length - 1] = { ...lastMessage, parts: [{ text: message }] };
+            }
+            return newHistory;
+        });
+    };
+
+    const extractTextWithoutThink = (rawText: string | undefined): string => {
+        if (!rawText) return '';
+        const startTag = '<think>';
+        const endTag = '</think>';
+        const firstStartTagIndex = rawText.indexOf(startTag);
+        const lastEndTagIndex = rawText.lastIndexOf(endTag);
+        if (firstStartTagIndex !== -1 && lastEndTagIndex !== -1 && firstStartTagIndex < lastEndTagIndex) {
+            return rawText.substring(lastEndTagIndex + endTag.length).trim();
+        }
+        return rawText;
+    };
+
+    const getProjectContextString = (): string | null => {
+        if (!projectContext || projectContext.files.size === 0) return null;
+        const filteredContext: ProjectContext = { files: new Map(), dirs: new Set() };
+        const isPathExcluded = (path: string): boolean => {
+          if (excludedPaths.has(path)) return true;
+          for (const excluded of excludedPaths) {
+            if (path.startsWith(`${excluded}/`)) return true;
+          }
+          return false;
+        };
+        for (const [path, content] of projectContext.files.entries()) {
+            if (!isPathExcluded(path)) filteredContext.files.set(path, content);
+        }
+        for (const path of projectContext.dirs) {
+            if (!isPathExcluded(path)) filteredContext.dirs.add(path);
+        }
+        return FileSystem.serializeProjectContext(filteredContext);
+    };
+    
+    const thinkPrimerMessage: ChatMessage = {
+        role: 'model',
+        parts: [{ text: "Alright, before providing the final response, I will think step-by-step through the reasoning process and put it inside a <think> block using this format:\n\n```jsx\n<think>\nHuman request: (My interpretation of Human's request)\nHigh-level Plan: (A high level plan of what I'm going to do)\nDetailed Plan: (A more detailed plan that expands on the above plan)\n</think>\n```" }]
+    };
 
     try {
-        const cleanHistory = (history: ChatMessage[]): ChatMessage[] => {
-            return history.map(message => {
-                if (message.role === 'model') {
-                    const newParts = message.parts.map(part => {
-                        if ('text' in part && part.text) {
-                            let textToClean = part.text;
-                            const startTag = '<think>';
-                            const endTag = '</think>';
-                            const firstStartTagIndex = textToClean.indexOf(startTag);
-                            const lastEndTagIndex = textToClean.lastIndexOf(endTag);
-                            let cleanedText = textToClean;
-                            if (firstStartTagIndex !== -1 && lastEndTagIndex !== -1 && firstStartTagIndex < lastEndTagIndex) {
-                                cleanedText = textToClean.substring(lastEndTagIndex + endTag.length).trim();
-                            }
-                            return { ...part, text: cleanedText };
-                        }
-                        return part;
-                    }).filter(part => ('text' in part) ? !!part.text : true);
-                    return { ...message, parts: newParts };
-                }
-                return message;
-            }).filter(message => message.parts.length > 0);
-        };
-
-        let historyForApi = cleanHistory(historyForGeneration);
-        const isCoderMode = selectedMode.includes('coder');
-        const shouldUseStreaming = isStreamingEnabled && !isCoderMode;
-        
-        if (projectContext && projectContext.files.size > 0) {
-             const filteredContext: ProjectContext = { files: new Map(), dirs: new Set() };
-
-             const isPathExcluded = (path: string): boolean => {
-               if (excludedPaths.has(path)) return true;
-               for (const excluded of excludedPaths) {
-                 if (path.startsWith(`${excluded}/`)) return true;
-               }
-               return false;
-             };
-         
-             for (const [path, content] of projectContext.files.entries()) {
-               if (!isPathExcluded(path)) {
-                 filteredContext.files.set(path, content);
-               }
-             }
-             for (const path of projectContext.dirs) {
-               if (!isPathExcluded(path)) {
-                 filteredContext.dirs.add(path);
-               }
-             }
-
-             const fileContext = FileSystem.serializeProjectContext(filteredContext);
-             
-             const contextPreamble = `The user has provided the following files as context for their request. Use the contents of these files to inform your answer. If they ask you to modify files, use the file system tools you have been provided. Do not mention this context message in your response unless the user asks about it.`;
-
-             const contextMessage: ChatMessage = {
-                 role: 'user',
-                 parts: [{ text: `${contextPreamble}\n\n${fileContext}`}]
-             };
-             historyForApi.splice(historyForApi.length - 1, 0, contextMessage);
-        }
-        
-        if (isCoderMode) {
-            const thinkPrimerMessage: ChatMessage = {
-                role: 'model',
-                parts: [{ text: "Alright, before providing the final response, I will think step-by-step through the reasoning process and put it inside a <think> block using this format:\n\n```jsx\n<think>\nHuman request: (My interpretation of Human's request)\nHigh-level Plan: (A high level plan of what I'm going to do)\nDetailed Plan: (A more detailed plan that expands on the above plan)\n</think>\n```" }]
-            };
-            historyForApi.push(thinkPrimerMessage);
-        }
-
-        const onStatusUpdate = (message: string) => {
-            setChatHistory(prev => {
-                const newHistory = [...prev];
-                const lastMessage = newHistory[newHistory.length - 1];
-                if (lastMessage && lastMessage.role === 'model') {
-                    newHistory[newHistory.length - 1] = { ...lastMessage, parts: [{ text: message }] };
-                }
-                return newHistory;
-            });
-        };
-        
-        const mode = MODES[selectedMode];
-        const systemInstruction = mode.systemInstruction;
-        const tools = [{ functionDeclarations: FILE_SYSTEM_TOOLS }];
-
-        if (shouldUseStreaming) {
-            const stream = generateContentStreamWithRetries(
-                apiKey, selectedModel, historyForApi, systemInstruction,
-                cancellationRef, onStatusUpdate, cancellableSleep
-            );
-
-            let fullResponseText = '';
-            for await (const chunk of stream) {
-                if (cancellationRef.current) break;
-                
-                const chunkText = chunk.text;
-                if (chunkText) {
-                    fullResponseText += chunkText;
-                    setChatHistory(prev => {
-                        const newHistory = [...prev];
-                        const lastMessage = newHistory[newHistory.length - 1];
-                        if (lastMessage && lastMessage.role === 'model') {
-                            newHistory[newHistory.length - 1] = {
-                                ...lastMessage,
-                                parts: [{ text: fullResponseText }]
-                            };
-                        }
-                        return newHistory;
-                    });
-                }
+        if (selectedMode === 'advanced-coder') {
+            let baseHistory = [...historyForGeneration];
+            const projectFileContext = getProjectContextString();
+            if (projectFileContext) {
+                const contextPreamble = `The user has provided the following files as context for their request. Use the contents of these files to inform your answer.`;
+                baseHistory.splice(baseHistory.length - 1, 0, { role: 'user', parts: [{ text: `${contextPreamble}\n\n${projectFileContext}` }] });
             }
-            if (cancellationRef.current) throw new Error('Cancelled by user');
 
-            if (!fullResponseText.trim()) {
-                setChatHistory(prev => prev.slice(0, -1));
-            }
-        } else {
-            const response = await generateContentWithRetries(
-                apiKey, selectedModel, historyForApi, systemInstruction, tools,
-                cancellationRef, onStatusUpdate, cancellableSleep
+            // Phase 1: Planning
+            onStatusUpdate('Phase 1/6: Generating initial plans...');
+            const plannerSystemInstruction = `You are a Senior Software Architect. Your task is to create a high-level plan to address the user's request. Do NOT write any code. Focus on the overall strategy, file structure, and key components.`;
+            const planningPromises = Array(3).fill(0).map(() => 
+                generateContentWithRetries(apiKey, 'gemini-flash-latest', [...baseHistory, thinkPrimerMessage], plannerSystemInstruction, undefined, cancellationRef, onStatusUpdate, cancellableSleep).catch(e => e)
             );
+            const planningResults = await Promise.all(planningPromises);
+            const successfulPlans = planningResults
+                .filter((res): res is GenerateContentResponse => !(res instanceof Error) && res.text)
+                .map(res => extractTextWithoutThink(res.text));
 
+            if (successfulPlans.length === 0) throw new Error("All planning instances failed.");
+
+            await cancellableSleep(5000);
+
+            // Phase 2: Consolidation
+            onStatusUpdate('Phase 2/6: Consolidating into a master plan...');
+            const consolidationSystemInstruction = `You are a Principal Engineer. Your task is to synthesize multiple high-level plans from your team of architects into a single, cohesive, and highly detailed master plan. The final plan should be actionable for a skilled developer. Do not reference the previous planning phase or the planners themselves; present this as your own unified plan.`;
+            const consolidationHistory = [...baseHistory];
+            consolidationHistory.push({ role: 'user', parts: [{ text: `Here are the plans from the architects:\n\n${successfulPlans.map((p, i) => `--- PLAN ${i+1} ---\n${p}`).join('\n\n')}` }] });
+            consolidationHistory.push(thinkPrimerMessage);
+            const consolidationResult = await generateContentWithRetries(apiKey, 'gemini-2.5-pro', consolidationHistory, consolidationSystemInstruction, undefined, cancellationRef, onStatusUpdate, cancellableSleep);
+            const masterPlan = extractTextWithoutThink(consolidationResult.text);
+
+            await cancellableSleep(5000);
+
+            // Phase 3: Drafting
+            onStatusUpdate('Phase 3/6: Drafting code...');
+            const draftingSystemInstruction = `You are a Staff Engineer. Your task is to generate a complete code draft based on the master plan. The output should be in a diff format where applicable. Do not use any function tools.`;
+            const draftingHistory = [...baseHistory];
+            draftingHistory.push({ role: 'user', parts: [{ text: `Here is the master plan. Please generate the code draft.\n\n${masterPlan}` }] });
+            draftingHistory.push(thinkPrimerMessage);
+            const draftingResult = await generateContentWithRetries(apiKey, 'gemini-2.5-pro', draftingHistory, draftingSystemInstruction, undefined, cancellationRef, onStatusUpdate, cancellableSleep);
+            const codeDraft = extractTextWithoutThink(draftingResult.text);
+            
+            await cancellableSleep(5000);
+
+            // Phase 4: Debugging
+            onStatusUpdate('Phase 4/6: Debugging draft...');
+            const debuggerSystemInstruction = `You are a meticulous Code Reviewer. Review the provided code draft for critical errors, bugs, incomplete implementation, or violations of best practices. If the draft is acceptable, you MUST call the \`noProblemDetected\` function. Otherwise, provide your feedback. Do not reference the "Master Plan" or the source of the reasoning.`;
+            const debuggingHistory = [...baseHistory];
+            debuggingHistory.push({ role: 'user', parts: [{ text: `Master Plan:\n${masterPlan}\n\nCode Draft:\n${codeDraft}` }] });
+            debuggingHistory.push(thinkPrimerMessage);
+            const debuggingPromises = Array(3).fill(0).map(() => 
+                generateContentWithRetries(apiKey, 'gemini-flash-latest', debuggingHistory, debuggerSystemInstruction, [{ functionDeclarations: [NO_PROBLEM_DETECTED_TOOL] }], cancellationRef, onStatusUpdate, cancellableSleep).catch(e => e)
+            );
+            const debuggingResults = await Promise.all(debuggingPromises);
+            
+            const debuggingReports: string[] = [];
+            let noProblemCount = 0;
+            for (const res of debuggingResults) {
+                if (res instanceof Error) continue;
+                const hasNoProblemCall = res.functionCalls?.some(fc => fc.name === 'noProblemDetected');
+                if (hasNoProblemCall) noProblemCount++;
+                else if (res.text) debuggingReports.push(extractTextWithoutThink(res.text));
+            }
+
+            const phase5Skipped = noProblemCount === 3;
+            let consolidatedReview = '';
+
+            await cancellableSleep(5000);
+
+            // Phase 5: Review Consolidation
+            if (!phase5Skipped && debuggingReports.length > 0) {
+                onStatusUpdate('Phase 5/6: Consolidating feedback...');
+                const reviewConsolidationSystemInstruction = `You are a Tech Lead. Consolidate the following debugging feedback into a single, concise list of required changes for the final implementation. Do not reference the debuggers or the source of the comments.`;
+                const reviewHistory = [...baseHistory];
+                reviewHistory.push({ role: 'user', parts: [{ text: `Code Draft:\n${codeDraft}\n\nDebugging Reports:\n${debuggingReports.join('\n---\n')}` }] });
+                reviewHistory.push(thinkPrimerMessage);
+                const reviewResult = await generateContentWithRetries(apiKey, 'gemini-flash-latest', reviewHistory, reviewConsolidationSystemInstruction, undefined, cancellationRef, onStatusUpdate, cancellableSleep);
+                consolidatedReview = extractTextWithoutThink(reviewResult.text);
+                await cancellableSleep(5000);
+            }
+
+            // Phase 6: Final Implementation
+            onStatusUpdate('Phase 6/6: Final implementation...');
+            let finalSystemInstruction = '';
+            const filesExist = !!projectFileContext;
+            
+            if (!filesExist && !phase5Skipped) {
+                finalSystemInstruction = 'Implement the revisions from the consolidated review. Explain what file(s) will be created, their purpose, and how to run the resulting project. Generate code and call necessary functions.';
+            } else if (filesExist && !phase5Skipped) {
+                finalSystemInstruction = 'Apply the revisions from the consolidated review to the existing codebase. Explain what file(s) will be created, modified, or deleted, why the changes are being made, and how to run the updated project. Crucially, compare between the original project/file state and the new, updated one, NOT the intermediate draft. Generate code and call necessary functions.';
+            } else if (!filesExist && phase5Skipped) {
+                finalSystemInstruction = 'Implement the draft from Phase 3 into the new codebase. Explain what file(s) will be created, their purpose, and how to run the project. Generate code and call necessary functions.';
+            } else { // filesExist && phase5Skipped
+                finalSystemInstruction = 'Implement the draft from Phase 3 into the existing codebase. Explain what file(s) will be created, modified, or deleted, why the changes are being made, and how to run the updated project. Generate code and call necessary functions.';
+            }
+
+            const finalHistory = [...baseHistory];
+            const finalUserContent = `Code Draft:\n${codeDraft}\n\n${consolidatedReview ? `Consolidated Review:\n${consolidatedReview}` : ''}`;
+            finalHistory.push({ role: 'user', parts: [{ text: finalUserContent }] });
+            finalHistory.push(thinkPrimerMessage);
+
+            const response = await generateContentWithRetries(apiKey, 'gemini-2.5-pro', finalHistory, finalSystemInstruction, [{ functionDeclarations: FILE_SYSTEM_TOOLS }], cancellationRef, onStatusUpdate, cancellableSleep);
             if (cancellationRef.current) throw new Error('Cancelled by user');
-
+            
             const modelResponseText = response.text;
             const functionCalls = response.functionCalls ?? [];
 
@@ -574,32 +605,102 @@ const App: React.FC = () => {
                 });
 
                 if (functionCalls.length > 0) {
-                    let accumulatedContext = projectContext;
+                    let accumulatedContext = projectContext ?? EMPTY_CONTEXT;
+                    if (!projectContext) setOriginalProjectContext(EMPTY_CONTEXT);
                     let accumulatedDeleted = deletedItems;
+                    const functionResponses: ChatPart[] = [];
 
-                    if (!projectContext) {
-                        accumulatedContext = EMPTY_CONTEXT;
-                        setOriginalProjectContext(EMPTY_CONTEXT);
+                    for (const fc of functionCalls) {
+                        if (cancellationRef.current) throw new Error('Cancelled by user');
+                        const { result, newContext, newDeleted } = executeFunctionCall(fc, accumulatedContext, accumulatedDeleted);
+                        accumulatedContext = newContext;
+                        accumulatedDeleted = newDeleted;
+                        functionResponses.push({ functionResponse: { name: fc.name!, response: result } });
                     }
+                    
+                    if (cancellationRef.current) throw new Error('Cancelled by user');
+        
+                    setProjectContext(accumulatedContext);
+                    setDeletedItems(accumulatedDeleted);
+                    
+                    const toolResponseMessage: ChatMessage = { role: 'tool', parts: functionResponses };
+                    setChatHistory(prev => [...prev, toolResponseMessage]);
+                }
+            }
+        } else {
+            // Existing logic for Simple Coder and Default modes
+            const cleanHistory = (history: ChatMessage[]): ChatMessage[] => history.map(m => m.role === 'model' ? { ...m, parts: m.parts.filter(p => !('functionCall' in p)) } : m);
+            let historyForApi = cleanHistory(historyForGeneration);
+            const isCoderMode = selectedMode.includes('coder');
+            const shouldUseStreaming = isStreamingEnabled && !isCoderMode;
+            
+            const projectFileContext = getProjectContextString();
+            if (projectFileContext) {
+                 const contextPreamble = `The user has provided the following files as context for their request. Use the contents of these files to inform your answer. If they ask you to modify files, use the file system tools you have been provided. Do not mention this context message in your response unless the user asks about it.`;
+                 historyForApi.splice(historyForApi.length - 1, 0, { role: 'user', parts: [{ text: `${contextPreamble}\n\n${projectFileContext}`}] });
+            }
+            
+            if (isCoderMode) {
+                historyForApi.push(thinkPrimerMessage);
+            }
+            
+            const mode = MODES[selectedMode];
+            const systemInstruction = mode.systemInstruction;
+            const tools = isCoderMode ? [{ functionDeclarations: FILE_SYSTEM_TOOLS }] : undefined;
 
-                    if (accumulatedContext) {
+            if (shouldUseStreaming) {
+                const stream = generateContentStreamWithRetries( apiKey, activeModel, historyForApi, systemInstruction, cancellationRef, onStatusUpdate, cancellableSleep );
+                let fullResponseText = '';
+                for await (const chunk of stream) {
+                    if (cancellationRef.current) break;
+                    const chunkText = chunk.text;
+                    if (chunkText) {
+                        fullResponseText += chunkText;
+                        setChatHistory(prev => {
+                            const newHistory = [...prev];
+                            const lastMessage = newHistory[newHistory.length - 1];
+                            if (lastMessage && lastMessage.role === 'model') {
+                                newHistory[newHistory.length - 1] = { ...lastMessage, parts: [{ text: fullResponseText }] };
+                            }
+                            return newHistory;
+                        });
+                    }
+                }
+                if (cancellationRef.current) throw new Error('Cancelled by user');
+                if (!fullResponseText.trim()) setChatHistory(prev => prev.slice(0, -1));
+            } else {
+                const response = await generateContentWithRetries( apiKey, activeModel, historyForApi, systemInstruction, tools, cancellationRef, onStatusUpdate, cancellableSleep );
+                if (cancellationRef.current) throw new Error('Cancelled by user');
+                const modelResponseText = response.text;
+                const functionCalls = response.functionCalls ?? [];
+
+                if (!modelResponseText && functionCalls.length === 0) {
+                    setChatHistory(prev => prev.slice(0, -1));
+                } else {
+                    const modelTurnParts: ChatPart[] = [];
+                    if (modelResponseText) modelTurnParts.push({ text: modelResponseText });
+                    functionCalls.forEach(fc => modelTurnParts.push({ functionCall: fc }));
+                    const modelTurnWithMessage: ChatMessage = { role: 'model', parts: modelTurnParts };
+                    setChatHistory(prev => {
+                        const newHistory = [...prev];
+                        newHistory[newHistory.length - 1] = modelTurnWithMessage;
+                        return newHistory;
+                    });
+                    if (functionCalls.length > 0) {
+                        let accumulatedContext = projectContext ?? EMPTY_CONTEXT;
+                        if (!projectContext) setOriginalProjectContext(EMPTY_CONTEXT);
+                        let accumulatedDeleted = deletedItems;
                         const functionResponses: ChatPart[] = [];
                         for (const fc of functionCalls) {
                             if (cancellationRef.current) throw new Error('Cancelled by user');
-                            
                             const { result, newContext, newDeleted } = executeFunctionCall(fc, accumulatedContext, accumulatedDeleted);
                             accumulatedContext = newContext;
                             accumulatedDeleted = newDeleted;
-                            functionResponses.push({
-                                functionResponse: { name: fc.name!, response: result }
-                            });
+                            functionResponses.push({ functionResponse: { name: fc.name!, response: result } });
                         }
-                        
                         if (cancellationRef.current) throw new Error('Cancelled by user');
-            
                         setProjectContext(accumulatedContext);
                         setDeletedItems(accumulatedDeleted);
-                        
                         const toolResponseMessage: ChatMessage = { role: 'tool', parts: functionResponses };
                         setChatHistory(prev => [...prev, toolResponseMessage]);
                     }
@@ -609,12 +710,8 @@ const App: React.FC = () => {
     } catch (error) {
       console.error("A critical error occurred during prompt submission:", error);
       const errorMessageText = error instanceof Error ? error.message : 'An unknown error occurred';
-      
       if (errorMessageText !== 'Cancelled by user') {
-          const errorMessage: ChatMessage = {
-            role: 'model',
-            parts: [{ text: `Error: ${errorMessageText}` }]
-          };
+          const errorMessage: ChatMessage = { role: 'model', parts: [{ text: `Error: ${errorMessageText}` }] };
           setChatHistory(prev => {
               const newHistory = [...prev];
               newHistory[newHistory.length - 1] = errorMessage;

@@ -1,5 +1,5 @@
 import type { Mode, ModeId } from '../types';
-import { Bot, CodeXml } from '../components/icons';
+import { Bot, CodeXml, BrainCircuit } from '../components/icons';
 import { FunctionDeclaration, Type } from '@google/genai';
 
 export const MODES: Record<ModeId, Mode> = {
@@ -20,6 +20,12 @@ export const MODES: Record<ModeId, Mode> = {
 For any request that requires creating or modifying files in the virtual file system, you **MUST** use the provided tools (\`writeFile\`, \`createFolder\`, \`move\`, \`deletePath\`).
 
 **Crucially, you must complete the user's entire request in a single turn. Do not perform one file modification and then stop. You must plan all the required changes and then issue all the necessary function calls in the same response.** Announce which files you are modifying before you make a change. When you are finished with all file modifications, let the user know you are done and write a summary of your changes.`
+  },
+  'advanced-coder': {
+    id: 'advanced-coder',
+    name: 'Advanced Coder',
+    icon: BrainCircuit,
+    systemInstruction: `You are an expert programmer orchestrating a multi-phase code generation process. Your primary purpose is to help the user with their code. You have access to a virtual file system and have been granted a set of tools to modify it in the final phase.`
   }
 };
 
@@ -45,3 +51,9 @@ export const FILE_SYSTEM_TOOLS: FunctionDeclaration[] = [
         parameters: { type: Type.OBJECT, properties: { path: { type: Type.STRING } }, required: ['path'] }
     }
 ];
+
+export const NO_PROBLEM_DETECTED_TOOL: FunctionDeclaration = {
+    name: 'noProblemDetected',
+    description: 'Call this function if you have reviewed the code draft and found no critical errors, bugs, or violations of best practices. If you call this, your text feedback will be ignored.',
+    parameters: { type: Type.OBJECT, properties: {} }
+};

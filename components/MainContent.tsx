@@ -34,7 +34,11 @@ interface MainContentProps {
   onDeleteMessage: (index: number) => void;
 }
 
-const ModelSelector: React.FC<{ selectedModel: string; setSelectedModel: (model: string) => void }> = ({ selectedModel, setSelectedModel }) => {
+const ModelSelector: React.FC<{ 
+  selectedModel: string; 
+  setSelectedModel: (model: string) => void;
+  disabled: boolean;
+}> = ({ selectedModel, setSelectedModel, disabled }) => {
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -44,6 +48,8 @@ const ModelSelector: React.FC<{ selectedModel: string; setSelectedModel: (model:
   ];
 
   const currentModelName = models.find(m => m.id === selectedModel)?.name || 'Select Model';
+  const buttonText = disabled ? "Controlled by Mode" : currentModelName;
+
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -56,37 +62,49 @@ const ModelSelector: React.FC<{ selectedModel: string; setSelectedModel: (model:
   }, []);
 
   return (
-    <div className="relative inline-block text-left" ref={dropdownRef}>
+    <div 
+      className="relative inline-block text-left" 
+      ref={dropdownRef} 
+      title={disabled ? "Model selection is controlled by Advanced Coder mode" : ""}
+    >
       <div>
         <button
           type="button"
-          onClick={() => setIsOpen(!isOpen)}
-          className="flex items-center space-x-1 text-gray-300 hover:text-white transition-colors"
+          onClick={() => !disabled && setIsOpen(!isOpen)}
+          className={`flex items-center space-x-1 transition-colors ${
+            disabled 
+              ? 'text-gray-500 cursor-not-allowed' 
+              : 'text-gray-300 hover:text-white'
+          }`}
+          disabled={disabled}
+          aria-disabled={disabled}
         >
-          <span className="text-xl md:text-2xl font-medium">{currentModelName}</span>
-          <ChevronDown size={24} className={`transition-transform duration-200 text-gray-400 ${isOpen ? 'rotate-180' : ''}`} />
+          <span className="text-xl md:text-2xl font-medium">{buttonText}</span>
+          <ChevronDown size={24} className={`transition-transform duration-200 text-gray-400 ${isOpen && !disabled ? 'rotate-180' : ''} ${disabled ? 'opacity-50' : ''}`} />
         </button>
       </div>
 
-      <div className={`origin-top-left absolute left-0 mt-2 w-56 rounded-md shadow-lg bg-[#2c2d2f] ring-1 ring-black ring-opacity-5 z-10 transition-all duration-200 ease-out ${isOpen ? 'opacity-100 scale-100' : 'opacity-0 scale-95 pointer-events-none'}`}>
-        <div className="py-1" role="menu" aria-orientation="vertical" aria-labelledby="options-menu">
-          {models.map(model => (
-            <button
-              key={model.id}
-              onClick={() => {
-                setSelectedModel(model.id);
-                setIsOpen(false);
-              }}
-              className={`${
-                selectedModel === model.id ? 'bg-blue-600 text-white' : 'text-gray-300'
-              } block w-full text-left px-4 py-2 text-sm hover:bg-gray-700 transition-colors`}
-              role="menuitem"
-            >
-              {model.name}
-            </button>
-          ))}
+      {!disabled && (
+        <div className={`origin-top-left absolute left-0 mt-2 w-56 rounded-md shadow-lg bg-[#2c2d2f] ring-1 ring-black ring-opacity-5 z-10 transition-all duration-200 ease-out ${isOpen ? 'opacity-100 scale-100' : 'opacity-0 scale-95 pointer-events-none'}`}>
+          <div className="py-1" role="menu" aria-orientation="vertical" aria-labelledby="options-menu">
+            {models.map(model => (
+              <button
+                key={model.id}
+                onClick={() => {
+                  setSelectedModel(model.id);
+                  setIsOpen(false);
+                }}
+                className={`${
+                  selectedModel === model.id ? 'bg-blue-600 text-white' : 'text-gray-300'
+                } block w-full text-left px-4 py-2 text-sm hover:bg-gray-700 transition-colors`}
+                role="menuitem"
+              >
+                {model.name}
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 };
@@ -397,7 +415,11 @@ const MainContent: React.FC<MainContentProps> = ({ isMobile, toggleSidebar, chat
                     <Menu size={24} />
                 </button>
             )}
-            <ModelSelector selectedModel={selectedModel} setSelectedModel={setSelectedModel} />
+            <ModelSelector 
+              selectedModel={selectedModel} 
+              setSelectedModel={setSelectedModel}
+              disabled={selectedMode === 'advanced-coder'}
+            />
         </div>
         <button onClick={() => setIsHelpModalOpen(true)} className="p-2 rounded-full hover:bg-gray-700 transition-all hover:scale-105 active:scale-95" aria-label="Help">
           <HelpCircle size={24} />

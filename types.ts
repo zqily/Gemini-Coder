@@ -1,7 +1,7 @@
 
 import React from 'react';
 
-export type ModeId = 'default' | 'simple-coder';
+export type ModeId = 'default' | 'simple-coder' | 'advanced-coder';
 
 export interface Mode {
   id: ModeId;

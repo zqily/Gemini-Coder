@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, KeyRound, FilePlus, GitBranch, CodeXml, MousePointerClick, Check, Copy } from './icons';
+import { X, KeyRound, FilePlus, GitBranch, CodeXml, MousePointerClick, Check, Copy, BrainCircuit } from './icons';
 
 interface HelpModalProps {
   isOpen: boolean;
@@ -122,21 +122,22 @@ const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose, apiKey, setApiKe
             
             <div>
                 <h3 className="flex items-center gap-2 text-lg font-semibold text-white mb-3">
-                    Pro Tip: Diffing Code
+                    <BrainCircuit size={20} className="text-purple-400" />
+                    Pro Tip: When to use Advanced Coder
                 </h3>
                 <p className="text-sm text-gray-400 mb-2">
-                    To get a clean code diff, sync your project and ask a question like this:
+                    Advanced Coder is slower but generates higher-quality code by planning, drafting, and reviewing. It's best for complex, multi-file tasks. Try a prompt like:
                 </p>
                 <div className="relative bg-[#1e1f20] p-3 rounded-md border border-gray-700">
                     <code className="text-sm text-gray-300">
-                        "Refactor the main component to use React Hooks instead of classes."
+                        "Create a full-stack React and Node.js application for a simple to-do list with a REST API."
                     </code>
-                    <button onClick={() => handleCopyExample("Refactor the main component to use React Hooks instead of classes.")} className="absolute top-2 right-2 flex items-center gap-1.5 text-xs font-medium text-gray-300 hover:text-white transition-colors p-1.5 rounded-md hover:bg-gray-600 disabled:opacity-50">
+                    <button onClick={() => handleCopyExample("Create a full-stack React and Node.js application for a simple to-do list with a REST API.")} className="absolute top-2 right-2 flex items-center gap-1.5 text-xs font-medium text-gray-300 hover:text-white transition-colors p-1.5 rounded-md hover:bg-gray-600 disabled:opacity-50">
                         {isCopied ? <Check size={14} className="text-green-400"/> : <Copy size={14} />}
                     </button>
                 </div>
                 <p className="text-sm text-gray-400 mt-2">
-                    The AI will use its tools to modify the files, and you'll see the changes highlighted in the sidebar (blue for modified, green for added, red for deleted).
+                    For smaller tasks, like writing a single function or fixing a bug, 'Simple Coder' is faster and more efficient.
                 </p>
             </div>
         </main>
