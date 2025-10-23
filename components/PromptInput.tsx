@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { Plus, Send, X, File as FileIcon, LoaderCircle } from './icons';
-import type { AttachedFile, Mode, ModeId } from '../types';
+import type { AttachedFile, Mode, ModeId, ChatMessage } from '../types';
 import { ALL_ACCEPTED_MIME_TYPES, CONVERTIBLE_TO_TEXT_MIME_TYPES, fileToDataURL } from '../utils/fileUpload';
 
 interface PromptInputProps {
@@ -15,6 +15,7 @@ interface PromptInputProps {
   sendWithCtrlEnter: boolean;
   apiKey: string;
   selectedModel: string;
+  chatHistory: ChatMessage[];
 }
 
 const FilePreview: React.FC<{ file: AttachedFile, onRemove: () => void }> = ({ file, onRemove }) => {
@@ -44,7 +45,7 @@ const FilePreview: React.FC<{ file: AttachedFile, onRemove: () => void }> = ({ f
     );
 };
 
-const PromptInput: React.FC<PromptInputProps> = ({ onSubmit, isLoading, onStop, files, setFiles, selectedMode, setSelectedMode, modes, sendWithCtrlEnter, apiKey, selectedModel }) => {
+const PromptInput: React.FC<PromptInputProps> = ({ onSubmit, isLoading, onStop, files, setFiles, selectedMode, setSelectedMode, modes, sendWithCtrlEnter, apiKey, selectedModel, chatHistory }) => {
   const [prompt, setPrompt] = useState('');
   const [isReadingFiles, setIsReadingFiles] = useState(false);
   
@@ -96,7 +97,12 @@ const PromptInput: React.FC<PromptInputProps> = ({ onSubmit, isLoading, onStop, 
   
   const handleSubmit = (e?: React.FormEvent) => {
     e?.preventDefault();
-    if (isLoading || isReadingFiles || (!prompt.trim() && files.length === 0)) return;
+    if (isLoading || isReadingFiles) return;
+
+    const lastMessage = chatHistory[chatHistory.length - 1];
+    const canResend = lastMessage?.role === 'user';
+    if (!prompt.trim() && files.length === 0 && !canResend) return;
+
     onSubmit(prompt);
     setPrompt('');
     if (textareaRef.current) {
@@ -118,7 +124,10 @@ const PromptInput: React.FC<PromptInputProps> = ({ onSubmit, isLoading, onStop, 
     }
   };
   
-  const isSubmitDisabled = !apiKey || !selectedModel || isReadingFiles || (!prompt.trim() && files.length === 0);
+  const lastMessage = chatHistory[chatHistory.length - 1];
+  const canResend = lastMessage?.role === 'user';
+  
+  const isSubmitDisabled = !apiKey || !selectedModel || isReadingFiles || (!prompt.trim() && files.length === 0 && !canResend);
   let submitButtonTitle = "Send prompt";
   if (!apiKey) {
       submitButtonTitle = "Please set your API key in settings";
@@ -127,7 +136,11 @@ const PromptInput: React.FC<PromptInputProps> = ({ onSubmit, isLoading, onStop, 
   } else if (isReadingFiles) {
       submitButtonTitle = "Processing files...";
   } else if (!prompt.trim() && files.length === 0) {
-      submitButtonTitle = "Enter a prompt or attach a file";
+      if (canResend) {
+        submitButtonTitle = "Resend last message";
+      } else {
+        submitButtonTitle = "Enter a prompt or attach a file";
+      }
   }
 
   return (

@@ -151,3 +151,119 @@ export const generateContentWithRetries = async (
         }
     }
 };
+
+/**
+ * Generates streaming content with retries.
+ * @param apiKey The user's Google AI API key.
+ * @param modelName The name of the model to use.
+ * @param history The full conversation history.
+ * @param systemInstruction Optional system instruction.
+ * @param cancellationRef A React ref to check for user cancellation.
+ * @param onStatusUpdate A callback to update the UI with status messages.
+ * @param cancellableSleep A sleep function that can be interrupted.
+ * @returns An async generator that yields generation response chunks.
+ */
+export const generateContentStreamWithRetries = async function* (
+    apiKey: string,
+    modelName: string,
+    history: ChatMessage[],
+    systemInstruction: string | undefined,
+    cancellationRef: React.MutableRefObject<boolean>,
+    onStatusUpdate: (message: string) => void,
+    cancellableSleep: (ms: number) => Promise<void>
+  ): AsyncGenerator<GenerateContentResponse> {
+      if (!apiKey) {
+          throw new Error("API Key is missing. Please add it in settings.");
+      }
+      const ai = new GoogleGenAI({ apiKey });
+      const config: { systemInstruction?: string } = {};
+      if (systemInstruction) config.systemInstruction = systemInstruction;
+  
+      const request = {
+          model: modelName,
+          contents: history,
+          config,
+      };
+  
+      let retries503 = 0;
+      const initialDelay503 = 10000;
+      const increment503 = 5000;
+      const maxDelay503 = 30000;
+  
+      let retriesOther = 0;
+      const maxRetriesOther = 3;
+      const delaysOther = [30000, 45000, 60000];
+  
+      while (true) {
+          if (cancellationRef.current) {
+              throw new Error("Cancelled by user");
+          }
+  
+          try {
+              const streamResponse = await ai.models.generateContentStream(request);
+              for await (const chunk of streamResponse) {
+                  if (cancellationRef.current) throw new Error("Cancelled by user");
+                  yield chunk;
+              }
+              return; // Success, exit loop
+          } catch (error: any) {
+              if (cancellationRef.current) throw error;
+  
+              let statusCode: number | undefined;
+              const message = error instanceof Error ? error.message : String(error);
+  
+              if (error && typeof error.httpStatus === 'number') {
+                  statusCode = error.httpStatus;
+              } else {
+                  try {
+                      const parsedError = JSON.parse(message);
+                      if (parsedError.error && typeof parsedError.error.code === 'number') {
+                          statusCode = parsedError.error.code;
+                      }
+                  } catch (e) { /* Not JSON */ }
+              }
+  
+              if (statusCode === undefined) {
+                  const match = message.match(/\[(\d{3})\]/);
+                  if (match && match[1]) {
+                      statusCode = parseInt(match[1], 10);
+                  }
+              }
+  
+              console.error(`API Error (status: ${statusCode}):`, error);
+  
+              if (statusCode === 500) {
+                  onStatusUpdate(`Error: A server error occurred. The input context may be too long. Please shorten your prompt or reduce the number of attached files.\n\nDetails: ${message}`);
+                  throw error;
+              }
+  
+              if (statusCode === 503) {
+                  const delay = Math.min(initialDelay503 + retries503 * increment503, maxDelay503);
+                  retries503++;
+                  onStatusUpdate(`Model is overloaded. Retrying in ${delay / 1000}s...`);
+                  await cancellableSleep(delay);
+                  onStatusUpdate('');
+                  retriesOther = 0;
+                  continue;
+              }
+  
+              if (retriesOther < maxRetriesOther) {
+                  const delay = delaysOther[retriesOther];
+                  const attempt = retriesOther + 1;
+                  const userMessage = statusCode === 429
+                      ? `API rate limit reached. Retrying in ${delay / 1000}s... (Attempt ${attempt}/${maxRetriesOther})`
+                      : `An unknown error occurred. Retrying in ${delay / 1000}s... (Attempt ${attempt}/${maxRetriesOther})`;
+                  
+                  retriesOther++;
+                  onStatusUpdate(userMessage);
+                  await cancellableSleep(delay);
+                  onStatusUpdate('');
+                  retries503 = 0;
+                  continue;
+              } else {
+                  onStatusUpdate(`Error: Maximum retries reached for this issue. Please try again later.\n\nDetails: ${message}`);
+                  throw error;
+              }
+          }
+      }
+  };

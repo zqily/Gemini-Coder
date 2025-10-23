@@ -1,4 +1,5 @@
 
+
 import {
   Menu,
   Pencil,
@@ -29,6 +30,9 @@ import {
   Eye,
   EyeOff,
   BrainCircuit,
+  KeyRound,
+  FilePlus,
+  MousePointerClick,
 } from 'lucide-react';
 
 export {
@@ -61,4 +65,7 @@ export {
   Eye,
   EyeOff,
   BrainCircuit,
+  KeyRound,
+  FilePlus,
+  MousePointerClick,
 };

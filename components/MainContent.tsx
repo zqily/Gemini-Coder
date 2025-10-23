@@ -8,6 +8,7 @@ import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import GeminiIcon from './GeminiIcon';
 import { ALL_ACCEPTED_MIME_TYPES, CONVERTIBLE_TO_TEXT_MIME_TYPES, fileToDataURL } from '../utils/fileUpload';
+import HelpModal from './HelpModal';
 
 
 interface MainContentProps {
@@ -29,6 +30,7 @@ interface MainContentProps {
   modes: Record<ModeId, Mode>;
   sendWithCtrlEnter: boolean;
   apiKey: string;
+  setApiKey: (key: string) => void;
   onDeleteMessage: (index: number) => void;
 }
 
@@ -346,9 +348,10 @@ const TypingIndicator = ({ message }: { message?: string }) => (
     </div>
 );
 
-const MainContent: React.FC<MainContentProps> = ({ isMobile, toggleSidebar, chatHistory, isLoading, attachedFiles, setAttachedFiles, isReadingFiles, setIsReadingFiles, selectedModel, setSelectedModel, onSubmit, onStop, selectedMode, setSelectedMode, modes, sendWithCtrlEnter, apiKey, onDeleteMessage }) => {
+const MainContent: React.FC<MainContentProps> = ({ isMobile, toggleSidebar, chatHistory, isLoading, attachedFiles, setAttachedFiles, isReadingFiles, setIsReadingFiles, selectedModel, setSelectedModel, onSubmit, onStop, selectedMode, setSelectedMode, modes, sendWithCtrlEnter, apiKey, setApiKey, onDeleteMessage }) => {
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [isHelpModalOpen, setIsHelpModalOpen] = useState(false);
   
   const handleFileSelect = useCallback(async (selectedFiles: FileList | null) => {
     if (!selectedFiles || selectedFiles.length === 0) return;
@@ -476,7 +479,7 @@ const MainContent: React.FC<MainContentProps> = ({ isMobile, toggleSidebar, chat
             )}
             <ModelSelector selectedModel={selectedModel} setSelectedModel={setSelectedModel} />
         </div>
-        <button className="p-2 rounded-full hover:bg-gray-700 transition-all hover:scale-105 active:scale-95" aria-label="Help">
+        <button onClick={() => setIsHelpModalOpen(true)} className="p-2 rounded-full hover:bg-gray-700 transition-all hover:scale-105 active:scale-95" aria-label="Help">
           <HelpCircle size={24} />
         </button>
       </header>
@@ -532,9 +535,16 @@ const MainContent: React.FC<MainContentProps> = ({ isMobile, toggleSidebar, chat
             sendWithCtrlEnter={sendWithCtrlEnter}
             apiKey={apiKey}
             selectedModel={selectedModel}
+            chatHistory={chatHistory}
            />
         </div>
       </footer>
+      <HelpModal 
+        isOpen={isHelpModalOpen}
+        onClose={() => setIsHelpModalOpen(false)}
+        apiKey={apiKey}
+        setApiKey={setApiKey}
+      />
     </div>
   );
 };

@@ -8,21 +8,25 @@ interface SettingsModalProps {
   setApiKey: (key: string) => void;
   sendWithCtrlEnter: boolean;
   setSendWithCtrlEnter: (enabled: boolean) => void;
+  isStreamingEnabled: boolean;
+  setStreamingEnabled: (enabled: boolean) => void;
 }
 
-const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, apiKey, setApiKey, sendWithCtrlEnter, setSendWithCtrlEnter }) => {
+const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, apiKey, setApiKey, sendWithCtrlEnter, setSendWithCtrlEnter, isStreamingEnabled, setStreamingEnabled }) => {
   const [localKey, setLocalKey] = useState(apiKey);
   const [localSendShortcut, setLocalSendShortcut] = useState(sendWithCtrlEnter);
+  const [localStreaming, setLocalStreaming] = useState(isStreamingEnabled);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setLocalKey(apiKey);
     setLocalSendShortcut(sendWithCtrlEnter);
+    setLocalStreaming(isStreamingEnabled);
     if (isOpen) {
         // Autofocus the input when the modal opens
         setTimeout(() => inputRef.current?.focus(), 100);
     }
-  }, [apiKey, isOpen, sendWithCtrlEnter]);
+  }, [apiKey, isOpen, sendWithCtrlEnter, isStreamingEnabled]);
 
   // Add ESC key listener to close modal
   useEffect(() => {
@@ -47,6 +51,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, apiKey, 
   const handleSave = () => {
     setApiKey(localKey);
     setSendWithCtrlEnter(localSendShortcut);
+    setStreamingEnabled(localStreaming);
     onClose();
   };
 
@@ -59,6 +64,26 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, apiKey, 
         <h2 className="text-2xl font-bold mb-6 text-white">Settings</h2>
         
         <div className="space-y-6">
+          <div>
+            <label htmlFor="streamingToggle" className="flex items-center justify-between cursor-pointer">
+              <span className="text-sm font-medium text-gray-300">
+                Enable Streaming
+              </span>
+              <div className="relative">
+                <input
+                  type="checkbox"
+                  id="streamingToggle"
+                  className="sr-only peer"
+                  checked={localStreaming}
+                  onChange={(e) => setLocalStreaming(e.target.checked)}
+                />
+                <div className="w-11 h-6 bg-gray-600 rounded-full peer peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-500/50 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+              </div>
+            </label>
+            <p className="text-xs text-gray-500 mt-2">
+              Receive responses as they are generated. Coding modes will disable this setting automatically.
+            </p>
+          </div>
           <div>
             <label htmlFor="sendShortcut" className="flex items-center justify-between cursor-pointer">
               <span className="text-sm font-medium text-gray-300">

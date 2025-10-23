@@ -1,15 +1,18 @@
 
 
+
+
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import Sidebar from './components/Sidebar';
 import MainContent from './components/MainContent';
 import SettingsModal from './components/SettingsModal';
 import FileEditorModal from './components/FileEditorModal';
 import type { ChatMessage, AttachedFile, Mode, ModeId, ProjectContext, ChatPart } from './types';
-import { generateContentWithRetries } from './services/geminiService';
+import { generateContentWithRetries, generateContentStreamWithRetries } from './services/geminiService';
 import { useApiKey } from './hooks/useApiKey';
 import { useSendShortcutSetting } from './hooks/useSendShortcutSetting';
 import { useSelectedMode } from './hooks/useSelectedMode';
+import { useStreamingSetting } from './hooks/useStreamingSetting';
 import { Bot, CodeXml } from './components/icons';
 import { createIsIgnored } from './utils/gitignore';
 import * as FileSystem from './utils/fileSystem';
@@ -142,6 +145,7 @@ const App: React.FC = () => {
   const [selectedModel, setSelectedModel] = useState('');
   const [apiKey, setApiKey] = useApiKey();
   const [sendWithCtrlEnter, setSendWithCtrlEnter] = useSendShortcutSetting();
+  const [isStreamingEnabled, setIsStreamingEnabled] = useStreamingSetting();
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [selectedMode, setSelectedMode] = useSelectedMode();
 
@@ -391,27 +395,38 @@ const App: React.FC = () => {
       alert("Please select a model before sending a prompt.");
       return;
     }
-    if (!prompt.trim() && attachedFiles.length === 0) return;
+    
+    let historyForGeneration: ChatMessage[];
+    
+    if (prompt.trim() || attachedFiles.length > 0) {
+        const userParts: ChatPart[] = [];
+        if (prompt) userParts.push({ text: prompt });
+        attachedFiles.forEach(file => {
+          userParts.push({
+            inlineData: {
+              mimeType: file.type,
+              data: file.content.split(',')[1]
+            }
+          });
+        });
+
+        const newUserMessage: ChatMessage = { role: 'user', parts: userParts };
+        historyForGeneration = [...chatHistory, newUserMessage];
+        setChatHistory(historyForGeneration);
+        setAttachedFiles([]);
+    } else {
+        const lastMessage = chatHistory[chatHistory.length - 1];
+        if (lastMessage?.role === 'user') {
+            historyForGeneration = [...chatHistory];
+        } else {
+            return;
+        }
+    }
+
 
     setIsLoading(true);
     cancellationRef.current = false;
 
-    const userParts: ChatPart[] = [];
-    if (prompt) userParts.push({ text: prompt });
-    attachedFiles.forEach(file => {
-      userParts.push({
-        inlineData: {
-          mimeType: file.type,
-          data: file.content.split(',')[1]
-        }
-      });
-    });
-
-    const newUserMessage: ChatMessage = { role: 'user', parts: userParts };
-    const updatedChatHistory = [...chatHistory, newUserMessage];
-    setChatHistory(updatedChatHistory);
-    setAttachedFiles([]);
-    
     const cancellableSleep = (ms: number) => {
         return new Promise<void>((resolve, reject) => {
             let intervalId: number | undefined;
@@ -473,8 +488,9 @@ const App: React.FC = () => {
             }).filter(message => message.parts.length > 0);
         };
 
-        let historyForApi = cleanHistory(updatedChatHistory);
+        let historyForApi = cleanHistory(historyForGeneration);
         const isCoderMode = selectedMode.includes('coder');
+        const shouldUseStreaming = isStreamingEnabled && !isCoderMode;
         
         if (projectContext) {
              const filteredContext: ProjectContext = { files: new Map(), dirs: new Set() };
@@ -543,70 +559,86 @@ const App: React.FC = () => {
 
         const tools = isCoderMode && projectContext ? [{ functionDeclarations: FILE_SYSTEM_TOOLS }] : undefined;
 
-        const response = await generateContentWithRetries(
-            apiKey, selectedModel, historyForApi, systemInstruction, tools,
-            cancellationRef, onStatusUpdate, cancellableSleep
-        );
+        if (shouldUseStreaming) {
+            const stream = generateContentStreamWithRetries(
+                apiKey, selectedModel, historyForApi, systemInstruction,
+                cancellationRef, onStatusUpdate, cancellableSleep
+            );
 
-        if (cancellationRef.current) throw new Error('Cancelled by user');
-
-        const modelResponseText = response.text;
-        const functionCalls = response.functionCalls ?? [];
-
-        // If we got nothing, just remove the placeholder and we're done.
-        if (!modelResponseText && functionCalls.length === 0) {
-            setChatHistory(prev => prev.slice(0, -1));
-        } else {
-             // Construct the final model message parts
-            const modelTurnParts: ChatPart[] = [];
-            if (modelResponseText) {
-                modelTurnParts.push({ text: modelResponseText });
-            }
-            functionCalls.forEach(fc => modelTurnParts.push({ functionCall: fc }));
-    
-            const modelTurnWithMessage: ChatMessage = {
-                role: 'model',
-                parts: modelTurnParts
-            };
-
-            // Replace the placeholder with the final model message
-            setChatHistory(prev => {
-                const newHistory = [...prev];
-                newHistory[newHistory.length - 1] = modelTurnWithMessage;
-                return newHistory;
-            });
-
-            // If there were function calls, execute them now
-            if (functionCalls.length > 0) {
-                // Batch process all function calls from the model's response
-                let accumulatedContext = projectContext;
-                let accumulatedDeleted = deletedItems;
-                const functionResponses: ChatPart[] = [];
-    
-                for (const fc of functionCalls) {
-                    if (cancellationRef.current) throw new Error('Cancelled by user');
-    
-                    const { result, newContext, newDeleted } = executeFunctionCall(fc, accumulatedContext!, accumulatedDeleted);
-                    
-                    accumulatedContext = newContext;
-                    accumulatedDeleted = newDeleted;
-    
-                    functionResponses.push({
-                        functionResponse: {
-                            name: fc.name!,
-                            response: result,
+            let fullResponseText = '';
+            for await (const chunk of stream) {
+                if (cancellationRef.current) break;
+                
+                const chunkText = chunk.text;
+                if (chunkText) {
+                    fullResponseText += chunkText;
+                    setChatHistory(prev => {
+                        const newHistory = [...prev];
+                        const lastMessage = newHistory[newHistory.length - 1];
+                        if (lastMessage && lastMessage.role === 'model') {
+                            newHistory[newHistory.length - 1] = {
+                                ...lastMessage,
+                                parts: [{ text: fullResponseText }]
+                            };
                         }
+                        return newHistory;
                     });
                 }
-                
-                if (cancellationRef.current) throw new Error('Cancelled by user');
-    
-                // Update React state once with the final accumulated context for this turn
-                setProjectContext(accumulatedContext);
-                setDeletedItems(accumulatedDeleted);
-                
-                const toolResponseMessage: ChatMessage = { role: 'tool', parts: functionResponses };
-                setChatHistory(prev => [...prev, toolResponseMessage]);
+            }
+            if (cancellationRef.current) throw new Error('Cancelled by user');
+
+            if (!fullResponseText.trim()) {
+                setChatHistory(prev => prev.slice(0, -1));
+            }
+        } else {
+            const response = await generateContentWithRetries(
+                apiKey, selectedModel, historyForApi, systemInstruction, tools,
+                cancellationRef, onStatusUpdate, cancellableSleep
+            );
+
+            if (cancellationRef.current) throw new Error('Cancelled by user');
+
+            const modelResponseText = response.text;
+            const functionCalls = response.functionCalls ?? [];
+
+            if (!modelResponseText && functionCalls.length === 0) {
+                setChatHistory(prev => prev.slice(0, -1));
+            } else {
+                const modelTurnParts: ChatPart[] = [];
+                if (modelResponseText) modelTurnParts.push({ text: modelResponseText });
+                functionCalls.forEach(fc => modelTurnParts.push({ functionCall: fc }));
+        
+                const modelTurnWithMessage: ChatMessage = { role: 'model', parts: modelTurnParts };
+
+                setChatHistory(prev => {
+                    const newHistory = [...prev];
+                    newHistory[newHistory.length - 1] = modelTurnWithMessage;
+                    return newHistory;
+                });
+
+                if (functionCalls.length > 0) {
+                    let accumulatedContext = projectContext;
+                    let accumulatedDeleted = deletedItems;
+                    const functionResponses: ChatPart[] = [];
+        
+                    for (const fc of functionCalls) {
+                        if (cancellationRef.current) throw new Error('Cancelled by user');
+                        const { result, newContext, newDeleted } = executeFunctionCall(fc, accumulatedContext!, accumulatedDeleted);
+                        accumulatedContext = newContext;
+                        accumulatedDeleted = newDeleted;
+                        functionResponses.push({
+                            functionResponse: { name: fc.name!, response: result }
+                        });
+                    }
+                    
+                    if (cancellationRef.current) throw new Error('Cancelled by user');
+        
+                    setProjectContext(accumulatedContext);
+                    setDeletedItems(accumulatedDeleted);
+                    
+                    const toolResponseMessage: ChatMessage = { role: 'tool', parts: functionResponses };
+                    setChatHistory(prev => [...prev, toolResponseMessage]);
+                }
             }
         }
     } catch (error) {
@@ -618,21 +650,19 @@ const App: React.FC = () => {
             role: 'model',
             parts: [{ text: `Error: ${errorMessageText}` }]
           };
-          // Replace the placeholder message with the error.
           setChatHistory(prev => {
               const newHistory = [...prev];
               newHistory[newHistory.length - 1] = errorMessage;
               return newHistory;
           });
       } else {
-          // If cancelled, just remove the placeholder message.
           setChatHistory(prev => prev.slice(0, -1));
       }
     } finally {
       setIsLoading(false);
       cancellationRef.current = false;
     }
-  }, [apiKey, chatHistory, attachedFiles, selectedModel, selectedMode, projectContext, deletedItems, excludedPaths]);
+  }, [apiKey, chatHistory, attachedFiles, selectedModel, selectedMode, projectContext, deletedItems, excludedPaths, isStreamingEnabled]);
 
 
   return (
@@ -671,6 +701,7 @@ const App: React.FC = () => {
         modes={MODES}
         sendWithCtrlEnter={sendWithCtrlEnter}
         apiKey={apiKey}
+        setApiKey={setApiKey}
         onDeleteMessage={handleDeleteMessage}
       />
       <SettingsModal
@@ -680,6 +711,8 @@ const App: React.FC = () => {
         setApiKey={setApiKey}
         sendWithCtrlEnter={sendWithCtrlEnter}
         setSendWithCtrlEnter={setSendWithCtrlEnter}
+        isStreamingEnabled={isStreamingEnabled}
+        setStreamingEnabled={setIsStreamingEnabled}
       />
       {editingFile && (
         <FileEditorModal
