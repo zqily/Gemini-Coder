@@ -1,3 +1,5 @@
+
+
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import Sidebar from './components/Sidebar';
 import MainContent from './components/MainContent';
@@ -137,7 +139,7 @@ const App: React.FC = () => {
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
   const [isReadingFiles, setIsReadingFiles] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [selectedModel, setSelectedModel] = useState('gemini-1.5-pro-latest'); // Pro for function calling
+  const [selectedModel, setSelectedModel] = useState('');
   const [apiKey, setApiKey] = useApiKey();
   const [sendWithCtrlEnter, setSendWithCtrlEnter] = useSendShortcutSetting();
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
@@ -263,6 +265,7 @@ const App: React.FC = () => {
                 const parts = path.split('/');
                 let currentPath = '';
                 for (let i = 0; i < parts.length - 1; i++) {
+                    // Fix: Corrected typo from 'part' to 'parts[i]' to correctly reference the current path component.
                     currentPath = currentPath ? `${currentPath}/${parts[i]}` : parts[i];
                     newProjectContext.dirs.add(currentPath);
                 }
@@ -357,11 +360,35 @@ const App: React.FC = () => {
         return newSet;
     });
   }, [projectContext, deletedItems]);
+  
+  const handleDeleteMessage = useCallback((indexToDelete: number) => {
+    setChatHistory(prevHistory => {
+        const messageToDelete = prevHistory[indexToDelete];
+        if (!messageToDelete) return prevHistory;
+
+        const nextMessage = prevHistory[indexToDelete + 1];
+
+        const isModelWithFunctionCall = messageToDelete.role === 'model' && messageToDelete.parts.some(p => 'functionCall' in p);
+        const isNextMessageToolResponse = nextMessage?.role === 'tool';
+
+        if (isModelWithFunctionCall && isNextMessageToolResponse) {
+            // Delete both the model's message and the tool's response
+            return prevHistory.filter((_, index) => index !== indexToDelete && index !== indexToDelete + 1);
+        } else {
+            // Delete only the selected message
+            return prevHistory.filter((_, index) => index !== indexToDelete);
+        }
+    });
+  }, []);
 
   const handlePromptSubmit = useCallback(async (prompt: string) => {
     if (!apiKey) {
       alert("Please set your Gemini API key in the settings.");
       setIsSettingsModalOpen(true);
+      return;
+    }
+    if (!selectedModel) {
+      alert("Please select a model before sending a prompt.");
       return;
     }
     if (!prompt.trim() && attachedFiles.length === 0) return;
@@ -643,6 +670,8 @@ const App: React.FC = () => {
         setSelectedMode={setSelectedMode}
         modes={MODES}
         sendWithCtrlEnter={sendWithCtrlEnter}
+        apiKey={apiKey}
+        onDeleteMessage={handleDeleteMessage}
       />
       <SettingsModal
         isOpen={isSettingsModalOpen}

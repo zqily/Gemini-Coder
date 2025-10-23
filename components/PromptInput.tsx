@@ -13,6 +13,8 @@ interface PromptInputProps {
   setSelectedMode: (mode: ModeId) => void;
   modes: Record<ModeId, Mode>;
   sendWithCtrlEnter: boolean;
+  apiKey: string;
+  selectedModel: string;
 }
 
 const FilePreview: React.FC<{ file: AttachedFile, onRemove: () => void }> = ({ file, onRemove }) => {
@@ -42,7 +44,7 @@ const FilePreview: React.FC<{ file: AttachedFile, onRemove: () => void }> = ({ f
     );
 };
 
-const PromptInput: React.FC<PromptInputProps> = ({ onSubmit, isLoading, onStop, files, setFiles, selectedMode, setSelectedMode, modes, sendWithCtrlEnter }) => {
+const PromptInput: React.FC<PromptInputProps> = ({ onSubmit, isLoading, onStop, files, setFiles, selectedMode, setSelectedMode, modes, sendWithCtrlEnter, apiKey, selectedModel }) => {
   const [prompt, setPrompt] = useState('');
   const [isReadingFiles, setIsReadingFiles] = useState(false);
   
@@ -115,6 +117,18 @@ const PromptInput: React.FC<PromptInputProps> = ({ onSubmit, isLoading, onStop, 
       }
     }
   };
+  
+  const isSubmitDisabled = !apiKey || !selectedModel || isReadingFiles || (!prompt.trim() && files.length === 0);
+  let submitButtonTitle = "Send prompt";
+  if (!apiKey) {
+      submitButtonTitle = "Please set your API key in settings";
+  } else if (!selectedModel) {
+      submitButtonTitle = "Please select a model";
+  } else if (isReadingFiles) {
+      submitButtonTitle = "Processing files...";
+  } else if (!prompt.trim() && files.length === 0) {
+      submitButtonTitle = "Enter a prompt or attach a file";
+  }
 
   return (
     <form onSubmit={handleSubmit} className={`w-full bg-[#1e1f20] transition-all duration-200 rounded-2xl focus-within:ring-2 focus-within:ring-blue-500/50 flex flex-col ${files.length > 0 ? 'shadow-lg' : ''}`}>
@@ -185,14 +199,16 @@ const PromptInput: React.FC<PromptInputProps> = ({ onSubmit, isLoading, onStop, 
               <X size={20} />
             </button>
           ) : (
-            <button
-              type="submit"
-              disabled={isReadingFiles || (!prompt.trim() && files.length === 0)}
-              className="bg-blue-600 p-3 ml-2 rounded-full hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0 self-center disabled:bg-gray-600"
-              aria-label="Send prompt"
-            >
-              <Send size={20} />
-            </button>
+            <div className="ml-2 flex-shrink-0 self-center" title={submitButtonTitle}>
+              <button
+                type="submit"
+                disabled={isSubmitDisabled}
+                className="bg-blue-600 p-3 rounded-full hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-gray-600"
+                aria-label={submitButtonTitle}
+              >
+                <Send size={20} />
+              </button>
+            </div>
           )}
         </div>
       </div>

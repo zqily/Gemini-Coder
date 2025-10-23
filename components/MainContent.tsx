@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { HelpCircle, ChevronDown, User, ImageIcon, File as FileIcon, Menu, Copy, Check,BrainCircuit } from './icons';
+import { HelpCircle, ChevronDown, User, ImageIcon, File as FileIcon, Menu, Copy, Check,BrainCircuit, Trash2 } from './icons';
 import PromptInput from './PromptInput';
 import type { ChatMessage, AttachedFile, Mode, ModeId, ChatPart, FunctionCallPart, FunctionResponsePart, TextPart, InlineDataPart } from '../types';
 import ReactMarkdown from 'react-markdown';
@@ -28,6 +28,8 @@ interface MainContentProps {
   setSelectedMode: (mode: ModeId) => void;
   modes: Record<ModeId, Mode>;
   sendWithCtrlEnter: boolean;
+  apiKey: string;
+  onDeleteMessage: (index: number) => void;
 }
 
 const ModelSelector: React.FC<{ selectedModel: string; setSelectedModel: (model: string) => void }> = ({ selectedModel, setSelectedModel }) => {
@@ -35,7 +37,7 @@ const ModelSelector: React.FC<{ selectedModel: string; setSelectedModel: (model:
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   const models = [
-    { id: 'gemini-pro-latest', name: 'Gemini Pro' },
+    { id: 'gemini-2.5-pro', name: 'Gemini Pro' },
     { id: 'gemini-flash-latest', name: 'Gemini Flash' },
   ];
 
@@ -186,12 +188,13 @@ const MarkdownRenderer: React.FC<{ content: string }> = ({ content }) => {
 interface ChatBubbleProps {
   message: ChatMessage;
   toolResponseMessage?: ChatMessage;
+  onDelete: () => void;
 }
 
 const isFunctionCallPart = (part: ChatPart): part is FunctionCallPart => 'functionCall' in part;
 const isFunctionResponsePart = (part: ChatPart): part is FunctionResponsePart => 'functionResponse' in part;
 
-const ChatBubble: React.FC<ChatBubbleProps> = ({ message, toolResponseMessage }) => {
+const ChatBubble: React.FC<ChatBubbleProps> = ({ message, toolResponseMessage, onDelete }) => {
     const isUser = message.role === 'user';
     const isModel = message.role === 'model';
     const [isThoughtsExpanded, setIsThoughtsExpanded] = useState(false);
@@ -222,14 +225,22 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message, toolResponseMessage })
     const name = isUser ? 'You' : 'Gemini';
 
     return (
-        <div className="flex flex-col mb-10 animate-fade-in-up">
+        <div className="group relative flex flex-col mb-10 animate-fade-in-up">
+            <button
+                onClick={onDelete}
+                className="absolute top-0 right-0 p-1.5 rounded-full text-gray-500 hover:bg-red-500/20 hover:text-red-400 transition-all opacity-0 group-hover:opacity-100 focus:opacity-100"
+                aria-label="Delete message"
+                title="Delete message"
+            >
+                <Trash2 size={16} />
+            </button>
             <div className="flex items-center space-x-3 mb-3">
                 <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white text-sm flex-shrink-0 ${isUser ? 'bg-blue-600' : ''}`}>
                     <Icon size={isModel ? 28 : 18} />
                 </div>
                 <span className="font-semibold text-white">{name}</span>
             </div>
-             <div className="ml-11">
+             <div className={`ml-11 ${isModel ? 'animate-model-response-entry' : ''}`}>
                 {fileParts.length > 0 && (
                     <div className="flex flex-wrap gap-2 mb-2">
                         {fileParts.map((part, index) => (
@@ -335,7 +346,7 @@ const TypingIndicator = ({ message }: { message?: string }) => (
     </div>
 );
 
-const MainContent: React.FC<MainContentProps> = ({ isMobile, toggleSidebar, chatHistory, isLoading, attachedFiles, setAttachedFiles, isReadingFiles, setIsReadingFiles, selectedModel, setSelectedModel, onSubmit, onStop, selectedMode, setSelectedMode, modes, sendWithCtrlEnter }) => {
+const MainContent: React.FC<MainContentProps> = ({ isMobile, toggleSidebar, chatHistory, isLoading, attachedFiles, setAttachedFiles, isReadingFiles, setIsReadingFiles, selectedModel, setSelectedModel, onSubmit, onStop, selectedMode, setSelectedMode, modes, sendWithCtrlEnter, apiKey, onDeleteMessage }) => {
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   
@@ -419,16 +430,6 @@ const MainContent: React.FC<MainContentProps> = ({ isMobile, toggleSidebar, chat
   const handlePromptSubmit = (prompt: string) => {
     onSubmit(prompt);
   };
-
-  useEffect(() => {
-    // Scroll to bottom with a slight delay to allow rendering
-    setTimeout(() => {
-      chatContainerRef.current?.scrollTo({
-        top: chatContainerRef.current.scrollHeight,
-        behavior: 'smooth'
-      });
-    }, 100);
-  }, [chatHistory, isLoading]);
   
   const lastMessage = chatHistory[chatHistory.length - 1];
   const isLastMessagePlaceholder = isLoading && lastMessage?.role === 'model';
@@ -502,8 +503,14 @@ const MainContent: React.FC<MainContentProps> = ({ isMobile, toggleSidebar, chat
                             nextMessage?.role === 'tool' &&
                             msg.parts.some(part => 'functionCall' in part)
                         ) ? nextMessage : undefined;
+                        
+                        const handleDelete = () => {
+                            if (originalIndex > -1) {
+                                onDeleteMessage(originalIndex);
+                            }
+                        };
 
-                        return <ChatBubble key={originalIndex > -1 ? originalIndex : index} message={msg} toolResponseMessage={toolResponseMessage} />;
+                        return <ChatBubble key={originalIndex > -1 ? originalIndex : index} message={msg} toolResponseMessage={toolResponseMessage} onDelete={handleDelete} />;
                     })}
                     {showTypingIndicator && <TypingIndicator message={statusMessageForIndicator} />}
                  </div>
@@ -523,6 +530,8 @@ const MainContent: React.FC<MainContentProps> = ({ isMobile, toggleSidebar, chat
             setSelectedMode={setSelectedMode}
             modes={modes}
             sendWithCtrlEnter={sendWithCtrlEnter}
+            apiKey={apiKey}
+            selectedModel={selectedModel}
            />
         </div>
       </footer>

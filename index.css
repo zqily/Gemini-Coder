@@ -114,4 +114,19 @@
     background-size: 200% auto;
     animation: shimmer 4s linear infinite;
   }
+
+  /* Animation for model response content */
+  @keyframes model-response-entry {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  .animate-model-response-entry {
+    animation: model-response-entry 0.5s ease-out forwards;
+  }
 }
