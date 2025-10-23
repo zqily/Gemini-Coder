@@ -434,26 +434,36 @@ const MainContent: React.FC<MainContentProps> = ({ isMobile, toggleSidebar, chat
     onSubmit(prompt);
   };
   
+  // --- Start of corrected rendering logic ---
+
   const lastMessage = chatHistory[chatHistory.length - 1];
-  const isLastMessagePlaceholder = isLoading && lastMessage?.role === 'model';
+  const lastMessageIsModel = lastMessage?.role === 'model';
   
-  const lastMessageText = isLastMessagePlaceholder 
-    ? (lastMessage.parts.find((p): p is TextPart => 'text' in p))?.text ?? '' 
+  const lastMessageText = lastMessageIsModel
+    ? (lastMessage.parts.find((p): p is TextPart => 'text' in p))?.text ?? ''
     : '';
 
-  // Heuristic to check if the text is a status update from the retry logic that should be displayed.
-  const isDisplayableStatus = lastMessageText.includes('Retrying') 
-    || lastMessageText.startsWith('Model is overloaded') 
-    || lastMessageText.startsWith('Error:');
+  // A status message is a temporary state update (e.g., "Retrying..."), not part of the actual streaming response.
+  const isStatusUpdate = lastMessageIsModel && (
+    lastMessageText.includes('Retrying') ||
+    lastMessageText.startsWith('Model is overloaded') ||
+    lastMessageText.startsWith('Error:')
+  );
 
-  // Messages to render in bubbles. The placeholder is always hidden while loading and represented by the indicator.
-  const messagesToRender = isLastMessagePlaceholder ? chatHistory.slice(0, -1) : chatHistory;
-  
-  // The text to display next to the typing indicator.
-  const statusMessageForIndicator = isDisplayableStatus ? lastMessageText : '';
+  // The last message is a "placeholder" if we are loading and it's an empty model message or just a status update.
+  // An actual streaming response should not be considered a placeholder and should be rendered.
+  const isLastMessageAPlaceholder = isLoading && lastMessageIsModel && (!lastMessageText.trim() || isStatusUpdate);
+
+  // Messages to render in bubbles. The placeholder is hidden and represented by the indicator.
+  const messagesToRender = isLastMessageAPlaceholder ? chatHistory.slice(0, -1) : chatHistory;
+
+  // The text to display next to the typing indicator is only for status updates.
+  const statusMessageForIndicator = isStatusUpdate ? lastMessageText : '';
   
   // The typing indicator should be shown whenever the model is thinking.
   const showTypingIndicator = isLoading;
+  
+  // --- End of corrected rendering logic ---
 
   return (
     <div className="relative flex-1 flex flex-col h-screen bg-[#131314]">

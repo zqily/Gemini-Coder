@@ -1,7 +1,3 @@
-
-
-
-
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import Sidebar from './components/Sidebar';
 import MainContent from './components/MainContent';
@@ -10,6 +6,7 @@ import FileEditorModal from './components/FileEditorModal';
 import type { ChatMessage, AttachedFile, Mode, ModeId, ProjectContext, ChatPart } from './types';
 import { generateContentWithRetries, generateContentStreamWithRetries } from './services/geminiService';
 import { useApiKey } from './hooks/useApiKey';
+import { useSelectedModel } from './hooks/useSelectedModel';
 import { useSendShortcutSetting } from './hooks/useSendShortcutSetting';
 import { useSelectedMode } from './hooks/useSelectedMode';
 import { useStreamingSetting } from './hooks/useStreamingSetting';
@@ -142,7 +139,7 @@ const App: React.FC = () => {
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
   const [isReadingFiles, setIsReadingFiles] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [selectedModel, setSelectedModel] = useState('');
+  const [selectedModel, setSelectedModel] = useSelectedModel();
   const [apiKey, setApiKey] = useApiKey();
   const [sendWithCtrlEnter, setSendWithCtrlEnter] = useSendShortcutSetting();
   const [isStreamingEnabled, setIsStreamingEnabled] = useStreamingSetting();
