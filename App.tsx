@@ -179,8 +179,9 @@ const App: React.FC = () => {
         for (const file of files) {
             const path = (file as any).webkitRelativePath;
             const isGitPath = /(^|\/)\.git(\/|$)/.test(path);
+            const isIgnoreFile = /(^|\/)\.gitignore$/.test(path) || /(^|\/)\.gcignore$/.test(path);
 
-            if (path && !isIgnored(path) && !isGitPath) {
+            if (path && !isIgnored(path) && !isGitPath && !isIgnoreFile) {
                 try {
                     const content = await file.text();
                     newProjectContext.files.set(path, content);
