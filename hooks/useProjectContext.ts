@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import type { ProjectContext, AttachedFile } from '../types';
+import type { ProjectContext, AttachedFile, ChatPart } from '../types';
 import * as FileSystem from '../utils/fileSystem';
 import { createIsIgnored } from '../utils/gitignore';
 import { executeFunctionCall } from '../utils/functionCalling';

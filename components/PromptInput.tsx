@@ -68,7 +68,7 @@ const PromptInput: React.FC<PromptInputProps> = ({ onSubmit, isLoading, onStop, 
           };
         });
 
-      const newFiles = await Promise.all(newFiles);
+      const newFiles = await Promise.all(newFilesPromises);
       setFiles(prev => [...prev, ...newFiles]);
     } catch (error) {
       console.error("Error reading files:", error);

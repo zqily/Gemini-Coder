@@ -1,4 +1,3 @@
-
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import Sidebar from './components/Sidebar';
 import MainContent from './components/MainContent';
@@ -138,7 +137,7 @@ const App: React.FC = () => {
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
   const [isReadingFiles, setIsReadingFiles] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [selectedModel, setSelectedModel] = useState('gemini-2.5-pro'); // Pro for function calling
+  const [selectedModel, setSelectedModel] = useState('gemini-1.5-pro-latest'); // Pro for function calling
   const [apiKey, setApiKey] = useApiKey();
   const [sendWithCtrlEnter, setSendWithCtrlEnter] = useSendShortcutSetting();
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
@@ -359,20 +358,20 @@ const App: React.FC = () => {
     });
   }, [projectContext, deletedItems]);
 
-  const handlePromptSubmit = useCallback(async (prompt: string, files: AttachedFile[]) => {
+  const handlePromptSubmit = useCallback(async (prompt: string) => {
     if (!apiKey) {
       alert("Please set your Gemini API key in the settings.");
       setIsSettingsModalOpen(true);
       return;
     }
-    if (!prompt.trim() && files.length === 0) return;
+    if (!prompt.trim() && attachedFiles.length === 0) return;
 
     setIsLoading(true);
     cancellationRef.current = false;
 
     const userParts: ChatPart[] = [];
     if (prompt) userParts.push({ text: prompt });
-    files.forEach(file => {
+    attachedFiles.forEach(file => {
       userParts.push({
         inlineData: {
           mimeType: file.type,
@@ -602,7 +601,7 @@ const App: React.FC = () => {
       setIsLoading(false);
       cancellationRef.current = false;
     }
-  }, [apiKey, chatHistory, selectedModel, selectedMode, projectContext, deletedItems, excludedPaths]);
+  }, [apiKey, chatHistory, attachedFiles, selectedModel, selectedMode, projectContext, deletedItems, excludedPaths]);
 
 
   return (
