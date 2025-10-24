@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef } from 'react';
 import type { ChatMessage, AttachedFile, ModeId, ChatPart, ProjectContext } from '../types';
 import { generateContentWithRetries } from '../services/geminiService';
-import { MODES, FILE_SYSTEM_TOOLS } from '../config/modes';
+import { MODES } from '../config/modes';
 import type { FunctionCall } from '@google/genai';
 
 interface UseChatManagerProps {
@@ -160,7 +160,7 @@ export const useChatManager = ({
             systemInstruction = (mode as any).systemInstructionNoProject;
         }
 
-        const tools = isCoderMode && isProjectSynced ? [{ functionDeclarations: FILE_SYSTEM_TOOLS }] : undefined;
+        const tools = undefined;
 
         const response = await generateContentWithRetries(
             apiKey, selectedModel, historyForApi, systemInstruction, tools,

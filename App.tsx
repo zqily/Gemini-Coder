@@ -3,7 +3,7 @@ import Sidebar from './components/Sidebar';
 import MainContent from './components/MainContent';
 import SettingsModal from './components/SettingsModal';
 import FileEditorModal from './components/FileEditorModal';
-import type { ChatMessage, AttachedFile, ModeId, ProjectContext, ChatPart } from './types';
+import type { ChatMessage, ProjectContext, ChatPart } from './types';
 import { generateContentWithRetries, generateContentStreamWithRetries } from './services/geminiService';
 import { useApiKey } from './hooks/useApiKey';
 import { useSelectedModel } from './hooks/useSelectedModel';
@@ -13,7 +13,7 @@ import { useStreamingSetting } from './hooks/useStreamingSetting';
 import { createIsIgnored } from './utils/gitignore';
 import * as FileSystem from './utils/fileSystem';
 import { executeFunctionCall } from './utils/functionCalling';
-import { MODES, FILE_SYSTEM_TOOLS, NO_PROBLEM_DETECTED_TOOL } from './config/modes';
+import { MODES, NO_PROBLEM_DETECTED_TOOL } from './config/modes';
 import { Type, FunctionCall, GenerateContentResponse } from '@google/genai';
 import { ImageIcon } from './components/icons';
 
@@ -799,7 +799,9 @@ Your entire output MUST be a single JSON object that strictly adheres to the pro
         } else {
             // Default mode
             let historyForApi = [...historyForGeneration];
-            const shouldUseStreaming = isStreamingEnabled;
+            // Coder modes have their own non-streaming logic paths.
+            // For any other mode, only enable streaming if the user has it on AND the mode is 'default'.
+            const shouldUseStreaming = isStreamingEnabled && selectedMode === 'default';
             
             const projectFileContext = getProjectContextString();
             if (projectFileContext) {

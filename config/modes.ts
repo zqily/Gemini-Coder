@@ -7,7 +7,7 @@ export const MODES: Record<ModeId, Mode> = {
     id: 'default',
     name: 'Default',
     icon: Bot,
-    systemInstruction: `You are a helpful assistant. When the user asks you to perform actions related to files, you have access to a virtual file system. Use the provided tools (\`writeFile\`, \`createFolder\`, \`move\`, \`deletePath\`) to help the user manage their files when requested.`,
+    systemInstruction: `You are a helpful assistant. If the user provides project files as context, you can read them to answer questions and provide suggestions, but you cannot modify them. When asked to write code, provide it directly in your response using markdown code blocks.`,
   },
   'simple-coder': {
     id: 'simple-coder',
@@ -32,29 +32,6 @@ For any request that requires creating or modifying files in the virtual file sy
     systemInstruction: `You are an expert programmer orchestrating a multi-phase code generation process. Your primary purpose is to help the user with their code. You have access to a virtual file system and have been granted a set of tools to modify it in the final phase.`
   }
 };
-
-export const FILE_SYSTEM_TOOLS: FunctionDeclaration[] = [
-    {
-        name: 'writeFile',
-        description: 'Writes content to a file at a given path. Creates the file if it does not exist, and overwrites it if it does.',
-        parameters: { type: Type.OBJECT, properties: { path: { type: Type.STRING }, content: { type: Type.STRING } }, required: ['path', 'content'] }
-    },
-    {
-        name: 'createFolder',
-        description: 'Creates a new directory at a given path.',
-        parameters: { type: Type.OBJECT, properties: { path: { type: Type.STRING } }, required: ['path'] }
-    },
-    {
-        name: 'move',
-        description: 'Moves or renames a file or folder.',
-        parameters: { type: Type.OBJECT, properties: { sourcePath: { type: Type.STRING }, destinationPath: { type: Type.STRING } }, required: ['sourcePath', 'destinationPath'] }
-    },
-    {
-        name: 'deletePath',
-        description: 'Deletes a file or folder at a given path.',
-        parameters: { type: Type.OBJECT, properties: { path: { type: Type.STRING } }, required: ['path'] }
-    }
-];
 
 export const NO_PROBLEM_DETECTED_TOOL: FunctionDeclaration = {
     name: 'noProblemDetected',
