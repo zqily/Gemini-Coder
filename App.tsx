@@ -708,7 +708,7 @@ Your entire output MUST be a single JSON object that strictly adheres to the pro
                     setChatHistory(prev => [...prev, toolResponseMessage]);
                 }
             }
-        } else if (selectedMode === 'simple-coder' && projectContext) {
+        } else if (selectedMode === 'simple-coder') {
             let historyForApi = [...historyForGeneration];
             const projectFileContext = getProjectContextString();
             if (projectFileContext) {
@@ -797,7 +797,7 @@ Your entire output MUST be a single JSON object that strictly adheres to the pro
             }
 
         } else {
-            // Default mode, or Simple Coder without a project
+            // Default mode
             let historyForApi = [...historyForGeneration];
             const shouldUseStreaming = isStreamingEnabled;
             
