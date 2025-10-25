@@ -8,17 +8,14 @@ import { ALL_ACCEPTED_MIME_TYPES, CONVERTIBLE_TO_TEXT_MIME_TYPES, fileToDataURL 
 
 const PromptInput: React.FC = () => {
   const { 
-    onSubmit, isLoading, onStop, onFileAddClick, // onFileAddClick from useChat
+    onSubmit, isLoading, onStop, onFileAddClick,
     selectedMode, setSelectedMode, modes, chatHistory,
-    attachedFiles, setAttachedFiles // attachedFiles from useChat
+    attachedFiles, setAttachedFiles,
+    prompt, setPrompt, totalTokens
   } = useChat();
   const { apiKey, sendWithCtrlEnter } = useSettings();
 
-  const [prompt, setPrompt] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  
-  // The fileAttachInputRef and handleFileChange are now managed within ChatProvider
-  // PromptInput receives onFileAddClick from ChatContext, which triggers the file input in ChatProvider.
 
   const handleTextareaInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setPrompt(e.target.value);
@@ -36,13 +33,9 @@ const PromptInput: React.FC = () => {
 
     const lastMessage = chatHistory[chatHistory.length - 1];
     const canResend = lastMessage?.role === 'user';
-    if (!prompt.trim() && !canResend && attachedFiles.length === 0) return; // Allow resend with attached files
+    if (!prompt.trim() && !canResend && attachedFiles.length === 0) return;
 
     onSubmit(prompt);
-    setPrompt('');
-    if (textareaRef.current) {
-        textareaRef.current.style.height = 'auto';
-    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -84,23 +77,29 @@ const PromptInput: React.FC = () => {
   return (
     <form onSubmit={handleSubmit} className="w-full bg-[#1e1f20] transition-all duration-200 rounded-2xl focus-within:ring-2 focus-within:ring-blue-500/50 flex flex-col">
       <div>
-        <div className="px-4 pt-3 pb-1 flex items-center gap-2">
-            {Object.values(modes).map((mode: Mode) => (
-              <button
-                key={mode.id}
-                type="button"
-                onClick={() => setSelectedMode(mode.id)}
-                className={`p-2 rounded-lg transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
-                  selectedMode === mode.id
-                    ? 'bg-gray-600/70 text-white'
-                    : 'bg-transparent text-gray-400 hover:bg-gray-700/50 hover:text-gray-200'
-                }`}
-                title={mode.name}
-                aria-label={mode.name}
-              >
-                {React.createElement(mode.icon, { size: 18, 'aria-hidden': true })}
-              </button>
-            ))}
+        <div className="px-4 pt-3 pb-1 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+                {Object.values(modes).map((mode: Mode) => (
+                <button
+                    key={mode.id}
+                    type="button"
+                    onClick={() => setSelectedMode(mode.id)}
+                    className={`p-2 rounded-lg transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
+                    selectedMode === mode.id
+                        ? 'bg-gray-600/70 text-white'
+                        : 'bg-transparent text-gray-400 hover:bg-gray-700/50 hover:text-gray-200'
+                    }`}
+                    title={mode.name}
+                    aria-label={mode.name}
+                >
+                    {React.createElement(mode.icon, { size: 18, 'aria-hidden': true })}
+                </button>
+                ))}
+            </div>
+            {/* Tokens counter moved here */}
+            <div className="text-xs text-gray-500 bg-[#1e1f20] px-1 rounded-sm pointer-events-none z-10">
+                {totalTokens.toLocaleString()} tokens
+            </div>
         </div>
 
         {attachedFiles.length > 0 && (
@@ -118,7 +117,6 @@ const PromptInput: React.FC = () => {
         )}
 
         <div className="p-2 flex items-end w-full relative">
-          {/* This button now uses onFileAddClick from ChatContext, which triggers the file input in ChatProvider */}
           <button
             type="button"
             onClick={onFileAddClick}

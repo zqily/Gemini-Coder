@@ -15,6 +15,7 @@ export interface FileSystemContextType {
   isDragging: boolean;
   creatingIn: { path: string; type: 'file' | 'folder' } | null;
   fileInputRef: React.RefObject<HTMLInputElement>;
+  fileTokenCounts: Map<string, number>;
   
   syncProject: (fileList: FileList) => Promise<void>;
   unlinkProject: () => void;

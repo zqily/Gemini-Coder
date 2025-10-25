@@ -9,6 +9,9 @@ export interface ChatContextType {
   selectedModel: string;
   selectedMode: ModeId;
   modes: Record<ModeId, Mode>;
+  prompt: string;
+  setPrompt: React.Dispatch<React.SetStateAction<string>>;
+  totalTokens: number;
 
   setAttachedFiles: React.Dispatch<React.SetStateAction<AttachedFile[]>>;
   setSelectedModel: (model: string) => void;

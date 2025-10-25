@@ -6,10 +6,10 @@ import * as FileSystem from './utils/fileSystem';
 import type { ProjectContext } from '../../types';
 import type { FunctionCall } from '@google/genai';
 import type { ChatPart } from '../../types';
+import { countTextTokens } from '../chat/utils/tokenCounter';
 
 interface FileSystemProviderProps {
   children: ReactNode;
-  // isChatLoading: boolean; // Removed this prop as it's now handled by AppContent
 }
 
 const FileSystemProvider: React.FC<FileSystemProviderProps> = ({ children }) => {
@@ -22,10 +22,10 @@ const FileSystemProvider: React.FC<FileSystemProviderProps> = ({ children }) => 
     setOriginalProjectContext,
     setDeletedItems,
     setExcludedPaths,
-    saveFile: saveFileInHook, // Renamed to avoid collision with local saveFile
-    togglePathExclusion: togglePathExclusionInHook, // Renamed for clarity
+    saveFile: saveFileInHook,
+    togglePathExclusion: togglePathExclusionInHook,
     getSerializableContext,
-    applyFunctionCalls: applyFunctionCallsInHook, // Renamed for clarity
+    applyFunctionCalls: applyFunctionCallsInHook,
     createFile: createFileInHook,
     createFolder: createFolderInHook,
     deletePath: deletePathInHook,
@@ -38,10 +38,10 @@ const FileSystemProvider: React.FC<FileSystemProviderProps> = ({ children }) => 
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [creatingIn, setCreatingIn] = useState<{ path: string; type: 'file' | 'folder' } | null>(null);
+  const [fileTokenCounts, setFileTokenCounts] = useState<Map<string, number>>(new Map());
   const dragOverTimeout = useRef<number | undefined>(undefined);
   const dragCounter = useRef(0);
 
-  // Effect to update displayContext for the file tree
   useEffect(() => {
     const mergedFiles = new Map<string, string>([
       ...(deletedItems?.files || []),
@@ -63,6 +63,38 @@ const FileSystemProvider: React.FC<FileSystemProviderProps> = ({ children }) => 
         setDisplayContext(null);
     }
   }, [projectContext, deletedItems]);
+
+  useEffect(() => {
+    if (!displayContext) {
+      setFileTokenCounts(new Map());
+      return;
+    }
+
+    const newCounts = new Map<string, number>();
+    
+    // 1. Calculate for all files
+    for (const [path, content] of displayContext.files.entries()) {
+      if (content.startsWith('[Attached file:') || content.startsWith('[Binary file:')) {
+        newCounts.set(path, 0);
+      } else {
+        newCounts.set(path, countTextTokens(content));
+      }
+    }
+
+    // 2. Calculate for all dirs by summing children
+    const sortedDirs = Array.from(displayContext.dirs).sort((a, b) => b.length - a.length);
+    for (const dirPath of sortedDirs) {
+      let dirTotal = 0;
+      for (const [path, count] of newCounts.entries()) {
+        if (path.startsWith(`${dirPath}/`)) {
+          dirTotal += count;
+        }
+      }
+      newCounts.set(dirPath, dirTotal);
+    }
+    
+    setFileTokenCounts(newCounts);
+  }, [displayContext]);
 
 
   const handleFolderUpload = useCallback(async (fileList: FileList) => {
@@ -224,7 +256,7 @@ const FileSystemProvider: React.FC<FileSystemProviderProps> = ({ children }) => 
   }, [togglePathExclusionInHook]);
   
   const onCreateFile = useCallback((path: string) => {
-    createFileInHook(path, ''); // New files start with empty content
+    createFileInHook(path, '');
   }, [createFileInHook]);
 
   const onCreateFolder = useCallback((path: string) => {
@@ -241,7 +273,7 @@ const FileSystemProvider: React.FC<FileSystemProviderProps> = ({ children }) => 
 
   const applyFunctionCalls = useCallback(async (functionCalls: FunctionCall[]): Promise<ChatPart[]> => {
     const results = applyFunctionCallsInHook(functionCalls);
-    return Promise.resolve(results); // Ensure it returns a Promise<ChatPart[]>
+    return Promise.resolve(results);
   }, [applyFunctionCallsInHook]);
 
 
@@ -256,6 +288,7 @@ const FileSystemProvider: React.FC<FileSystemProviderProps> = ({ children }) => 
     isDragging,
     creatingIn,
     fileInputRef,
+    fileTokenCounts,
     
     syncProject: handleFolderUpload,
     unlinkProject,

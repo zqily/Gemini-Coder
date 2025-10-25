@@ -9,67 +9,86 @@ import { useSettings } from '../settings/SettingsContext';
 import { Type, FunctionCall, GenerateContentResponse } from '@google/genai';
 import { ALL_ACCEPTED_MIME_TYPES, CONVERTIBLE_TO_TEXT_MIME_TYPES, fileToDataURL } from './utils/fileUpload';
 import { useFileSystem } from '../file-system/FileSystemContext';
+import { countTextTokens, countImageTokens, countMessageTokens } from './utils/tokenCounter';
 
 
 interface ChatProviderProps {
   children: ReactNode;
-  // Removed props as they are now consumed directly from FileSystemContext
-  // getSerializableContext: () => string | null;
-  // applyFunctionCalls: (functionCalls: FunctionCall[]) => Promise<ChatPart[]>;
-  // unlinkProjectFs: () => void; // Filesystem unlink action
-  // setCreatingInFs: (state: { path: string; type: 'file' | 'folder' } | null) => void; // Filesystem create in action
-  // isReadingFilesFs: boolean; // Filesystem file reading status
 }
 
-// FIX: Ensure ChatProvider returns JSX.Element
 const ChatProvider: React.FC<ChatProviderProps> = ({
   children,
-  // Removed from props, now consumed via useFileSystem
-  // getSerializableContext,
-  // applyFunctionCalls,
-  // unlinkProjectFs,
-  // setCreatingInFs,
-  // isReadingFilesFs,
 }) => {
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
-  const [isChatProcessing, setIsChatProcessing] = useState(false); // Renamed from isLoading to avoid confusion with overall isLoading
+  const [isChatProcessing, setIsChatProcessing] = useState(false);
+  const [prompt, setPrompt] = useState('');
+  const [totalTokens, setTotalTokens] = useState(0);
 
   const cancellationRef = useRef(false);
-  const fileAttachInputRef = useRef<HTMLInputElement>(null); // For chat attachments
+  const fileAttachInputRef = useRef<HTMLInputElement>(null);
 
   const [selectedModel, setSelectedModel] = useSelectedModel();
   const [selectedMode, setSelectedMode] = useSelectedMode();
 
   const { apiKey, isStreamingEnabled, setIsSettingsModalOpen } = useSettings();
 
-  // Directly consume FileSystemContext
   const { 
     getSerializableContext, 
     applyFunctionCalls, 
     unlinkProject: unlinkProjectFs, 
     setCreatingIn: setCreatingInFs, 
-    isReadingFiles: isReadingFilesFs // Renamed to isReadingFilesFs for clarity in ChatContext
+    isReadingFiles: isReadingFilesFs
   } = useFileSystem();
 
 
-  // Overall loading state combines chat processing and filesystem reading
   const isLoading = isChatProcessing || isReadingFilesFs;
-
-  // If Advanced Coder is selected, disable streaming
-  // FIX: This useEffect was not doing anything meaningful for disabling streaming.
-  // Streaming logic will be handled directly within onSubmit based on mode and settings.
-  // No explicit `setIsStreamingEnabled` call here.
-  // The check is already done in PromptInput for `selectedMode === 'advanced-coder'`
-  // and in `onSubmit` for `shouldUseStreaming`.
-  /*
+  
+  // Token Calculation Effect
   useEffect(() => {
-    if (selectedMode === 'advanced-coder') {
-      // Logic for streaming will be handled within the onSubmit method directly
-      // No need to persist this, as it's mode-dependent.
-    }
-  }, [selectedMode]);
-  */
+    const calculateTokens = async () => {
+      // Defer calculation to avoid blocking render
+      await new Promise(resolve => setTimeout(resolve, 50));
+
+      const promptTokens = countTextTokens(prompt);
+      const historyTokens = chatHistory.reduce((sum, msg) => sum + countMessageTokens(msg), 0);
+      const projectContextString = getSerializableContext();
+      const projectContextTokens = countTextTokens(projectContextString);
+
+      const imagePromises = attachedFiles
+        .filter(file => file.type.startsWith('image/'))
+        .map(countImageTokens);
+      
+      const imageTokensArray = await Promise.all(imagePromises);
+      const imageTokens = imageTokensArray.reduce((sum, count) => sum + count, 0);
+
+      const attachedTextTokens = attachedFiles
+        .filter(file => !file.type.startsWith('image/'))
+        .reduce((sum, file) => {
+            try {
+                const base64Content = file.content.split(',')[1];
+                if (base64Content) {
+                    const textContent = atob(base64Content);
+                    return sum + countTextTokens(textContent);
+                }
+                return sum;
+            } catch (e) {
+                console.error("Failed to decode attached file for token counting:", file.name);
+                return sum;
+            }
+        }, 0);
+        
+      setTotalTokens(
+        promptTokens +
+        historyTokens +
+        projectContextTokens +
+        imageTokens +
+        attachedTextTokens
+      );
+    };
+
+    calculateTokens();
+  }, [prompt, chatHistory, attachedFiles, getSerializableContext]);
 
   const onStop = useCallback(() => {
     cancellationRef.current = true;
@@ -78,8 +97,9 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
   const onNewChat = useCallback(() => {
     setChatHistory([]);
     setAttachedFiles([]);
-    unlinkProjectFs(); // Clear associated file system project using passed prop
-    setCreatingInFs(null); // Clear any pending file creation in file system
+    setPrompt('');
+    unlinkProjectFs();
+    setCreatingInFs(null);
   }, [unlinkProjectFs, setCreatingInFs]);
 
   const onDeleteMessage = useCallback((indexToDelete: number) => {
@@ -124,10 +144,10 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
       }
       setAttachedFiles(prev => [...prev, ...newFiles]);
     }
-    event.target.value = ''; // Reset the input to allow selecting the same file again
+    event.target.value = '';
   };
 
-  const onSubmit = useCallback(async (prompt: string) => {
+  const onSubmit = useCallback(async (currentPrompt: string) => {
     if (!apiKey) {
       alert("Please set your Gemini API key in the settings.");
       setIsSettingsModalOpen(true);
@@ -136,23 +156,19 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
 
     let activeModel = selectedModel;
     if (selectedMode === 'advanced-coder') {
-        // Advanced Coder always uses gemini-2.5-pro for core logic
         activeModel = 'gemini-2.5-pro';
-    } else if (!activeModel) { // Only prompt for model selection if not advanced-coder
+    } else if (!activeModel) {
         alert("Please select a model before sending a prompt.");
         return;
     }
 
-    // Capture attached files for the current turn before clearing state
     const filesForThisTurn = [...attachedFiles];
-
     let historyForApi: ChatMessage[];
     let isResend = false;
 
-    // Determine the history to send to the API
-    if (prompt.trim() || filesForThisTurn.length > 0) {
+    if (currentPrompt.trim() || filesForThisTurn.length > 0) {
         const userParts: ChatPart[] = [];
-        if (prompt) userParts.push({ text: prompt });
+        if (currentPrompt) userParts.push({ text: currentPrompt });
         filesForThisTurn.forEach(file => {
           userParts.push({
             inlineData: {
@@ -163,16 +179,16 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
         });
         const newUserMessage: ChatMessage = { role: 'user', parts: userParts };
         historyForApi = [...chatHistory, newUserMessage];
-        setChatHistory(historyForApi); // Update UI immediately with user's message
-        setAttachedFiles([]); // Clear attached files after sending
+        setChatHistory(historyForApi);
+        setAttachedFiles([]);
+        setPrompt('');
     } else {
-        // This is a resend scenario (empty prompt, but 'canResend' was true in PromptInput)
         const lastMessage = chatHistory[chatHistory.length - 1];
         if (lastMessage?.role === 'user') {
-            historyForApi = [...chatHistory]; // Use existing history as is
+            historyForApi = [...chatHistory];
             isResend = true;
         } else {
-            return; // Should not happen due to PromptInput's disabled state, but a safeguard
+            return;
         }
     }
 
@@ -197,13 +213,9 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
         });
     };
 
-    // Add a placeholder for the model's response if it's not a resend or if the last message isn't a model message.
-    // If it's a resend and the last message IS a model message, we will overwrite it.
-    // Otherwise, we append a new placeholder.
     if (!isResend || chatHistory[chatHistory.length - 1]?.role !== 'model') {
       setChatHistory(prev => [...prev, { role: 'model', parts: [{ text: '' }] }]);
     }
-
 
     const onStatusUpdate = (message: string) => {
         setChatHistory(prev => {
@@ -229,7 +241,7 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
     };
 
     const getProjectContextStringLocal = (): string | null => {
-        return getSerializableContext(); // This comes from FileSystemContext prop
+        return getSerializableContext();
     };
 
     const thinkPrimerMessage: ChatMessage = {
@@ -416,7 +428,7 @@ Your entire output MUST be a single JSON object that strictly adheres to the pro
                     });
                 }
                 if (jsonResponse.deletePaths && Array.isArray(jsonResponse.deletePaths)) {
-                    jsonResponse.deletePaths.forEach((op: any) => { // FIX: Correct variable name from jsonCalls to functionCalls and op.
+                    jsonResponse.deletePaths.forEach((op: any) => {
                         functionCalls.push({ name: 'deletePath', args: { path: op.path } });
                     });
                 }
@@ -426,7 +438,6 @@ Your entire output MUST be a single JSON object that strictly adheres to the pro
             }
 
             if (!summaryText && functionCalls.length === 0) {
-                // If no summary and no operations, remove the placeholder model message
                 setChatHistory(prev => prev.slice(0, -1));
             } else {
                 const modelTurnParts: ChatPart[] = [];
@@ -437,7 +448,6 @@ Your entire output MUST be a single JSON object that strictly adheres to the pro
 
                 setChatHistory(prev => {
                     const newHistory = [...prev];
-                    // Overwrite the last placeholder model message
                     newHistory[newHistory.length - 1] = modelTurnWithMessage;
                     return newHistory;
                 });
@@ -453,18 +463,17 @@ Your entire output MUST be a single JSON object that strictly adheres to the pro
                 }
             }
         } else if (selectedMode === 'simple-coder') {
-            let historyForApiWithContext = [...historyForApi]; // Use the already constructed historyForApi
+            let historyForApiWithContext = [...historyForApi];
             const projectFileContext = getProjectContextStringLocal();
             if (projectFileContext) {
                  const contextPreamble = `The user has provided the following files as context for their request. Use the contents of these files to inform your answer.`;
                  historyForApiWithContext.splice(historyForApiWithContext.length - 1, 0, { role: 'user', parts: [{ text: `${contextPreamble}\n\n${projectFileContext}`}] });
             }
-            historyForApiWithContext.push(thinkPrimerMessage); // Add think primer
+            historyForApiWithContext.push(thinkPrimerMessage);
 
             const systemInstruction = MODES['simple-coder'].systemInstruction!;
             const modelConfig = { responseMimeType: "application/json", responseSchema: fileOpsResponseSchema };
 
-            // Use Pro model for reliability with JSON schema
             const response = await generateContentWithRetries(apiKey, activeModel, historyForApiWithContext, systemInstruction, undefined, cancellationRef, onStatusUpdate, cancellableSleep, modelConfig);
             if (cancellationRef.current) throw new Error('Cancelled by user');
 
@@ -492,7 +501,7 @@ Your entire output MUST be a single JSON object that strictly adheres to the pro
                     });
                 }
                 if (jsonResponse.deletePaths && Array.isArray(jsonResponse.deletePaths)) {
-                    jsonResponse.deletePaths.forEach((op: any) => { // FIX: Corrected loop variable and push target
+                    jsonResponse.deletePaths.forEach((op: any) => {
                         functionCalls.push({ name: 'deletePath', args: { path: op.path } });
                     });
                 }
@@ -528,9 +537,7 @@ Your entire output MUST be a single JSON object that strictly adheres to the pro
             }
 
         } else {
-            // Default mode
-            let historyForApiWithContext = [...historyForApi]; // Use the already constructed historyForApi
-            // For default mode, streaming is controlled by user setting
+            let historyForApiWithContext = [...historyForApi];
             const shouldUseStreaming = isStreamingEnabled && selectedMode === 'default';
 
             const projectFileContext = getProjectContextStringLocal();
@@ -567,7 +574,7 @@ Your entire output MUST be a single JSON object that strictly adheres to the pro
                 if (cancellationRef.current) throw new Error('Cancelled by user');
                 const modelResponseText = response.text;
 
-                if (!modelResponseText.trim()) { // FIX: Check if modelResponseText is empty after trim()
+                if (!modelResponseText.trim()) {
                     setChatHistory(prev => prev.slice(0, -1));
                 } else {
                     const modelTurnWithMessage: ChatMessage = { role: 'model', parts: [{ text: modelResponseText }] };
@@ -590,7 +597,6 @@ Your entire output MUST be a single JSON object that strictly adheres to the pro
               return newHistory;
           });
       } else {
-          // If cancelled by user, remove the last placeholder model message
           setChatHistory(prev => prev.slice(0, -1));
       }
     } finally {
@@ -600,18 +606,21 @@ Your entire output MUST be a single JSON object that strictly adheres to the pro
   }, [
     apiKey, chatHistory, selectedModel, selectedMode, isStreamingEnabled,
     setIsSettingsModalOpen, getSerializableContext, applyFunctionCalls, attachedFiles,
-    unlinkProjectFs, setCreatingInFs, isReadingFilesFs
+    unlinkProjectFs, setCreatingInFs
   ]);
 
 
   const contextValue: ChatContextType = {
     chatHistory,
-    isLoading, // overall isLoading
+    isLoading,
     attachedFiles,
-    isReadingFilesFs, // From filesystem context
+    isReadingFilesFs,
     selectedModel,
     selectedMode,
     modes: MODES,
+    prompt,
+    setPrompt,
+    totalTokens,
     setAttachedFiles,
     setSelectedModel,
     onSubmit,
@@ -625,7 +634,6 @@ Your entire output MUST be a single JSON object that strictly adheres to the pro
   return (
     <ChatContext.Provider value={contextValue}>
       {children}
-      {/* Hidden input for attaching files directly to chat */}
       <input
         type="file"
         multiple

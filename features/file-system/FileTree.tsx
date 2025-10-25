@@ -104,7 +104,7 @@ const FileTree: React.FC = () => {
     const { 
         displayContext, originalProjectContext, deletedItems, excludedPaths,
         onOpenFileEditor, togglePathExclusion, onCreateFile, onCreateFolder,
-        onDeletePath, onRenamePath, creatingIn, setCreatingIn
+        onDeletePath, onRenamePath, creatingIn, setCreatingIn, fileTokenCounts
     } = useFileSystem();
 
     const { isLoading: isChatLoading } = useChat();
@@ -143,7 +143,6 @@ const FileTree: React.FC = () => {
     const handleKeyUp = (e: KeyboardEvent) => {
         if (e.key === 'Alt') setIsAltPressed(false);
         if (e.key === 'Control' || e.key === 'Meta') setIsCtrlPressed(false);
-        // FIX: Corrected handleKeyUp for Shift key.
         if (e.key === 'Shift') setIsShiftPressed(false);
     };
     const handleBlur = () => {
@@ -288,7 +287,6 @@ const FileTree: React.FC = () => {
       const dropTargetPath = node.path;
       const dParentPath = dPath.substring(0, dPath.lastIndexOf('/'));
 
-      // Validation: cannot drop on self, a child, or the same parent folder
       if (dPath === dropTargetPath || 
           dropTargetPath.startsWith(dPath + '/') || 
           dParentPath === dropTargetPath) {
@@ -310,6 +308,11 @@ const FileTree: React.FC = () => {
       hoverClass = 'hover:bg-amber-500/40';
     }
 
+    const tokenCount = fileTokenCounts.get(node.path);
+    const titleText = tokenCount !== undefined
+      ? `${node.path || '/'}\nTokens: ${tokenCount.toLocaleString()}`
+      : node.path || '/';
+
     return (
       <div key={node.path}>
         <div
@@ -330,7 +333,7 @@ const FileTree: React.FC = () => {
                  e.stopPropagation();
                 if (node.type === 'file') {
                   navigator.clipboard.writeText(displayContext?.files.get(node.path) || '');
-                } else { // folder
+                } else {
                   navigator.clipboard.writeText(node.path);
                 }
                 showCopiedFeedback(node.path);
@@ -349,7 +352,6 @@ const FileTree: React.FC = () => {
                         return next;
                     });
                 } else {
-                    // FIX: Changed from onFileClick to onOpenFileEditor
                     onOpenFileEditor(node.path);
                 }
               }
@@ -395,7 +397,7 @@ const FileTree: React.FC = () => {
             } : undefined}
             onDrop={isFolder ? handleDrop : undefined}
         >
-          <div className="flex items-center flex-grow truncate mr-2" title={node.path}>
+          <div className="flex items-center flex-grow truncate mr-2" title={titleText}>
             <Icon size={16} className={`mr-2 flex-shrink-0 ${statusClasses}`} />
             <span className={`text-sm truncate ${statusClasses}`}>{node.name}</span>
             {statusIndicator}
@@ -432,7 +434,6 @@ const FileTree: React.FC = () => {
 
     const dParentPath = dPath.substring(0, dPath.lastIndexOf('/'));
 
-    // If item is already in root, do nothing.
     if (!dParentPath) return;
 
     const dName = dPath.substring(dPath.lastIndexOf('/') + 1);
@@ -461,7 +462,6 @@ const FileTree: React.FC = () => {
               dragCounter.current++;
               if (draggedPath) {
                   const draggedParentPath = draggedPath.substring(0, draggedPath.lastIndexOf('/'));
-                  // Can drop in root only if not already in root
                   if (draggedParentPath) {
                       setDropTarget('');
                   }
