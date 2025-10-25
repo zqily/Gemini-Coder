@@ -32,6 +32,7 @@ import {
   BrainCircuit,
   KeyRound,
   FilePlus,
+  FolderPlus,
   MousePointerClick,
 } from 'lucide-react';
 
@@ -67,5 +68,6 @@ export {
   BrainCircuit,
   KeyRound,
   FilePlus,
+  FolderPlus,
   MousePointerClick,
 };

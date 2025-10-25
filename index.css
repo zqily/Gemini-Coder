@@ -33,6 +33,56 @@
   .typing-dot:nth-of-type(3) {
     animation-delay: 0s;
   }
+
+  .context-menu {
+    @apply absolute bg-[#2c2d2f] border border-gray-700/50 rounded-md shadow-lg py-1.5 z-50;
+    min-width: 180px;
+  }
+  .context-menu-item {
+    @apply flex items-center gap-3 px-3 py-1.5 text-sm text-gray-300 hover:bg-gray-700 cursor-pointer w-full text-left;
+  }
+  .context-menu-item-destructive {
+     @apply text-red-400 hover:bg-red-500/20;
+  }
+  .context-menu-separator {
+    @apply h-[1px] bg-gray-700/50 my-1;
+  }
+
+  /* Thinner scrollbar for specific components */
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    background: #4a4a4a;
+    border-radius: 3px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: #5a5a5a;
+  }
+
+  /* Styles for the file tree hierarchical lines */
+  .tree-branch-segment {
+    @apply w-4 h-full flex-shrink-0 relative;
+  }
+  .tree-branch-segment::before {
+    content: '';
+    @apply absolute top-0 left-1/2 w-px h-full bg-gray-700;
+  }
+  .tree-branch-segment.is-last::before {
+    @apply h-1/2;
+  }
+  .tree-branch-segment.no-line::before {
+    @apply bg-transparent;
+  }
+
+  .tree-branch-segment::after {
+    content: '';
+    @apply absolute top-1/2 left-1/2 w-1/2 h-px bg-gray-700;
+  }
 }
 
 @layer utilities {

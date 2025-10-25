@@ -1,24 +1,9 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Folder, FolderOpen, FileText, Copy, ClipboardCopy, Check, Eye, EyeOff, FilePlus, FolderPlus, Pencil, Trash2 } from './icons';
-import type { ProjectContext } from '../types';
+import { Folder, FolderOpen, FileText, Copy, ClipboardCopy, Check, Eye, EyeOff, FilePlus, FolderPlus, Pencil, Trash2 } from '../../components/icons';
+import type { ProjectContext } from '../../types';
+import { useFileSystem } from './FileSystemContext';
+import { useChat } from '../chat/ChatContext';
 
-
-interface FileTreeProps {
-  allFiles: Map<string, string>;
-  allDirs: Set<string>;
-  originalContext: ProjectContext | null;
-  deletedItems: ProjectContext;
-  onFileClick: (path: string) => void;
-  excludedPaths: Set<string>;
-  onTogglePathExclusion: (path: string) => void;
-  isLoading: boolean;
-  onCreateFile: (path: string) => void;
-  onCreateFolder: (path: string) => void;
-  onDeletePath: (path: string) => void;
-  onRenamePath: (oldPath: string, newPath: string) => void;
-  creatingIn: { path: string; type: 'file' | 'folder' } | null;
-  setCreatingIn: (state: { path: string; type: 'file' | 'folder' } | null) => void;
-}
 
 interface TreeNode {
   name: string;
@@ -115,11 +100,15 @@ const EditInput: React.FC<{
 };
 
 
-const FileTree: React.FC<FileTreeProps> = ({ 
-    allFiles, allDirs, originalContext, deletedItems, onFileClick, excludedPaths, onTogglePathExclusion, isLoading,
-    onCreateFile, onCreateFolder, onDeletePath, onRenamePath,
-    creatingIn, setCreatingIn
-}) => {
+const FileTree: React.FC = () => {
+    const { 
+        displayContext, originalProjectContext, deletedItems, excludedPaths,
+        onOpenFileEditor, togglePathExclusion, onCreateFile, onCreateFolder,
+        onDeletePath, onRenamePath, creatingIn, setCreatingIn
+    } = useFileSystem();
+
+    const { isLoading: isChatLoading } = useChat();
+
   const [contextMenu, setContextMenu] = useState<{ x: number, y: number, path: string, type: 'file' | 'folder' } | null>(null);
   const [editingPath, setEditingPath] = useState<string | null>(null);
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(() => new Set(['']));
@@ -134,7 +123,7 @@ const FileTree: React.FC<FileTreeProps> = ({
   const [isShiftPressed, setIsShiftPressed] = useState(false);
 
 
-  const tree = buildTree(allFiles, allDirs);
+  const tree = buildTree(displayContext?.files ?? new Map(), displayContext?.dirs ?? new Set());
 
   const handleCancel = useCallback(() => {
     setContextMenu(null);
@@ -154,6 +143,7 @@ const FileTree: React.FC<FileTreeProps> = ({
     const handleKeyUp = (e: KeyboardEvent) => {
         if (e.key === 'Alt') setIsAltPressed(false);
         if (e.key === 'Control' || e.key === 'Meta') setIsCtrlPressed(false);
+        // FIX: Corrected handleKeyUp for Shift key.
         if (e.key === 'Shift') setIsShiftPressed(false);
     };
     const handleBlur = () => {
@@ -182,7 +172,7 @@ const FileTree: React.FC<FileTreeProps> = ({
   const handleContextMenu = (e: React.MouseEvent, path: string, type: 'file' | 'folder') => {
     e.preventDefault();
     e.stopPropagation();
-    if (isLoading) return;
+    if (isChatLoading) return;
     handleCancel();
     setContextMenu({ x: e.clientX, y: e.clientY, path, type });
   };
@@ -209,13 +199,13 @@ const FileTree: React.FC<FileTreeProps> = ({
 
   const handleToggleExclusion = () => {
     if (!contextMenu) return;
-    onTogglePathExclusion(contextMenu.path);
+    togglePathExclusion(contextMenu.path);
     setContextMenu(null);
   };
 
   const handleCopy = (type: 'path' | 'content') => {
     if (!contextMenu) return;
-    const textToCopy = type === 'path' ? contextMenu.path : allFiles.get(contextMenu.path) || '';
+    const textToCopy = type === 'path' ? contextMenu.path : displayContext?.files.get(contextMenu.path) || '';
     navigator.clipboard.writeText(textToCopy);
     setContextMenu(null);
   };
@@ -243,7 +233,6 @@ const FileTree: React.FC<FileTreeProps> = ({
       handleCancel();
   };
 
-  // Fix: Changed return type from JSX.Element to React.ReactElement to resolve namespace error.
   const renderNode = (node: TreeNode, level: number): React.ReactElement => {
     const isFolder = node.type === 'folder';
     const isOpen = expandedFolders.has(node.path);
@@ -252,8 +241,8 @@ const FileTree: React.FC<FileTreeProps> = ({
 
     const isDeleted = deletedItems.files.has(node.path) || deletedItems.dirs.has(node.path);
     const isExcluded = excludedPaths.has(node.path);
-    const isCreated = !isDeleted && originalContext && !originalContext.files.has(node.path) && !originalContext.dirs.has(node.path);
-    const isModified = !isDeleted && !isCreated && node.type === 'file' && originalContext && originalContext.files.get(node.path) !== allFiles.get(node.path);
+    const isCreated = !isDeleted && originalProjectContext && !originalProjectContext.files.has(node.path) && !originalProjectContext.dirs.has(node.path);
+    const isModified = !isDeleted && !isCreated && node.type === 'file' && originalProjectContext && originalProjectContext.files.get(node.path) !== displayContext?.files.get(node.path);
 
     const isBeingDragged = draggedPath === node.path;
     const isDropTarget = dropTarget === node.path;
@@ -294,7 +283,7 @@ const FileTree: React.FC<FileTreeProps> = ({
       setDropTarget(null);
 
       const dPath = e.dataTransfer.getData('text/plain');
-      if (!dPath || isLoading) return;
+      if (!dPath || isChatLoading) return;
 
       const dropTargetPath = node.path;
       const dParentPath = dPath.substring(0, dPath.lastIndexOf('/'));
@@ -325,7 +314,7 @@ const FileTree: React.FC<FileTreeProps> = ({
       <div key={node.path}>
         <div
             onClick={(e) => {
-              if (isLoading) return;
+              if (isChatLoading) return;
 
               const showCopiedFeedback = (path: string) => {
                 setCopiedPath(path);
@@ -335,12 +324,12 @@ const FileTree: React.FC<FileTreeProps> = ({
               if (e.altKey) {
                 e.preventDefault();
                 e.stopPropagation();
-                onTogglePathExclusion(node.path);
+                togglePathExclusion(node.path);
               } else if (e.ctrlKey || e.metaKey) {
                  e.preventDefault();
                  e.stopPropagation();
                 if (node.type === 'file') {
-                  navigator.clipboard.writeText(allFiles.get(node.path) || '');
+                  navigator.clipboard.writeText(displayContext?.files.get(node.path) || '');
                 } else { // folder
                   navigator.clipboard.writeText(node.path);
                 }
@@ -360,18 +349,19 @@ const FileTree: React.FC<FileTreeProps> = ({
                         return next;
                     });
                 } else {
-                    onFileClick(node.path);
+                    // FIX: Changed from onFileClick to onOpenFileEditor
+                    onOpenFileEditor(node.path);
                 }
               }
             }}
             onContextMenu={(e) => handleContextMenu(e, node.path, node.type)}
             className={`flex items-center justify-between p-1 rounded-md transition-colors duration-100 ${hoverClass} 
-              ${isLoading ? 'cursor-not-allowed opacity-70' : 'cursor-pointer'}
+              ${isChatLoading ? 'cursor-not-allowed opacity-70' : 'cursor-pointer'}
               ${isDropTarget ? 'bg-blue-600/30' : ''}
               ${isBeingDragged ? 'opacity-50' : ''}`
             }
             style={{ paddingLeft: `${level * 16}px` }}
-            draggable={!isLoading}
+            draggable={!isChatLoading}
             onDragStart={(e) => {
               e.stopPropagation();
               setDraggedPath(node.path);
@@ -438,7 +428,7 @@ const FileTree: React.FC<FileTreeProps> = ({
     setDropTarget(null);
 
     const dPath = e.dataTransfer.getData('text/plain');
-    if (!dPath || isLoading) return;
+    if (!dPath || isChatLoading) return;
 
     const dParentPath = dPath.substring(0, dPath.lastIndexOf('/'));
 

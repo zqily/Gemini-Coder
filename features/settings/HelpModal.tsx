@@ -1,36 +1,35 @@
 import React, { useState, useEffect } from 'react';
-import { X, KeyRound, FilePlus, GitBranch, CodeXml, MousePointerClick, Check, Copy, BrainCircuit } from './icons';
+import { X, KeyRound, FilePlus, GitBranch, CodeXml, MousePointerClick, Check, Copy, BrainCircuit } from '../../components/icons';
+import { useSettings } from './SettingsContext';
 
-interface HelpModalProps {
-  isOpen: boolean;
-  onClose: () => void;
-  apiKey: string;
-  setApiKey: (key: string) => void;
-}
+const HelpModal: React.FC = () => {
+  const { 
+    apiKey, setApiKey, 
+    isHelpModalOpen, setIsHelpModalOpen 
+  } = useSettings(); // Use isHelpModalOpen and setIsHelpModalOpen from context
 
-const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose, apiKey, setApiKey }) => {
   const [localKey, setLocalKey] = useState(apiKey);
   const [isCopied, setIsCopied] = useState(false);
 
   useEffect(() => {
     setLocalKey(apiKey);
-  }, [apiKey, isOpen]);
+  }, [apiKey, isHelpModalOpen]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        onClose();
+        setIsHelpModalOpen(false);
       }
     };
-    if (isOpen) {
+    if (isHelpModalOpen) {
       window.addEventListener('keydown', handleKeyDown);
     }
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [isOpen, onClose]);
+  }, [isHelpModalOpen, setIsHelpModalOpen]);
 
-  if (!isOpen) return null;
+  if (!isHelpModalOpen) return null; // Use isHelpModalOpen for visibility
 
   const handleSave = () => {
     setApiKey(localKey);
@@ -67,14 +66,14 @@ const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose, apiKey, setApiKe
   ];
 
   return (
-    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in" onClick={onClose}>
+    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in" onClick={() => setIsHelpModalOpen(false)}>
       <div 
         className="bg-[#2c2d2f] w-full max-w-2xl max-h-[90vh] rounded-xl shadow-2xl flex flex-col border border-gray-700/50 animate-fade-in-scale"
         onClick={(e) => e.stopPropagation()}
       >
         <header className="flex items-center justify-between p-4 border-b border-gray-700/50 flex-shrink-0">
           <h2 className="text-xl font-bold text-white">Quick Guide</h2>
-          <button onClick={onClose} className="p-2 rounded-full hover:bg-gray-700 transition-colors" aria-label="Close help">
+          <button onClick={() => setIsHelpModalOpen(false)} className="p-2 rounded-full hover:bg-gray-700 transition-colors" aria-label="Close help">
             <X size={20} />
           </button>
         </header>

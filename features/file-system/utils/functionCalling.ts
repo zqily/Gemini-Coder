@@ -1,5 +1,5 @@
 import type { FunctionCall } from '@google/genai';
-import type { ProjectContext, AttachedFile } from '../types';
+import type { ProjectContext, AttachedFile } from '../../../types';
 import * as FileSystem from './fileSystem';
 
 /**

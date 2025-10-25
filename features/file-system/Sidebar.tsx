@@ -1,40 +1,32 @@
 import React, { useRef, useState, useEffect } from 'react';
-import { Menu, Plus, Settings, UploadCloud, Folder, Trash2, FilePlus, FolderPlus } from './icons';
+import { Menu, Plus, Settings, UploadCloud, Folder, Trash2, FilePlus, FolderPlus } from '../../components/icons';
 import FileTree from './FileTree';
-import type { ProjectContext } from '../types';
+import { useFileSystem } from './FileSystemContext';
+import { useChat } from '../chat/ChatContext';
+import { useSettings } from '../settings/SettingsContext';
 
 
 interface SidebarProps {
   isOpen: boolean;
   setIsOpen: (isOpen: boolean) => void;
-  onNewChat: () => void;
-  onOpenSettings: () => void;
   isMobile: boolean;
-  onProjectSync: (files: FileList) => void;
-  displayContext: ProjectContext | null;
-  originalContext: ProjectContext | null;
-  deletedItems: ProjectContext;
-  onUnlinkProject: () => void;
-  onOpenFileEditor: (path: string) => void;
-  excludedPaths: Set<string>;
-  onTogglePathExclusion: (path: string) => void;
-  isLoading: boolean;
-  onCreateFile: (path: string) => void;
-  onCreateFolder: (path: string) => void;
-  onDeletePath: (path: string) => void;
-  onRenamePath: (oldPath: string, newPath: string) => void;
-  creatingIn: { path: string; type: 'file' | 'folder' } | null;
-  setCreatingIn: (state: { path: string; type: 'file' | 'folder' } | null) => void;
 }
 
 const Sidebar: React.FC<SidebarProps> = ({ 
-    isOpen, setIsOpen, onNewChat, onOpenSettings, onProjectSync, 
-    displayContext, originalContext, deletedItems, onUnlinkProject, 
-    onOpenFileEditor, excludedPaths, onTogglePathExclusion, isLoading,
-    onCreateFile, onCreateFolder, onDeletePath, onRenamePath,
-    creatingIn, setCreatingIn
+    isOpen, setIsOpen, isMobile
 }) => {
-  const directoryInputRef = useRef<HTMLInputElement>(null);
+  const { 
+    syncProject, displayContext, unlinkProject,
+    onCreateFile, onCreateFolder, fileInputRef,
+    creatingIn, setCreatingIn
+  } = useFileSystem();
+  const { 
+    onNewChat, isLoading: isChatLoading
+  } = useChat();
+  const { 
+    setIsSettingsModalOpen
+  } = useSettings();
+
   const [isCreateMenuOpen, setCreateMenuOpen] = useState(false);
   const createMenuRef = useRef<HTMLDivElement>(null);
   const createButtonRef = useRef<HTMLButtonElement>(null);
@@ -58,17 +50,23 @@ const Sidebar: React.FC<SidebarProps> = ({
 
 
   const handleProjectSyncClick = () => {
-    directoryInputRef.current?.click();
+    fileInputRef.current?.click();
   };
 
   const handleDirectoryChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     if (event.target.files) {
-      onProjectSync(event.target.files);
+      syncProject(event.target.files);
     }
-    // Reset the input value to allow selecting the same folder again
     event.target.value = ''; 
   };
   
+  const handleNewChatClick = () => {
+    onNewChat();
+    if (isMobile) {
+      setIsOpen(false);
+    }
+  };
+
   return (
     <div
       className={`bg-[#1e1f20] flex flex-col transition-all duration-300 ease-in-out ${
@@ -77,7 +75,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     >
       <input
         type="file"
-        ref={directoryInputRef}
+        ref={fileInputRef}
         onChange={handleDirectoryChange}
         className="hidden"
         // @ts-ignore
@@ -96,8 +94,8 @@ const Sidebar: React.FC<SidebarProps> = ({
 
       <div className="mt-6 flex-shrink-0 space-y-2">
         <button
-          onClick={onNewChat}
-          disabled={isLoading}
+          onClick={handleNewChatClick}
+          disabled={isChatLoading}
           className={`flex items-center w-full p-2.5 rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
             isOpen ? 'bg-[#3c3d3f] hover:bg-[#4b4c4e] justify-start' : 'hover:bg-gray-700 justify-center'
           }`}
@@ -109,7 +107,7 @@ const Sidebar: React.FC<SidebarProps> = ({
         </button>
         <button
           onClick={handleProjectSyncClick}
-          disabled={isLoading}
+          disabled={isChatLoading}
           className={`flex items-center w-full p-2.5 rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
             isOpen ? 'hover:bg-gray-700/70 justify-start' : 'hover:bg-gray-700 justify-center'
           }`}
@@ -123,7 +121,6 @@ const Sidebar: React.FC<SidebarProps> = ({
       
       {isOpen && (
         <div className="mt-6 pt-4 border-t border-gray-700/60 flex-1 flex flex-col min-h-0">
-          {/* Persistent Header */}
           <div className="group flex items-center justify-between gap-2 mb-2 px-1 text-gray-300 flex-shrink-0">
             <div className="flex items-center gap-2">
               <Folder size={16} />
@@ -140,7 +137,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                 <button
                   ref={createButtonRef}
                   onClick={() => setCreateMenuOpen(prev => !prev)}
-                  disabled={isLoading}
+                  disabled={isChatLoading}
                   className="p-1 rounded-md hover:bg-gray-700 hover:text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   aria-label="New file or folder"
                   title="New file or folder"
@@ -152,10 +149,10 @@ const Sidebar: React.FC<SidebarProps> = ({
                     ref={createMenuRef}
                     className="context-menu animate-fade-in-up-short absolute top-full right-0 mt-1 z-10"
                   >
-                    <button className="context-menu-item" onClick={() => { setCreatingIn({ path: '', type: 'file' }); setCreateMenuOpen(false); }}>
+                    <button className="context-menu-item" onClick={() => { onCreateFile(''); setCreatingIn({ path: '', type: 'file' }); setCreateMenuOpen(false); }}>
                       <FilePlus size={16} /> New File
                     </button>
-                    <button className="context-menu-item" onClick={() => { setCreatingIn({ path: '', type: 'folder' }); setCreateMenuOpen(false); }}>
+                    <button className="context-menu-item" onClick={() => { onCreateFolder(''); setCreatingIn({ path: '', type: 'folder' }); setCreateMenuOpen(false); }}>
                       <FolderPlus size={16} /> New Folder
                     </button>
                   </div>
@@ -163,8 +160,8 @@ const Sidebar: React.FC<SidebarProps> = ({
               </div>
               {displayContext && (
                 <button
-                  onClick={onUnlinkProject}
-                  disabled={isLoading}
+                  onClick={unlinkProject}
+                  disabled={isChatLoading}
                   className="p-1 rounded-md hover:bg-gray-700 hover:text-red-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   aria-label="Clear all files"
                   title="Clear all files"
@@ -175,24 +172,8 @@ const Sidebar: React.FC<SidebarProps> = ({
             </div>
           </div>
           
-          {/* Scrollable Content Area */}
           <div className="flex-1 overflow-y-auto overflow-x-hidden custom-scrollbar pr-1 -mr-2">
-            <FileTree 
-                allFiles={displayContext?.files ?? new Map()} 
-                allDirs={displayContext?.dirs ?? new Set()} 
-                originalContext={originalContext}
-                deletedItems={deletedItems}
-                onFileClick={onOpenFileEditor}
-                excludedPaths={excludedPaths}
-                onTogglePathExclusion={onTogglePathExclusion}
-                isLoading={isLoading}
-                onCreateFile={onCreateFile}
-                onCreateFolder={onCreateFolder}
-                onDeletePath={onDeletePath}
-                onRenamePath={onRenamePath}
-                creatingIn={creatingIn}
-                setCreatingIn={setCreatingIn}
-            />
+            <FileTree />
           </div>
         </div>
       )}
@@ -200,8 +181,8 @@ const Sidebar: React.FC<SidebarProps> = ({
 
       <div className="mt-auto flex-shrink-0 space-y-2 pt-4 border-t border-gray-700/60">
         <button
-          onClick={onOpenSettings}
-          disabled={isLoading}
+          onClick={() => setIsSettingsModalOpen(true)}
+          disabled={isChatLoading}
           className={`flex items-center w-full p-2 rounded-lg hover:bg-gray-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${!isOpen && 'justify-center'}`}
         >
           <Settings size={20} className="flex-shrink-0" />

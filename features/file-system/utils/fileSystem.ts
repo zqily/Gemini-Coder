@@ -1,4 +1,4 @@
-import type { ProjectContext } from '../types';
+import type { ProjectContext } from '../../../types';
 
 /**
  * Creates a new file in the project context.

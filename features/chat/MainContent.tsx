@@ -1,44 +1,27 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { HelpCircle, ChevronDown, User, ImageIcon, File as FileIcon, Menu, Copy, Check,BrainCircuit, Trash2 } from './icons';
+import { HelpCircle, ChevronDown, User, ImageIcon, File as FileIcon, Menu, Copy, Check,BrainCircuit, Trash2 } from '../../components/icons';
 import PromptInput from './PromptInput';
-import type { ChatMessage, AttachedFile, Mode, ModeId, ChatPart, FunctionCallPart, FunctionResponsePart, TextPart, InlineDataPart } from '../types';
+import type { ChatMessage, ChatPart, FunctionCallPart, FunctionResponsePart, TextPart, InlineDataPart } from '../../types';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
-import GeminiIcon from './GeminiIcon';
-import { ALL_ACCEPTED_MIME_TYPES, CONVERTIBLE_TO_TEXT_MIME_TYPES, fileToDataURL } from '../utils/fileUpload';
-import HelpModal from './HelpModal';
+import GeminiIcon from '../../components/GeminiIcon';
+import { useChat } from './ChatContext';
+import { useSettings } from '../settings/SettingsContext';
+import { useFileSystem } from '../file-system/FileSystemContext';
 
 
 interface MainContentProps {
   isSidebarOpen: boolean;
   toggleSidebar: () => void;
   isMobile: boolean;
-  chatHistory: ChatMessage[];
-  isLoading: boolean;
-  attachedFiles: AttachedFile[];
-  setAttachedFiles: React.Dispatch<React.SetStateAction<AttachedFile[]>>;
-  isReadingFiles: boolean;
-  setIsReadingFiles: (isReading: boolean) => void;
-  selectedModel: string;
-  setSelectedModel: (model: string) => void;
-  onSubmit: (prompt: string) => void;
-  onStop: () => void;
-  selectedMode: ModeId;
-  setSelectedMode: (mode: ModeId) => void;
-  modes: Record<ModeId, Mode>;
-  sendWithCtrlEnter: boolean;
-  apiKey: string;
-  setApiKey: (key: string) => void;
-  onDeleteMessage: (index: number) => void;
 }
 
 const ModelSelector: React.FC<{ 
-  selectedModel: string; 
-  setSelectedModel: (model: string) => void;
   disabled: boolean;
-}> = ({ selectedModel, setSelectedModel, disabled }) => {
+}> = ({ disabled }) => {
+  const { selectedModel, setSelectedModel } = useChat();
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -372,9 +355,15 @@ const TypingIndicator = ({ message }: { message?: string }) => (
     </div>
 );
 
-const MainContent: React.FC<MainContentProps> = ({ isMobile, toggleSidebar, chatHistory, isLoading, attachedFiles, setAttachedFiles, isReadingFiles, setIsReadingFiles, selectedModel, setSelectedModel, onSubmit, onStop, selectedMode, setSelectedMode, modes, sendWithCtrlEnter, apiKey, setApiKey, onDeleteMessage }) => {
+const MainContent: React.FC<MainContentProps> = ({ isMobile, toggleSidebar }) => {
+  const { 
+    chatHistory, isLoading, onSubmit, onStop, onDeleteMessage,
+    selectedMode, selectedModel
+  } = useChat();
+  const { setIsHelpModalOpen } = useSettings(); // Use setIsHelpModalOpen from SettingsContext
+  const { isReadingFiles } = useFileSystem(); // Still using this for typing indicator in App.tsx
+
   const chatContainerRef = useRef<HTMLDivElement>(null);
-  const [isHelpModalOpen, setIsHelpModalOpen] = useState(false);
   
   const handleExampleSubmit = (prompt: string) => {
     onSubmit(prompt);
@@ -416,8 +405,6 @@ const MainContent: React.FC<MainContentProps> = ({ isMobile, toggleSidebar, chat
                 </button>
             )}
             <ModelSelector 
-              selectedModel={selectedModel} 
-              setSelectedModel={setSelectedModel}
               disabled={selectedMode === 'advanced-coder'}
             />
         </div>
@@ -465,28 +452,10 @@ const MainContent: React.FC<MainContentProps> = ({ isMobile, toggleSidebar, chat
       
       <footer className="px-4 md:px-8 lg:px-16 pb-6 flex-shrink-0 bg-[#131314]">
         <div className="max-w-4xl mx-auto">
-          <PromptInput
-            onSubmit={handlePromptSubmit}
-            isLoading={isLoading || isReadingFiles}
-            onStop={onStop}
-            // Files are no longer managed here
-            onFileAddClick={() => { /* This will be handled by App.tsx */ }}
-            selectedMode={selectedMode}
-            setSelectedMode={setSelectedMode}
-            modes={modes}
-            sendWithCtrlEnter={sendWithCtrlEnter}
-            apiKey={apiKey}
-            selectedModel={selectedModel}
-            chatHistory={chatHistory}
-           />
+          <PromptInput />
         </div>
       </footer>
-      <HelpModal 
-        isOpen={isHelpModalOpen}
-        onClose={() => setIsHelpModalOpen(false)}
-        apiKey={apiKey}
-        setApiKey={setApiKey}
-      />
+      {/* HelpModal is now rendered by SettingsProvider */}
     </div>
   );
 };

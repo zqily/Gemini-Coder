@@ -1,25 +1,24 @@
 import React, { useState, useRef } from 'react';
-import { Plus, Send, X, File as FileIcon, LoaderCircle } from './icons';
-import type { AttachedFile, Mode, ModeId, ChatMessage } from '../types';
-import { ALL_ACCEPTED_MIME_TYPES, CONVERTIBLE_TO_TEXT_MIME_TYPES, fileToDataURL } from '../utils/fileUpload';
+import { Plus, Send, X, File as FileIcon, LoaderCircle, ImageIcon } from '../../components/icons';
+import type { AttachedFile, Mode, ModeId, ChatMessage } from '../../types';
+import { useChat } from './ChatContext';
+import { useSettings } from '../settings/SettingsContext';
+import { ALL_ACCEPTED_MIME_TYPES, CONVERTIBLE_TO_TEXT_MIME_TYPES, fileToDataURL } from './utils/fileUpload';
 
-interface PromptInputProps {
-  onSubmit: (prompt: string) => void;
-  isLoading: boolean;
-  onStop: () => void;
-  onFileAddClick: () => void;
-  selectedMode: ModeId;
-  setSelectedMode: (mode: ModeId) => void;
-  modes: Record<ModeId, Mode>;
-  sendWithCtrlEnter: boolean;
-  apiKey: string;
-  selectedModel: string;
-  chatHistory: ChatMessage[];
-}
 
-const PromptInput: React.FC<PromptInputProps> = ({ onSubmit, isLoading, onStop, onFileAddClick, selectedMode, setSelectedMode, modes, sendWithCtrlEnter, apiKey, selectedModel, chatHistory }) => {
+const PromptInput: React.FC = () => {
+  const { 
+    onSubmit, isLoading, onStop, onFileAddClick, // onFileAddClick from useChat
+    selectedMode, setSelectedMode, modes, chatHistory,
+    attachedFiles, setAttachedFiles // attachedFiles from useChat
+  } = useChat();
+  const { apiKey, sendWithCtrlEnter } = useSettings();
+
   const [prompt, setPrompt] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  
+  // The fileAttachInputRef and handleFileChange are now managed within ChatProvider
+  // PromptInput receives onFileAddClick from ChatContext, which triggers the file input in ChatProvider.
 
   const handleTextareaInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setPrompt(e.target.value);
@@ -37,7 +36,7 @@ const PromptInput: React.FC<PromptInputProps> = ({ onSubmit, isLoading, onStop, 
 
     const lastMessage = chatHistory[chatHistory.length - 1];
     const canResend = lastMessage?.role === 'user';
-    if (!prompt.trim() && !canResend) return;
+    if (!prompt.trim() && !canResend && attachedFiles.length === 0) return; // Allow resend with attached files
 
     onSubmit(prompt);
     setPrompt('');
@@ -63,21 +62,24 @@ const PromptInput: React.FC<PromptInputProps> = ({ onSubmit, isLoading, onStop, 
   const lastMessage = chatHistory[chatHistory.length - 1];
   const canResend = lastMessage?.role === 'user';
   
-  const isSubmitDisabled = !apiKey || !selectedModel || isLoading || (!prompt.trim() && !canResend);
+  const isSubmitDisabled = !apiKey || isLoading || (!prompt.trim() && !canResend && attachedFiles.length === 0);
   let submitButtonTitle = "Send prompt";
   if (!apiKey) {
       submitButtonTitle = "Please set your API key in settings";
-  } else if (!selectedModel) {
-      submitButtonTitle = "Please select a model";
   } else if (isLoading) {
       submitButtonTitle = "Generating...";
-  } else if (!prompt.trim()) {
+  } else if (!prompt.trim() && attachedFiles.length === 0) {
       if (canResend) {
         submitButtonTitle = "Resend last message";
       } else {
-        submitButtonTitle = "Enter a prompt";
+        submitButtonTitle = "Enter a prompt or add files";
       }
   }
+
+  const handleRemoveAttachedFile = (fileName: string) => {
+    setAttachedFiles(prev => prev.filter(f => f.name !== fileName));
+  };
+
 
   return (
     <form onSubmit={handleSubmit} className="w-full bg-[#1e1f20] transition-all duration-200 rounded-2xl focus-within:ring-2 focus-within:ring-blue-500/50 flex flex-col">
@@ -101,13 +103,29 @@ const PromptInput: React.FC<PromptInputProps> = ({ onSubmit, isLoading, onStop, 
             ))}
         </div>
 
+        {attachedFiles.length > 0 && (
+            <div className="flex flex-wrap gap-2 px-4 py-2 border-t border-gray-700/50 max-h-24 overflow-y-auto custom-scrollbar">
+                {attachedFiles.map(file => (
+                    <span key={file.name} className="flex items-center gap-1 bg-gray-700/50 text-xs px-2 py-1 rounded-full text-gray-300">
+                        {file.type.startsWith('image/') ? <ImageIcon size={12} /> : <FileIcon size={12} />}
+                        {file.name}
+                        <button type="button" onClick={() => handleRemoveAttachedFile(file.name)} className="ml-1 p-0.5 rounded-full hover:bg-gray-600">
+                            <X size={10} />
+                        </button>
+                    </span>
+                ))}
+            </div>
+        )}
+
         <div className="p-2 flex items-end w-full relative">
+          {/* This button now uses onFileAddClick from ChatContext, which triggers the file input in ChatProvider */}
           <button
             type="button"
             onClick={onFileAddClick}
             disabled={isLoading}
             className="p-2 mr-1 rounded-full hover:bg-gray-700 transition-colors disabled:opacity-50 flex-shrink-0 self-center"
-            aria-label="Add files to project"
+            aria-label="Attach files to chat"
+            title="Attach files to chat"
           >
           {isLoading ? <LoaderCircle className="animate-spin" size={24} /> : <Plus size={24} />}
           </button>
