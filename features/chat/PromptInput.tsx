@@ -1,17 +1,27 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useMemo } from 'react';
 import { Plus, Send, X, File as FileIcon, LoaderCircle, ImageIcon } from '../../components/icons';
 import type { AttachedFile, Mode, ModeId, ChatMessage } from '../../types';
 import { useChat } from './ChatContext';
 import { useSettings } from '../settings/SettingsContext';
-import { ALL_ACCEPTED_MIME_TYPES, CONVERTIBLE_TO_TEXT_MIME_TYPES, fileToDataURL } from './utils/fileUpload';
 
+// Use a map of direct hex color values to bypass Tailwind's JIT purging for this dynamic element.
+const TOKEN_HEX_COLORS = {
+  default: '#6b7280', // Equivalent to Tailwind's text-gray-500
+  yellow: '#facc15',  // Equivalent to Tailwind's text-yellow-400
+  orange: '#fb923c',  // Equivalent to Tailwind's text-orange-400
+  red: '#f87171',    // Equivalent to Tailwind's text-red-400
+};
+
+const GEMINI_FLASH_LIMIT = 250000;
+const GEMINI_PRO_LIMIT = 125000;
+const TOKEN_OVERAGE_BUFFER = 1.02; // 102% buffer for token counter inaccuracies
 
 const PromptInput: React.FC = () => {
   const { 
     onSubmit, isLoading, onStop, onFileAddClick,
     selectedMode, setSelectedMode, modes, chatHistory,
     attachedFiles, setAttachedFiles,
-    prompt, setPrompt, totalTokens
+    prompt, setPrompt, totalTokens, selectedModel
   } = useChat();
   const { apiKey, sendWithCtrlEnter } = useSettings();
 
@@ -54,8 +64,51 @@ const PromptInput: React.FC = () => {
   
   const lastMessage = chatHistory[chatHistory.length - 1];
   const canResend = lastMessage?.role === 'user';
-  
-  const isSubmitDisabled = !apiKey || isLoading || (!prompt.trim() && !canResend && attachedFiles.length === 0);
+
+  const { tokenColor, tokenTooltipText, shouldDisableSubmit } = useMemo(() => {
+    let level: keyof typeof TOKEN_HEX_COLORS = 'default';
+    let tooltipText = `${totalTokens.toLocaleString()} total input tokens.`;
+    let disableSubmit = false;
+
+    if (selectedMode === 'advanced-coder') {
+      const advancedCoderThreshold1 = 80000;
+      const advancedCoderThreshold2 = 100000;
+      const advancedCoderThreshold3 = 118000;
+
+      if (totalTokens * TOKEN_OVERAGE_BUFFER > advancedCoderThreshold3) {
+        level = 'red';
+        tooltipText = `Input token is larger than the free tier limit.`;
+        disableSubmit = true;
+      } else if (totalTokens * TOKEN_OVERAGE_BUFFER > advancedCoderThreshold2) {
+        level = 'orange';
+        tooltipText = `Input token is large, high chance the response will be cancelled.`;
+        disableSubmit = false;
+      } else if (totalTokens > advancedCoderThreshold1) {
+        level = 'yellow';
+        tooltipText = `Input token is large, response might be cancelled.`;
+      }
+    } else {
+      const modelLimit = selectedModel === 'gemini-flash-latest' ? GEMINI_FLASH_LIMIT : GEMINI_PRO_LIMIT;
+      const defaultSimpleThresholdYellow = 100000;
+      const defaultSimpleThresholdOrange = modelLimit * 0.85;
+
+      if (totalTokens * TOKEN_OVERAGE_BUFFER > modelLimit) {
+        level = 'red';
+        tooltipText = `Input token is potentially larger than the model's context limit.`;
+        disableSubmit = true;
+      } else if (totalTokens > defaultSimpleThresholdOrange) {
+        level = 'orange';
+        tooltipText = `Input token is very large, response might be slow or fail.`;
+      } else if (totalTokens > defaultSimpleThresholdYellow) {
+        level = 'yellow';
+        tooltipText = `Input token is large, response might be slow.`;
+      }
+    }
+    
+    return { tokenColor: TOKEN_HEX_COLORS[level], tokenTooltipText: tooltipText, shouldDisableSubmit: disableSubmit };
+  }, [totalTokens, selectedModel, selectedMode]);
+
+  const isSubmitDisabled = !apiKey || isLoading || (!prompt.trim() && !canResend && attachedFiles.length === 0) || shouldDisableSubmit;
   let submitButtonTitle = "Send prompt";
   if (!apiKey) {
       submitButtonTitle = "Please set your API key in settings";
@@ -67,6 +120,8 @@ const PromptInput: React.FC = () => {
       } else {
         submitButtonTitle = "Enter a prompt or add files";
       }
+  } else if (shouldDisableSubmit) {
+      submitButtonTitle = tokenTooltipText;
   }
 
   const handleRemoveAttachedFile = (fileName: string) => {
@@ -96,8 +151,12 @@ const PromptInput: React.FC = () => {
                 </button>
                 ))}
             </div>
-            {/* Tokens counter moved here */}
-            <div className="text-xs text-gray-500 bg-[#1e1f20] px-1 rounded-sm pointer-events-none z-10">
+            {/* Tokens counter now uses inline styles for robust color changes */}
+            <div 
+              className="text-xs bg-[#1e1f20] px-1 rounded-sm z-10 transition-colors duration-200"
+              style={{ color: tokenColor }}
+              title={tokenTooltipText}
+            >
                 {totalTokens.toLocaleString()} tokens
             </div>
         </div>
@@ -152,7 +211,7 @@ const PromptInput: React.FC = () => {
               <button
                 type="submit"
                 disabled={isSubmitDisabled}
-                className="bg-blue-600 p-3 rounded-full hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-gray-600"
+                className="bg-blue-600 p-3 rounded-full hovear:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-gray-600"
                 aria-label={submitButtonTitle}
               >
                 <Send size={20} />

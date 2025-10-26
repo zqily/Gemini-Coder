@@ -3,6 +3,7 @@ import { ChatContext, ChatContextType } from './ChatContext';
 import { useSelectedModel } from './useSelectedModel';
 import { useSelectedMode } from './useSelectedMode';
 import { generateContentWithRetries, generateContentStreamWithRetries } from './services/geminiService';
+import { executeManagedBatchCall } from './services/rateLimitManager';
 import type { ChatMessage, AttachedFile, ChatPart, TextPart } from '../../types';
 import { MODES, NO_PROBLEM_DETECTED_TOOL } from './config/modes';
 import { useSettings } from '../settings/SettingsContext';
@@ -314,17 +315,26 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
             // Phase 1: Planning
             onStatusUpdate('Phase 1/6: Generating initial plans...');
             const plannerSystemInstruction = `You are a Senior Software Architect. Your task is to create a high-level plan to address the user's request. Do NOT write any code. Focus on the overall strategy, file structure, and key components.`;
-            const planningPromises = Array(3).fill(0).map(() =>
-                generateContentWithRetries(apiKey, 'gemini-flash-latest', [...baseHistory, thinkPrimerMessage], plannerSystemInstruction, undefined, cancellationRef, onStatusUpdate, cancellableSleep).catch(e => e)
+            const planningHistoryForTokens = [...baseHistory, thinkPrimerMessage];
+            const plannerInputTokens = planningHistoryForTokens.reduce((sum, msg) => sum + countMessageTokens(msg), 0);
+            
+            const planningApiCalls = Array(3).fill(0).map(() =>
+                () => generateContentWithRetries(apiKey, 'gemini-flash-latest', planningHistoryForTokens, plannerSystemInstruction, undefined, cancellationRef, onStatusUpdate, cancellableSleep)
             );
-            const planningResults = await Promise.all(planningPromises);
+
+            const planningResults = await executeManagedBatchCall(
+                'gemini-flash-latest',
+                plannerInputTokens,
+                cancellableSleep,
+                planningApiCalls,
+                onStatusUpdate
+            );
+            
             const successfulPlans = planningResults
-                .filter((res): res is GenerateContentResponse => !(res instanceof Error) && res.text)
+                .filter((res): res is GenerateContentResponse => !(res instanceof Error) && !!res.text)
                 .map(res => extractTextWithoutThink(res.text));
 
             if (successfulPlans.length === 0) throw new Error("All planning instances failed.");
-
-            await cancellableSleep(5000);
 
             // Phase 2: Consolidation
             onStatusUpdate('Phase 2/6: Consolidating into a master plan...');
@@ -332,10 +342,13 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
             const consolidationHistory = [...baseHistory];
             consolidationHistory.push({ role: 'user', parts: [{ text: `Here are the plans from the architects:\n\n${successfulPlans.map((p, i) => `--- PLAN ${i+1} ---\n${p}`).join('\n\n')}` }] });
             consolidationHistory.push(thinkPrimerMessage);
-            const consolidationResult = await generateContentWithRetries(apiKey, 'gemini-2.5-pro', consolidationHistory, consolidationSystemInstruction, undefined, cancellationRef, onStatusUpdate, cancellableSleep);
-            const masterPlan = extractTextWithoutThink(consolidationResult.text);
 
-            await cancellableSleep(5000);
+            const consolidationInputTokens = consolidationHistory.reduce((sum, msg) => sum + countMessageTokens(msg), 0);
+            const consolidationApiCall = [() => generateContentWithRetries(apiKey, 'gemini-2.5-pro', consolidationHistory, consolidationSystemInstruction, undefined, cancellationRef, onStatusUpdate, cancellableSleep)];
+            
+            const consolidationResult = (await executeManagedBatchCall('gemini-2.5-pro', consolidationInputTokens, cancellableSleep, consolidationApiCall, onStatusUpdate))[0];
+            if (consolidationResult instanceof Error) throw consolidationResult;
+            const masterPlan = extractTextWithoutThink(consolidationResult.text);
 
             // Phase 3: Drafting
             onStatusUpdate('Phase 3/6: Drafting code...');
@@ -343,10 +356,13 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
             const draftingHistory = [...baseHistory];
             draftingHistory.push({ role: 'user', parts: [{ text: `Here is the master plan. Please generate the code draft.\n\n${masterPlan}` }] });
             draftingHistory.push(thinkPrimerMessage);
-            const draftingResult = await generateContentWithRetries(apiKey, 'gemini-2.5-pro', draftingHistory, draftingSystemInstruction, undefined, cancellationRef, onStatusUpdate, cancellableSleep);
+
+            const draftingInputTokens = draftingHistory.reduce((sum, msg) => sum + countMessageTokens(msg), 0);
+            const draftingApiCall = [() => generateContentWithRetries(apiKey, 'gemini-2.5-pro', draftingHistory, draftingSystemInstruction, undefined, cancellationRef, onStatusUpdate, cancellableSleep)];
+            const draftingResult = (await executeManagedBatchCall('gemini-2.5-pro', draftingInputTokens, cancellableSleep, draftingApiCall, onStatusUpdate))[0];
+            if (draftingResult instanceof Error) throw draftingResult;
             const codeDraft = extractTextWithoutThink(draftingResult.text);
 
-            await cancellableSleep(5000);
 
             // Phase 4: Debugging
             onStatusUpdate('Phase 4/6: Debugging draft...');
@@ -354,11 +370,13 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
             const debuggingHistory = [...baseHistory];
             debuggingHistory.push({ role: 'user', parts: [{ text: `Master Plan:\n${masterPlan}\n\nCode Draft:\n${codeDraft}` }] });
             debuggingHistory.push(thinkPrimerMessage);
-            const debuggingPromises = Array(3).fill(0).map(() =>
-                generateContentWithRetries(apiKey, 'gemini-flash-latest', debuggingHistory, debuggerSystemInstruction, [{ functionDeclarations: [NO_PROBLEM_DETECTED_TOOL] }], cancellationRef, onStatusUpdate, cancellableSleep).catch(e => e)
-            );
-            const debuggingResults = await Promise.all(debuggingPromises);
 
+            const debuggingInputTokens = debuggingHistory.reduce((sum, msg) => sum + countMessageTokens(msg), 0);
+            const debuggingApiCalls = Array(3).fill(0).map(() =>
+                () => generateContentWithRetries(apiKey, 'gemini-flash-latest', debuggingHistory, debuggerSystemInstruction, [{ functionDeclarations: [NO_PROBLEM_DETECTED_TOOL] }], cancellationRef, onStatusUpdate, cancellableSleep)
+            );
+            const debuggingResults = await executeManagedBatchCall('gemini-flash-latest', debuggingInputTokens, cancellableSleep, debuggingApiCalls, onStatusUpdate);
+            
             const debuggingReports: string[] = [];
             let noProblemCount = 0;
             for (const res of debuggingResults) {
@@ -371,8 +389,6 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
             const phase5Skipped = noProblemCount === 3;
             let consolidatedReview = '';
 
-            await cancellableSleep(5000);
-
             // Phase 5: Review Consolidation
             if (!phase5Skipped && debuggingReports.length > 0) {
                 onStatusUpdate('Phase 5/6: Consolidating feedback...');
@@ -380,9 +396,12 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
                 const reviewHistory = [...baseHistory];
                 reviewHistory.push({ role: 'user', parts: [{ text: `Code Draft:\n${codeDraft}\n\nDebugging Reports:\n${debuggingReports.join('\n---\n')}` }] });
                 reviewHistory.push(thinkPrimerMessage);
-                const reviewResult = await generateContentWithRetries(apiKey, 'gemini-flash-latest', reviewHistory, reviewConsolidationSystemInstruction, undefined, cancellationRef, onStatusUpdate, cancellableSleep);
+
+                const reviewInputTokens = reviewHistory.reduce((sum, msg) => sum + countMessageTokens(msg), 0);
+                const reviewApiCall = [() => generateContentWithRetries(apiKey, 'gemini-flash-latest', reviewHistory, reviewConsolidationSystemInstruction, undefined, cancellationRef, onStatusUpdate, cancellableSleep)];
+                const reviewResult = (await executeManagedBatchCall('gemini-flash-latest', reviewInputTokens, cancellableSleep, reviewApiCall, onStatusUpdate))[0];
+                if (reviewResult instanceof Error) throw reviewResult;
                 consolidatedReview = extractTextWithoutThink(reviewResult.text);
-                await cancellableSleep(5000);
             }
 
             // Phase 6: Final Implementation (JSON based)
@@ -401,7 +420,12 @@ Your entire output MUST be a single JSON object that strictly adheres to the pro
             finalHistory.push({ role: 'user', parts: [{ text: finalUserContent }] });
 
             const finalImplementationConfig = { responseMimeType: "application/json", responseSchema: fileOpsResponseSchema };
-            const response = await generateContentWithRetries(apiKey, 'gemini-2.5-pro', finalHistory, finalSystemInstruction, undefined, cancellationRef, onStatusUpdate, cancellableSleep, finalImplementationConfig);
+            
+            const finalInputTokens = finalHistory.reduce((sum, msg) => sum + countMessageTokens(msg), 0);
+            const finalApiCall = [() => generateContentWithRetries(apiKey, 'gemini-2.5-pro', finalHistory, finalSystemInstruction, undefined, cancellationRef, onStatusUpdate, cancellableSleep, finalImplementationConfig)];
+            const response = (await executeManagedBatchCall('gemini-2.5-pro', finalInputTokens, cancellableSleep, finalApiCall, onStatusUpdate))[0];
+            
+            if (response instanceof Error) throw response;
 
             if (cancellationRef.current) throw new Error('Cancelled by user');
 
