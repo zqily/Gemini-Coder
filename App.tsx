@@ -80,7 +80,6 @@ const AppContent: React.FC = () => {
         isMobile={isMobile}
       />
       <MainContent
-        isSidebarOpen={isSidebarOpen}
         toggleSidebar={() => setIsSidebarOpen(prev => !prev)}
         isMobile={isMobile}
       />

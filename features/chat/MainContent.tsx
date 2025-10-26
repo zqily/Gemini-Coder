@@ -13,7 +13,6 @@ import { useFileSystem } from '../file-system/FileSystemContext';
 
 
 interface MainContentProps {
-  isSidebarOpen: boolean;
   toggleSidebar: () => void;
   isMobile: boolean;
 }
@@ -54,7 +53,7 @@ const ModelSelector: React.FC<{
         <button
           type="button"
           onClick={() => !disabled && setIsOpen(!isOpen)}
-          className={`flex items-center space-x-1 transition-colors ${
+          className={`flex items-center space-x-1 transition-colors ${ 
             disabled 
               ? 'text-gray-500 cursor-not-allowed' 
               : 'text-gray-300 hover:text-white'
@@ -77,7 +76,7 @@ const ModelSelector: React.FC<{
                   setSelectedModel(model.id);
                   setIsOpen(false);
                 }}
-                className={`${
+                className={`${ 
                   selectedModel === model.id ? 'bg-blue-600 text-white' : 'text-gray-300'
                 } block w-full text-left px-4 py-2 text-sm hover:bg-gray-700 transition-colors`}
                 role="menuitem"
@@ -131,55 +130,33 @@ const MarkdownRenderer: React.FC<{ content: string }> = ({ content }) => {
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
       components={{
-      code({
-        node,
-        inline,
-        className,
-        children,
-        ...props
-      }: React.ComponentProps<'code'> & { node?: any; inline?: boolean }) {
-        // Recursively extract text from children (handles arrays / nested nodes)
-        const extractText = (ch: any): string => {
-          if (ch == null) return '';
-          if (Array.isArray(ch)) return ch.map(extractText).join('');
-          if (typeof ch === 'string' || typeof ch === 'number') return String(ch);
-          // If it's a React element, try to get its children
-          if (typeof ch === 'object' && 'props' in ch) return extractText((ch as any).props?.children);
-          return '';
-        };
-        const raw = extractText(children).replace(/\u200B/g, '');
-        const trimmed = raw.trim();
-        // Remove ONLY leading/trailing backticks (any count), but keep internal backticks if intentional
-        const cleaned = trimmed.replace(/^`+|`+$/g, '');
+        code({ node, className, children, ...props }) {
+          const match = /language-(\w+)/.exec(className || '');
+          const codeString = String(children).replace(/\n$/, '');
 
-        // Detect language class e.g. language-js
-        const langMatch = /language-(\w+)/.exec(className || '');
-        const detectedLanguage = langMatch ? langMatch[1] : '';
+          if (match) {
+            return (
+              <CodeBlock
+                language={match[1]}
+                codeString={codeString}
+              />
+            );
+          }
 
-        // Block if fenced (language class) or contains newline (multiline)
-        const isBlock = Boolean(detectedLanguage) || cleaned.includes('\n');
-
-        if (isBlock) {
-          // Remove possible fenced triple-backticks for safety and trim extra newlines
-          const blockCode = cleaned.replace(/^```+|```+$/g, '').replace(/^\n+|\n+$/g, '');
-          return <CodeBlock language={detectedLanguage} codeString={blockCode} />;
-        }
-
-        // Inline styling: orange/yellow text with subtle matching background
-        return (
-          <code
-            className="inline-block align-baseline font-mono text-sm px-1 py-[0.125rem] rounded"
-            {...props}
-            style={{
-              color: '#f6c348', // yellow-orange text
-              backgroundColor: 'rgba(246,195,72,0.08)', // subtle matching bg
-              border: '1px solid rgba(246,195,72,0.12)',
-            }}
-          >
-            {cleaned}
-          </code>
-        );
-      }
+          return (
+            <code
+              className="inline-block align-baseline font-mono text-sm px-1 py-[0.125rem] rounded"
+              {...props}
+              style={{
+                color: '#f6c348',
+                backgroundColor: 'rgba(246,195,72,0.08)',
+                border: '1px solid rgba(246,195,72,0.12)',
+              }}
+            >
+              {children}
+            </code>
+          );
+        },
       }}
     >
       {content}

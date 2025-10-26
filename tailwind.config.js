@@ -5,10 +5,8 @@ export default {
   content: [
     "./index.html",
     "./*.{js,ts,jsx,tsx}",
+    "./features/**/*.{js,ts,jsx,tsx}", // <-- This line is the fix
     "./components/**/*.{js,ts,jsx,tsx}",
-    "./hooks/**/*.{js,ts,jsx,tsx}",
-    "./services/**/*.{js,ts,jsx,tsx}",
-    "./utils/**/*.{js,ts,jsx,tsx}",
   ],
   theme: {
     extend: {},
