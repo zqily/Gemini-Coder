@@ -1,5 +1,5 @@
 import React, { useRef, useState, useEffect } from 'react';
-import { Menu, Plus, Settings, UploadCloud, Folder, Trash2, FilePlus, FolderPlus } from './icons';
+import { Menu, Plus, Settings, FolderSync, Folder, Trash2, FilePlus, FolderPlus } from './icons';
 import FileTree from './FileTree';
 import type { ProjectContext } from '../types';
 
@@ -110,11 +110,12 @@ const Sidebar: React.FC<SidebarProps> = ({
         <button
           onClick={handleProjectSyncClick}
           disabled={isLoading}
+          title="Sync Local Folder"
           className={`flex items-center w-full p-2.5 rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
             isOpen ? 'hover:bg-gray-700/70 justify-start' : 'hover:bg-gray-700 justify-center'
           }`}
         >
-          <UploadCloud size={24} className="flex-shrink-0" />
+          <FolderSync size={24} className="flex-shrink-0" />
            <div className={`overflow-hidden transition-all duration-200 ${isOpen ? 'w-auto ml-3' : 'w-0 ml-0'}`}>
              <span className="font-medium text-sm whitespace-nowrap">Upload Folder</span>
           </div>

@@ -20,7 +20,6 @@ import {
   ChevronRight,
   Folder,
   FileText,
-  UploadCloud,
   Trash2,
   GitBranch,
   FolderOpen,
@@ -34,6 +33,7 @@ import {
   FilePlus,
   FolderPlus,
   MousePointerClick,
+  FolderSync,
 } from 'lucide-react';
 
 export {
@@ -56,7 +56,6 @@ export {
   ChevronRight,
   Folder,
   FileText,
-  UploadCloud,
   Trash2,
   GitBranch,
   FolderOpen,
@@ -70,4 +69,5 @@ export {
   FilePlus,
   FolderPlus,
   MousePointerClick,
+  FolderSync,
 };
