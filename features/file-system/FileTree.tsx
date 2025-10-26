@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Folder, FolderOpen, FileText, Copy, ClipboardCopy, Check, Eye, EyeOff, FilePlus, FolderPlus, Pencil, Trash2 } from '../../components/icons';
+import { Folder, FolderOpen, FileText, Copy, ClipboardCopy, Check, Eye, EyeOff, FilePlus, FolderPlus, Pencil, Trash2 } from '../../components/Icons';
 import type { ProjectContext } from '../../types';
 import { useFileSystem } from './FileSystemContext';
 import { useChat } from '../chat/ChatContext';

@@ -7,7 +7,7 @@ import FileSystemProvider from './features/file-system/FileSystemProvider';
 import ChatProvider from './features/chat/ChatProvider';
 import { useChat } from './features/chat/ChatContext';
 import { useFileSystem } from './features/file-system/FileSystemContext';
-import { ImageIcon } from './components/icons';
+import { ImageIcon } from './components/Icons';
 
 
 // Custom hook to detect window size

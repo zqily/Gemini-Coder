@@ -1,5 +1,5 @@
 import React, { useRef, useState, useEffect } from 'react';
-import { Menu, Plus, Settings, FolderSync, Folder, Trash2, FilePlus, FolderPlus } from '../../components/icons';
+import { Menu, Plus, Settings, FolderSync, Folder, Trash2, FilePlus, FolderPlus } from '../../components/Icons';
 import FileTree from './FileTree';
 import { useFileSystem } from './FileSystemContext';
 import { useChat } from '../chat/ChatContext';

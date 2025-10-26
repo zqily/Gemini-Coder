@@ -1,5 +1,5 @@
 import React, { useState, useRef, useMemo } from 'react';
-import { Plus, Send, X, File as FileIcon, LoaderCircle, ImageIcon } from '../../components/icons';
+import { Plus, Send, X, File as FileIcon, LoaderCircle, ImageIcon } from '../../components/Icons';
 import type { AttachedFile, Mode, ModeId, ChatMessage } from '../../types';
 import { useChat } from './ChatContext';
 import { useSettings } from '../settings/SettingsContext';

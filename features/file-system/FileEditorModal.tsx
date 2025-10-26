@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Save, Copy, Check } from '../../components/icons';
+import { X, Save, Copy, Check } from '../../components/Icons';
 import { useFileSystem } from './FileSystemContext';
 import { useChat } from '../chat/ChatContext';
 

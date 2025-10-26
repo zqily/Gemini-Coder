@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, KeyRound, FilePlus, GitBranch, CodeXml, MousePointerClick, Check, Copy, BrainCircuit } from '../../components/icons';
+import { X, KeyRound, FilePlus, GitBranch, CodeXml, MousePointerClick, Check, Copy, BrainCircuit } from '../../components/Icons';
 import { useSettings } from './SettingsContext';
 
 const HelpModal: React.FC = () => {
