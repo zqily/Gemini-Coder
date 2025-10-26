@@ -1,14 +1,27 @@
 import type { AttachedFile, ChatMessage, ChatPart, TextPart } from "../../../types";
 
 /**
- * A simplified text token counter.
- * Approximation: 1 token ~ 4 characters.
+ * A refined text token counter that provides a better approximation.
+ * It uses a hybrid approach, taking the maximum of a character-based heuristic
+ * and a word/punctuation-based heuristic. This provides a safer upper bound
+ * that works reasonably well for both prose and code.
  * @param text The string to count tokens for.
  * @returns The estimated number of tokens.
  */
 export const countTextTokens = (text: string | undefined | null): number => {
     if (!text) return 0;
-    return Math.ceil(text.length / 4);
+
+    // Heuristic 1: Character-based. Good for long words that get split into multiple tokens.
+    // The classic "1 token ~ 4 chars" rule of thumb.
+    const charTokens = Math.ceil(text.length / 4);
+
+    // Heuristic 2: Word/punctuation-based. Good for code and prose with lots of punctuation.
+    // This regex matches sequences of word characters (including apostrophes) or single non-word/non-space characters.
+    const wordAndPunctuationTokens = text.match(/[\w']+|[^\s\w]/g)?.length || 0;
+    
+    // By taking the maximum of the two, we get a more robust estimate that is less
+    // likely to severely undercount tokens for different types of text.
+    return Math.max(charTokens, wordAndPunctuationTokens);
 };
 
 /**

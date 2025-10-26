@@ -14,7 +14,8 @@ const TOKEN_HEX_COLORS = {
 
 const GEMINI_FLASH_LIMIT = 250000;
 const GEMINI_PRO_LIMIT = 125000;
-const TOKEN_OVERAGE_BUFFER = 1.02; // 102% buffer for token counter inaccuracies
+// With the refined token counting heuristic, we can be more confident and remove the overage buffer.
+const TOKEN_OVERAGE_BUFFER = 1.0; // 100%, no buffer
 
 const PromptInput: React.FC = () => {
   const { 
