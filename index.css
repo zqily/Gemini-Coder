@@ -66,14 +66,14 @@
 
   /* Styles for the file tree hierarchical lines */
   .tree-branch-segment {
-    @apply w-4 h-full flex-shrink-0 relative;
+    @apply w-4 h-[1.625rem] flex-shrink-0 relative;
   }
   .tree-branch-segment::before {
     content: '';
-    @apply absolute top-0 left-1/2 w-px h-full bg-gray-700;
+    @apply absolute top-0 left-[7px] w-px h-full bg-gray-700/50;
   }
   .tree-branch-segment.is-last::before {
-    @apply h-1/2;
+    @apply h-[calc(50%+1px)];
   }
   .tree-branch-segment.no-line::before {
     @apply bg-transparent;
@@ -81,7 +81,26 @@
 
   .tree-branch-segment::after {
     content: '';
-    @apply absolute top-1/2 left-1/2 w-1/2 h-px bg-gray-700;
+    @apply absolute top-1/2 left-[8px] w-2 h-px bg-gray-700/50;
+  }
+
+  /* --- Scroll Fade Effects --- */
+  .scroll-fade-container {
+    @apply relative;
+  }
+  .scroll-fade-top, .scroll-fade-bottom {
+    @apply absolute left-0 right-0 h-8 pointer-events-none z-10 transition-opacity duration-300 opacity-0;
+  }
+  .scroll-fade-top {
+    top: 0;
+    background: linear-gradient(to bottom, var(--fade-color, #1e1f20), transparent);
+  }
+  .scroll-fade-bottom {
+    bottom: 0;
+    background: linear-gradient(to top, var(--fade-color, #1e1f20), transparent);
+  }
+  .scroll-fade-top-active, .scroll-fade-bottom-active {
+    @apply opacity-100;
   }
 }
 

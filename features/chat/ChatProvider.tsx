@@ -302,14 +302,16 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
         },
         required: ['summary']
     };
+    
+    const projectContextPreamble = `The user has provided a project context. This includes a list of all folders, and a list of all files with their full paths and content. All paths are relative to the project root. Use this information to understand the project structure and answer the user's request. When performing file operations, you MUST use the exact paths provided.`;
+    const projectContextPreambleForDefault = `The user has provided a project context. This includes a list of all folders, and a list of all files with their full paths and content. All paths are relative to the project root. Use this information to understand the project structure and answer the user's request. Do not mention this context message in your response unless the user asks about it.`;
 
     try {
         if (selectedMode === 'advanced-coder') {
             let baseHistory = [...historyForApi];
             const projectFileContext = getProjectContextStringLocal();
             if (projectFileContext) {
-                const contextPreamble = `The user has provided the following files as context for their request. Use the contents of these files to inform your answer.`;
-                baseHistory.splice(baseHistory.length - 1, 0, { role: 'user', parts: [{ text: `${contextPreamble}\n\n${projectFileContext}` }] });
+                baseHistory.splice(baseHistory.length - 1, 0, { role: 'user', parts: [{ text: `${projectContextPreamble}\n\n${projectFileContext}` }] });
             }
 
             // Phase 1: Planning
@@ -490,8 +492,7 @@ Your entire output MUST be a single JSON object that strictly adheres to the pro
             let historyForApiWithContext = [...historyForApi];
             const projectFileContext = getProjectContextStringLocal();
             if (projectFileContext) {
-                 const contextPreamble = `The user has provided the following files as context for their request. Use the contents of these files to inform your answer.`;
-                 historyForApiWithContext.splice(historyForApiWithContext.length - 1, 0, { role: 'user', parts: [{ text: `${contextPreamble}\n\n${projectFileContext}`}] });
+                 historyForApiWithContext.splice(historyForApiWithContext.length - 1, 0, { role: 'user', parts: [{ text: `${projectContextPreamble}\n\n${projectFileContext}`}] });
             }
             historyForApiWithContext.push(thinkPrimerMessage);
 
@@ -566,8 +567,7 @@ Your entire output MUST be a single JSON object that strictly adheres to the pro
 
             const projectFileContext = getProjectContextStringLocal();
             if (projectFileContext) {
-                 const contextPreamble = `The user has provided the following files as context for their request. Use the contents of these files to inform your answer. Do not mention this context message in your response unless the user asks about it.`;
-                 historyForApiWithContext.splice(historyForApiWithContext.length - 1, 0, { role: 'user', parts: [{ text: `${contextPreamble}\n\n${projectFileContext}`}] });
+                 historyForApiWithContext.splice(historyForApiWithContext.length - 1, 0, { role: 'user', parts: [{ text: `${projectContextPreambleForDefault}\n\n${projectFileContext}`}] });
             }
 
             const mode = MODES[selectedMode];

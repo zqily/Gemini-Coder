@@ -167,37 +167,30 @@ export const extractSubtree = (path: string, context: ProjectContext): ProjectCo
  * @returns A string representation of the file tree and contents.
  */
 export const serializeProjectContext = (context: ProjectContext): string => {
-  let output = 'File System Structure:\n';
-  const allPaths = [...context.dirs, ...context.files.keys()].sort();
-  
-  const tree: any = {};
-  for(const path of allPaths) {
-      path.split('/').reduce((r, e) => r[e] = r[e] || {}, tree);
-  }
-
-  function printTree(node: any, prefix = ''): string {
-      let result = '';
-      const entries = Object.entries(node);
-      entries.forEach(([key, value], index) => {
-          const isLast = index === entries.length - 1;
-          const connector = isLast ? '└── ' : '├── ';
-          result += `${prefix}${connector}${key}\n`;
-          if (Object.keys(value as object).length > 0) {
-              result += printTree(value, prefix + (isLast ? '    ' : '│   '));
-          }
-      });
-      return result;
+  let output = 'LIST OF ALL FOLDERS:\n';
+  const sortedDirs = Array.from(context.dirs).sort();
+  if (sortedDirs.length > 0) {
+      for (const dir of sortedDirs) {
+          output += `- ${dir}/\n`;
+      }
+  } else {
+      output += '(No folders in the project)\n';
   }
   
-  output += printTree(tree);
-  output += '\nFile Contents:\n';
+  output += '\n\nLIST OF ALL FILES AND THEIR CONTENTS:\n';
+  const sortedFiles = Array.from(context.files.entries()).sort(([pathA], [pathB]) => pathA.localeCompare(pathB));
 
-  for (const [path, content] of context.files.entries()) {
-    output += `--- BEGIN FILE: ${path} ---\n`;
-    output += `${content}\n`;
-    output += `--- END FILE: ${path} ---\n\n`;
+  if (sortedFiles.length > 0) {
+      for (const [path, content] of sortedFiles) {
+        output += `--- START OF FILE: ${path} ---\n`;
+        output += `${content}\n`;
+        output += `--- END OF FILE: ${path} ---\n\n`;
+      }
+  } else {
+      output += '(No files in the project)\n';
   }
-  return output;
+  
+  return output.trim();
 };
 
 /**
