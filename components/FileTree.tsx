@@ -243,8 +243,7 @@ const FileTree: React.FC<FileTreeProps> = ({
       handleCancel();
   };
 
-  // Fix: Changed return type from JSX.Element to React.ReactElement to resolve namespace error.
-  const renderNode = (node: TreeNode, level: number): React.ReactElement => {
+  const renderNode = (node: TreeNode, isLast: boolean, ancestorsAreLast: boolean[]): React.ReactElement => {
     const isFolder = node.type === 'folder';
     const isOpen = expandedFolders.has(node.path);
     const isEditing = editingPath === node.path;
@@ -275,13 +274,21 @@ const FileTree: React.FC<FileTreeProps> = ({
 
     if (isEditing) {
       return (
-        <div key={`${node.path}-editing`} style={{ paddingLeft: `${level * 16}px` }}>
-          <EditInput
-            initialValue={node.name}
-            onCommit={(newName) => handleCommitRename(node.path, newName)}
-            onCancel={handleCancel}
-            isFolder={isFolder}
-          />
+        <div key={`${node.path}-editing`} className="flex items-center">
+            <div className="flex self-stretch" aria-hidden="true">
+                {ancestorsAreLast.map((isAncestorLast, index) => (
+                    <div key={index} className={`tree-branch-segment ${isAncestorLast ? 'no-line' : ''}`} />
+                ))}
+                <div className={`tree-branch-segment is-connector ${isLast ? 'is-last' : ''}`} />
+            </div>
+          <div className="flex-grow">
+            <EditInput
+              initialValue={node.name}
+              onCommit={(newName) => handleCommitRename(node.path, newName)}
+              onCancel={handleCancel}
+              isFolder={isFolder}
+            />
+          </div>
         </div>
       );
     }
@@ -299,7 +306,6 @@ const FileTree: React.FC<FileTreeProps> = ({
       const dropTargetPath = node.path;
       const dParentPath = dPath.substring(0, dPath.lastIndexOf('/'));
 
-      // Validation: cannot drop on self, a child, or the same parent folder
       if (dPath === dropTargetPath || 
           dropTargetPath.startsWith(dPath + '/') || 
           dParentPath === dropTargetPath) {
@@ -341,7 +347,7 @@ const FileTree: React.FC<FileTreeProps> = ({
                  e.stopPropagation();
                 if (node.type === 'file') {
                   navigator.clipboard.writeText(allFiles.get(node.path) || '');
-                } else { // folder
+                } else { 
                   navigator.clipboard.writeText(node.path);
                 }
                 showCopiedFeedback(node.path);
@@ -370,7 +376,6 @@ const FileTree: React.FC<FileTreeProps> = ({
               ${isDropTarget ? 'bg-blue-600/30' : ''}
               ${isBeingDragged ? 'opacity-50' : ''}`
             }
-            style={{ paddingLeft: `${level * 16}px` }}
             draggable={!isLoading}
             onDragStart={(e) => {
               e.stopPropagation();
@@ -405,6 +410,12 @@ const FileTree: React.FC<FileTreeProps> = ({
             } : undefined}
             onDrop={isFolder ? handleDrop : undefined}
         >
+          <div className="flex self-stretch" aria-hidden="true">
+              {ancestorsAreLast.map((isAncestorLast, index) => (
+                  <div key={index} className={`tree-branch-segment ${isAncestorLast ? 'no-line' : ''}`} />
+              ))}
+              <div className={`tree-branch-segment is-connector ${isLast ? 'is-last' : ''}`} />
+          </div>
           <div className="flex items-center flex-grow truncate mr-2" title={node.path}>
             <Icon size={16} className={`mr-2 flex-shrink-0 ${statusClasses}`} />
             <span className={`text-sm truncate ${statusClasses}`}>{node.name}</span>
@@ -414,15 +425,23 @@ const FileTree: React.FC<FileTreeProps> = ({
         </div>
         {isFolder && isOpen && (
           <div>
-            {node.children?.map(child => renderNode(child, level + 1))}
+            {node.children?.map((child, index) => renderNode(child, index === node.children!.length - 1, [...ancestorsAreLast, isLast]))}
             {isCreatingHere && (
-              <div style={{ paddingLeft: `${(level + 1) * 16}px` }}>
-                <EditInput
-                  initialValue=""
-                  onCommit={(newName) => handleCommitCreate(node.path, newName, creatingIn!.type)}
-                  onCancel={handleCancel}
-                  isFolder={creatingIn!.type === 'folder'}
-                />
+              <div className="flex items-center">
+                  <div className="flex self-stretch" aria-hidden="true">
+                      {[...ancestorsAreLast, isLast].map((isAncestorLast, index) => (
+                          <div key={index} className={`tree-branch-segment ${isAncestorLast ? 'no-line' : ''}`} />
+                      ))}
+                      <div className="tree-branch-segment is-connector is-last" />
+                  </div>
+                  <div className="flex-grow">
+                      <EditInput
+                        initialValue=""
+                        onCommit={(newName) => handleCommitCreate(node.path, newName, creatingIn!.type)}
+                        onCancel={handleCancel}
+                        isFolder={creatingIn!.type === 'folder'}
+                      />
+                  </div>
               </div>
             )}
           </div>
@@ -488,7 +507,7 @@ const FileTree: React.FC<FileTreeProps> = ({
           onDrop={handleRootDrop}
         >
           {tree.length > 0
-            ? tree.map(node => renderNode(node, 0))
+            ? tree.map((node, index) => renderNode(node, index === tree.length - 1, []))
             : !creatingIn && (
               <div className="text-center text-xs text-gray-500 px-2 py-6 border border-dashed border-gray-700 rounded-lg">
                   <p>No files loaded.</p>
@@ -498,13 +517,18 @@ const FileTree: React.FC<FileTreeProps> = ({
           }
 
           {creatingIn?.path === '' && (
-            <div className="mt-1">
-              <EditInput
-                initialValue=""
-                onCommit={(newName) => handleCommitCreate('', newName, creatingIn.type)}
-                onCancel={handleCancel}
-                isFolder={creatingIn.type === 'folder'}
-              />
+            <div className="mt-1 flex items-center">
+               <div className="flex self-stretch" aria-hidden="true">
+                   <div className="tree-branch-segment is-connector is-last" />
+               </div>
+               <div className="flex-grow">
+                 <EditInput
+                   initialValue=""
+                   onCommit={(newName) => handleCommitCreate('', newName, creatingIn.type)}
+                   onCancel={handleCancel}
+                   isFolder={creatingIn.type === 'folder'}
+                 />
+               </div>
             </div>
           )}
         </div>

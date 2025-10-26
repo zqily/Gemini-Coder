@@ -35,9 +35,10 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
   const { apiKey, isStreamingEnabled, setIsSettingsModalOpen } = useSettings();
 
   const { 
+    projectContext,
     getSerializableContext, 
     applyFunctionCalls, 
-    unlinkProject: unlinkProjectFs, 
+    clearProjectContext,
     setCreatingIn: setCreatingInFs, 
     isReadingFiles: isReadingFilesFs
   } = useFileSystem();
@@ -96,12 +97,23 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
   }, []);
 
   const onNewChat = useCallback(() => {
-    setChatHistory([]);
-    setAttachedFiles([]);
-    setPrompt('');
-    unlinkProjectFs();
-    setCreatingInFs(null);
-  }, [unlinkProjectFs, setCreatingInFs]);
+    const resetAll = () => {
+      setChatHistory([]);
+      setAttachedFiles([]);
+      setPrompt('');
+      clearProjectContext();
+      setCreatingInFs(null);
+    };
+
+    if (projectContext || chatHistory.length > 0 || prompt.trim() || attachedFiles.length > 0) {
+      if (window.confirm('Start a new chat? This will clear the current conversation and file context.')) {
+        resetAll();
+      }
+      // If user cancels, do nothing.
+    } else {
+      resetAll(); // Nothing to lose, reset without confirmation.
+    }
+  }, [chatHistory, projectContext, clearProjectContext, setCreatingInFs, prompt, attachedFiles]);
 
   const onDeleteMessage = useCallback((indexToDelete: number) => {
     setChatHistory(prevHistory => {
@@ -630,7 +642,7 @@ Your entire output MUST be a single JSON object that strictly adheres to the pro
   }, [
     apiKey, chatHistory, selectedModel, selectedMode, isStreamingEnabled,
     setIsSettingsModalOpen, getSerializableContext, applyFunctionCalls, attachedFiles,
-    unlinkProjectFs, setCreatingInFs
+    clearProjectContext, setCreatingInFs, prompt
   ]);
 
 

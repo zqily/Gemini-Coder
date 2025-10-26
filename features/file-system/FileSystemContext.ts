@@ -16,9 +16,12 @@ export interface FileSystemContextType {
   creatingIn: { path: string; type: 'file' | 'folder' } | null;
   fileInputRef: React.RefObject<HTMLInputElement>;
   fileTokenCounts: Map<string, number>;
+  expandedFolders: Set<string>;
+  setExpandedFolders: React.Dispatch<React.SetStateAction<Set<string>>>;
   
   syncProject: (fileList: FileList) => Promise<void>;
   unlinkProject: () => void;
+  clearProjectContext: () => void;
   saveFile: (path: string, newContent: string) => void;
   togglePathExclusion: (path: string) => void;
   getSerializableContext: () => string | null;

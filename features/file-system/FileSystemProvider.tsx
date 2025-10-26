@@ -30,6 +30,7 @@ const FileSystemProvider: React.FC<FileSystemProviderProps> = ({ children }) => 
     createFolder: createFolderInHook,
     deletePath: deletePathInHook,
     movePath: movePathInHook,
+    unlinkProject: unlinkProjectInHook,
   } = useProjectContext();
 
   const [displayContext, setDisplayContext] = useState<ProjectContext | null>(null);
@@ -39,6 +40,7 @@ const FileSystemProvider: React.FC<FileSystemProviderProps> = ({ children }) => 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [creatingIn, setCreatingIn] = useState<{ path: string; type: 'file' | 'folder' } | null>(null);
   const [fileTokenCounts, setFileTokenCounts] = useState<Map<string, number>>(new Map());
+  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(() => new Set(['']));
   const dragOverTimeout = useRef<number | undefined>(undefined);
   const dragCounter = useRef(0);
 
@@ -147,10 +149,13 @@ const FileSystemProvider: React.FC<FileSystemProviderProps> = ({ children }) => 
         setOriginalProjectContext(newProjectContext);
         setDeletedItems(EMPTY_CONTEXT);
         setExcludedPaths(new Set());
+        const allDirs = new Set(newProjectContext.dirs);
+        allDirs.add(''); // Always expand root
+        setExpandedFolders(allDirs);
     } finally {
         setIsReadingFiles(false);
     }
-  }, [setProjectContext, setOriginalProjectContext, setDeletedItems, setExcludedPaths]);
+  }, [setProjectContext, setOriginalProjectContext, setDeletedItems, setExcludedPaths, setExpandedFolders]);
 
   const handleAddFiles = useCallback(async (fileList: FileList) => {
     setIsReadingFiles(true);
@@ -229,12 +234,10 @@ const FileSystemProvider: React.FC<FileSystemProviderProps> = ({ children }) => 
 
   const unlinkProject = useCallback(() => {
     if (window.confirm('Are you sure you want to clear all files? This cannot be undone.')) {
-        setProjectContext(null);
-        setOriginalProjectContext(null);
-        setDeletedItems(EMPTY_CONTEXT);
-        setExcludedPaths(new Set());
+        unlinkProjectInHook();
+        setExpandedFolders(new Set(['']));
     }
-  }, [setProjectContext, setOriginalProjectContext, setDeletedItems, setExcludedPaths]);
+  }, [unlinkProjectInHook]);
 
   const saveFile = useCallback((path: string, newContent: string) => {
     saveFileInHook(path, newContent);
@@ -289,9 +292,12 @@ const FileSystemProvider: React.FC<FileSystemProviderProps> = ({ children }) => 
     creatingIn,
     fileInputRef,
     fileTokenCounts,
+    expandedFolders,
+    setExpandedFolders,
     
     syncProject: handleFolderUpload,
     unlinkProject,
+    clearProjectContext: unlinkProjectInHook,
     saveFile,
     togglePathExclusion,
     getSerializableContext,
