@@ -37,7 +37,7 @@ Because it stores your Google Gemini API key in your browser's local storage, th
 1.  Clone or download this repository to your local machine.
 2.  Navigate to the project's root folder.
 3.  Double-click the `start.bat` file. This will automatically install all necessary dependencies and start the local development server.
-4.  Your default web browser should open to `http://localhost:5173`.
+4.  Your default web browser should open to `http://localhost:3000`.
 
 #### For All Other Users (Manual Method)
 
