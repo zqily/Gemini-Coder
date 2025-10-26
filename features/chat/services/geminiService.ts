@@ -3,6 +3,37 @@ import { GoogleGenAI, FunctionDeclaration, GenerateContentResponse } from "@goog
 import type { ChatMessage } from '../../../types';
 
 /**
+ * Races a promise against a cancellation flag, allowing for immediate UI feedback on cancellation.
+ * The underlying promise will continue in the background but its result will be ignored.
+ * @param promise The promise to execute.
+ * @param cancellationRef A React ref that is true if cancellation has been requested.
+ * @returns The result of the original promise.
+ * @throws An error with message "Cancelled by user" if cancellation is requested before the promise settles.
+ */
+async function withCancellation<T>(
+    promise: Promise<T>,
+    cancellationRef: React.MutableRefObject<boolean>
+): Promise<T> {
+    let intervalId: number;
+    // This promise will reject when the cancellation ref is set to true.
+    const cancellationPromise = new Promise<never>((_, reject) => {
+        intervalId = window.setInterval(() => {
+            if (cancellationRef.current) {
+                reject(new Error("Cancelled by user"));
+            }
+        }, 100); // Poll for cancellation
+    });
+
+    try {
+        // Promise.race will settle as soon as one of the input promises settles.
+        return await Promise.race([promise, cancellationPromise]);
+    } finally {
+        // It's crucial to clear the interval regardless of how the race finishes.
+        clearInterval(intervalId!);
+    }
+}
+
+/**
  * Generates content with the Google Gemini API.
  * This is used instead of the Chat API to allow for more complex, multi-turn
  * function calling scenarios.
@@ -81,10 +112,16 @@ export const generateContentWithRetries = async (
         }
         
         try {
-            const response = await generateContent(apiKey, modelName, history, systemInstruction, tools, additionalConfig);
+            const response = await withCancellation(
+                generateContent(apiKey, modelName, history, systemInstruction, tools, additionalConfig),
+                cancellationRef
+            );
             return response; // Success, return response object and exit loop
         } catch (error: any) {
             if (cancellationRef.current) throw error;
+            if (error instanceof Error && error.message === 'Cancelled by user') {
+                throw error;
+            }
 
             let statusCode: number | undefined;
             const message = error instanceof Error ? error.message : String(error);
@@ -206,7 +243,12 @@ export const generateContentStreamWithRetries = async function* (
           }
   
           try {
-              const streamResponse = await ai.models.generateContentStream(request);
+              // FIX: Explicitly provide the generic type to `withCancellation` to resolve a TypeScript
+              // type inference issue where the return type was being inferred as `unknown` for async generators.
+              const streamResponse = await withCancellation<AsyncGenerator<GenerateContentResponse>>(
+                  ai.models.generateContentStream(request),
+                  cancellationRef
+              );
               for await (const chunk of streamResponse) {
                   if (cancellationRef.current) throw new Error("Cancelled by user");
                   yield chunk;
@@ -214,6 +256,9 @@ export const generateContentStreamWithRetries = async function* (
               return; // Success, exit loop
           } catch (error: any) {
               if (cancellationRef.current) throw error;
+              if (error instanceof Error && error.message === 'Cancelled by user') {
+                  throw error;
+              }
   
               let statusCode: number | undefined;
               const message = error instanceof Error ? error.message : String(error);
