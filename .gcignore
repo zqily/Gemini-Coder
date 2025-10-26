@@ -7,5 +7,4 @@ tsconfig.json
 vite.config.ts
 start.bat
 postcss.config.cjs
-tailwind.config.js
 github/

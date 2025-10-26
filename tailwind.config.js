@@ -5,7 +5,7 @@ export default {
   content: [
     "./index.html",
     "./*.{js,ts,jsx,tsx}",
-    "./features/**/*.{js,ts,jsx,tsx}", // <-- This line is the fix
+    "./features/**/*.{js,ts,jsx,tsx}",
     "./components/**/*.{js,ts,jsx,tsx}",
   ],
   theme: {
