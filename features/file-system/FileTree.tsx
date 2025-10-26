@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Folder, FolderOpen, FileText, Copy, ClipboardCopy, Check, Eye, EyeOff, FilePlus, FolderPlus, Pencil, Trash2 } from '../../components/Icons';
-import type { ProjectContext } from '../../types';
 import { useFileSystem } from './FileSystemContext';
 import { useChat } from '../chat/ChatContext';
 
@@ -550,10 +549,10 @@ const FileTree: React.FC = () => {
             {contextMenu.type === 'folder' && (
                 <>
                 <button className="context-menu-item" onClick={() => handleStartCreate('file')}>
-                    <FilePlus size={16} /> New File
+                    <FilePlus size={16} /> <span>New File</span>
                 </button>
                 <button className="context-menu-item" onClick={() => handleStartCreate('folder')}>
-                    <FolderPlus size={16} /> New Folder
+                    <FolderPlus size={16} /> <span>New Folder</span>
                 </button>
                 <div className="context-menu-separator" />
                 </>
@@ -561,22 +560,22 @@ const FileTree: React.FC = () => {
             {contextMenu.path && (
                 <>
                 <button className="context-menu-item" onClick={handleStartRename}>
-                    <Pencil size={16} /> Rename
+                    <Pencil size={16} /> <span>Rename</span>
                 </button>
                 <button className="context-menu-item context-menu-item-destructive" onClick={handleDelete}>
-                    <Trash2 size={16} /> Delete
+                    <Trash2 size={16} /> <span>Delete</span>
                 </button>
                 <div className="context-menu-separator" />
                 <button className="context-menu-item" onClick={handleToggleExclusion}>
                   {excludedPaths.has(contextMenu.path) ? <Eye size={16} /> : <EyeOff size={16} />} 
-                    {excludedPaths.has(contextMenu.path) ? 'Include in Context' : 'Exclude from Context'}
+                  <span>{excludedPaths.has(contextMenu.path) ? 'Include in Context' : 'Exclude from Context'}</span>
                 </button>
                 <button className="context-menu-item" onClick={() => handleCopy('path')}>
-                    <Copy size={16} /> Copy Path
+                    <Copy size={16} /> <span>Copy Path</span>
                 </button>
                 {contextMenu.type === 'file' && (
                     <button className="context-menu-item" onClick={() => handleCopy('content')}>
-                        <ClipboardCopy size={16} /> Copy Content
+                        <ClipboardCopy size={16} /> <span>Copy Content</span>
                     </button>
                 )}
                 </>
