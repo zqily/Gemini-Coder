@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useFileSystem } from './FileSystemContext';
 import { X, Search, Folder, FileText } from '../../components/icons';
 
@@ -19,6 +19,7 @@ const FileSearchModal: React.FC<FileSearchModalProps> = ({ isOpen, onClose }) =>
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SearchResult[]>([]);
   const [activeIndex, setActiveIndex] = useState(0);
+  const [isClosing, setIsClosing] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const resultsRef = useRef<HTMLDivElement>(null);
 
@@ -43,8 +44,16 @@ const FileSearchModal: React.FC<FileSearchModalProps> = ({ isOpen, onClose }) =>
     return items.sort((a, b) => a.path.localeCompare(b.path));
   }, [displayContext]);
 
+  const handleClose = useCallback(() => {
+    setIsClosing(true);
+    setTimeout(() => {
+      onClose();
+    }, 200); // Animation duration
+  }, [onClose]);
+
   useEffect(() => {
     if (isOpen) {
+      setIsClosing(false); // Reset for fade-in animation
       // Delay focus to allow for modal transition
       setTimeout(() => {
         inputRef.current?.focus();
@@ -93,12 +102,12 @@ const FileSearchModal: React.FC<FileSearchModalProps> = ({ isOpen, onClose }) =>
       onOpenFileEditor(result.path);
     }
     
-    onClose();
+    handleClose();
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (results.length === 0) {
-        if (e.key === 'Escape') onClose();
+        if (e.key === 'Escape') handleClose();
         return;
     };
 
@@ -114,7 +123,7 @@ const FileSearchModal: React.FC<FileSearchModalProps> = ({ isOpen, onClose }) =>
         handleSelect(results[activeIndex]);
       }
     } else if (e.key === 'Escape') {
-      onClose();
+      handleClose();
     }
   };
   
@@ -128,9 +137,9 @@ const FileSearchModal: React.FC<FileSearchModalProps> = ({ isOpen, onClose }) =>
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-start justify-center p-4 pt-[15vh]" onClick={onClose}>
+    <div className={`fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-start justify-center p-4 pt-[15vh] ${isClosing ? 'animate-fade-out' : 'animate-fade-in'}`} onClick={handleClose}>
       <div 
-        className="bg-[#1e1f20] w-full max-w-2xl rounded-xl shadow-2xl flex flex-col border border-gray-700/50 animate-fade-in-scale"
+        className={`bg-[#1e1f20] w-full max-w-2xl rounded-xl shadow-2xl flex flex-col border border-gray-700/50 ${isClosing ? 'animate-fade-out-scale' : 'animate-fade-in-scale'}`}
         onClick={(e) => e.stopPropagation()}
         onKeyDown={handleKeyDown}
       >
@@ -145,7 +154,7 @@ const FileSearchModal: React.FC<FileSearchModalProps> = ({ isOpen, onClose }) =>
                 className="w-full bg-transparent text-lg text-gray-200 placeholder-gray-500 focus:outline-none"
             />
             <button
-                onClick={onClose}
+                onClick={handleClose}
                 className="p-2 ml-2 rounded-full hover:bg-gray-700 transition-colors"
                 aria-label="Close search"
             >
