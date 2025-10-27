@@ -111,7 +111,7 @@ const FileEditorModal: React.FC = () => {
         className={`bg-[#1e1f20] w-full max-w-4xl h-[85vh] rounded-xl shadow-2xl flex flex-col border border-gray-700/50 ${isClosing ? 'animate-fade-out-scale' : 'animate-fade-in-scale'}`}
         onClick={(e) => e.stopPropagation()}
       >
-        <header className="flex items-center justify-between p-3 border-b border-gray-700/50 flex-shrink-0">
+        <header className="sticky top-0 z-10 flex items-center justify-between p-3 border-b border-gray-700/50 flex-shrink-0 bg-[#1e1f20] rounded-t-xl">
           <h3 className="font-mono text-sm text-gray-400 truncate" title={editingFile.path}>{editingFile.path}</h3>
           <div className="flex items-center gap-2">
              <button onClick={handleCopy} className="flex items-center gap-1.5 text-xs font-medium text-gray-300 hover:text-white transition-colors p-2 rounded-md hover:bg-gray-700 disabled:opacity-50">

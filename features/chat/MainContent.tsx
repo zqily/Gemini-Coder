@@ -242,13 +242,13 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message, toolResponseMessage, o
                         >
                             <div className="flex items-center gap-2">
                                 <BrainCircuit size={16} />
-                                <span>Expand Thoughts</span>
+                                <span>{isThoughtsExpanded ? "Hide" : "Show"} Model Thoughts</span>
                             </div>
                             <ChevronDown size={18} className={`transition-transform duration-200 ${isThoughtsExpanded ? 'rotate-180' : ''}`} />
                         </button>
                         {isThoughtsExpanded && (
                             <div className="p-4 border-t border-gray-700/50 bg-black/20 animate-fade-in-up-short">
-                                <pre className="text-xs text-gray-400 whitespace-pre-wrap font-sans">
+                                <pre className="text-xs text-gray-400 whitespace-pre-wrap font-mono">
                                     {thoughts}
                                 </pre>
                             </div>
@@ -266,25 +266,44 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message, toolResponseMessage, o
                             const isSuccess = responseData?.success === true;
                             const errorMessage = responseData?.error;
                             const functionName = callPart.functionCall.name ?? 'unknown';
-
+                            const argsJson = JSON.stringify(callPart.functionCall.args ?? {}, null, 2);
+ 
                             return (
-                                <div key={index} className="bg-gray-800/50 border border-gray-700/50 rounded-lg overflow-hidden text-sm animate-fade-in-up-short">
+                                <div key={index} className={`rounded-lg overflow-hidden text-sm animate-fade-in-up-short ${correspondingResponse
+                                  ? (isSuccess ? 'bg-green-900/40 border border-green-700/50' : 'bg-red-900/40 border border-red-700/50')
+                                  : 'bg-gray-800/50 border border-gray-700/50'
+                                  }`}>
                                     <div className="p-3">
-                                        <p className={`font-semibold ${correspondingResponse && !isSuccess ? 'text-red-400/90' : 'text-gray-300'}`}>
-                                            Tool Call:{' '}
-                                            <code className={`font-mono ${
-                                                !correspondingResponse ? 'text-blue-400' :
-                                                isSuccess ? 'text-green-400' : 'font-bold'
-                                            }`}>
+                                        <p className={`font-semibold ${correspondingResponse && !isSuccess ? 'text-red-300' : 'text-gray-300'}`}>
+                                            <span className="font-normal text-gray-400">Tool Call: </span>
+                                            <code className={`font-mono ${!correspondingResponse ? 'text-blue-300' :
+                                                isSuccess ? 'text-green-300' : 'text-red-300'
+                                                }`}>
                                                 {functionName}
                                             </code>
-                                            {correspondingResponse && !isSuccess && (
-                                                <span className="font-normal text-xs pl-1 whitespace-pre-wrap"> - ERROR: {errorMessage || 'An unknown error occurred.'}</span>
+                                            {correspondingResponse && (
+                                                <span className={`font-normal text-xs pl-2 ${isSuccess ? 'text-green-400' : 'text-red-400'}`}>
+                                                    ({isSuccess ? 'Success' : 'Failed'})
+                                                </span>
                                             )}
                                         </p>
-                                        <pre className="text-xs text-gray-400 mt-1 overflow-x-auto bg-black/20 p-2 rounded-md">
-                                            {JSON.stringify(callPart.functionCall.args ?? {}, null, 2)}
-                                        </pre>
+ 
+                                        <details className="mt-2" open={!isSuccess}>
+                                            <summary className="list-none flex items-center gap-2 cursor-pointer text-xs text-gray-400 hover:text-white transition-colors">
+                                                <ChevronDown size={14} className="details-arrow flex-shrink-0" />
+                                                {`Arguments (${Object.keys(callPart.functionCall.args ?? {}).length})`}
+                                            </summary>
+                                            <pre className="text-xs text-gray-400 mt-1 overflow-x-auto bg-black/20 p-2 rounded-md font-mono">
+                                                {argsJson}
+                                            </pre>
+                                        </details>
+ 
+                                        {!isSuccess && errorMessage && (
+                                            <div className="mt-3 p-2 bg-red-900/40 text-red-300 border-l-4 border-red-500 rounded-r-md">
+                                                <p className="font-medium text-xs">Execution Error:</p>
+                                                <pre className="text-xs mt-1 whitespace-pre-wrap font-mono">{errorMessage}</pre>
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
                             );
@@ -335,19 +354,14 @@ const TypingIndicator = ({ message }: { message?: string }) => (
 
 const MainContent: React.FC<MainContentProps> = ({ isMobile, toggleSidebar }) => {
   const { 
-    chatHistory, isLoading, onSubmit, onStop, onDeleteMessage,
+    chatHistory, isLoading, onSubmit, onDeleteMessage,
     selectedMode, advancedCoderState
   } = useChat();
   const { setIsHelpModalOpen } = useSettings(); // Use setIsHelpModalOpen from SettingsContext
-  const { isReadingFiles } = useFileSystem(); // Still using this for typing indicator in App.tsx
 
   const chatContainerRef = useRef<HTMLDivElement>(null);
   
   const handleExampleSubmit = (prompt: string) => {
-    onSubmit(prompt);
-  };
-  
-  const handlePromptSubmit = (prompt: string) => {
     onSubmit(prompt);
   };
   
@@ -373,7 +387,7 @@ const MainContent: React.FC<MainContentProps> = ({ isMobile, toggleSidebar }) =>
   
   return (
     <div className="relative flex-1 flex flex-col h-screen bg-[#131314]">
-      <header className="flex justify-between items-center p-4 h-20 flex-shrink-0 border-b border-gray-800">
+      <header className="sticky top-0 z-20 flex justify-between items-center p-4 h-20 flex-shrink-0 border-b border-gray-800 bg-[#131314]/90 backdrop-blur-sm">
         <div className="flex items-center gap-2">
             {isMobile && (
                 <button
@@ -398,7 +412,7 @@ const MainContent: React.FC<MainContentProps> = ({ isMobile, toggleSidebar }) =>
             {messagesToRender.length === 0 && !isLoading ? (
                 <WelcomeScreen onExampleClick={handleExampleSubmit} />
             ) : (
-                 <div className="pt-8 pb-[40vh]">
+                 <div className="pt-8 pb-8">
                     {messagesToRender.map((msg, index) => {
                         if (msg.role === 'tool') {
                             return null;
@@ -431,12 +445,11 @@ const MainContent: React.FC<MainContentProps> = ({ isMobile, toggleSidebar }) =>
         </div>
       </main>
       
-      <footer className="px-4 md:px-8 lg:px-16 pb-6 flex-shrink-0 bg-[#131314]">
+      <footer className="sticky bottom-0 px-4 md:px-8 lg:px-16 pb-6 pt-4 flex-shrink-0 bg-gradient-to-t from-[#131314] via-[#131314]/95 to-transparent z-10">
         <div className="max-w-4xl mx-auto">
           <PromptInput />
         </div>
       </footer>
-      {/* HelpModal is now rendered by SettingsProvider */}
     </div>
   );
 };

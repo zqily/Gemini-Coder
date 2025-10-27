@@ -1,12 +1,12 @@
 import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { Plus, Send, X, File as FileIcon, LoaderCircle, ImageIcon } from '../../components/Icons';
-import type { AttachedFile, Mode, ModeId, ChatMessage } from '../../types';
+import type { AttachedFile, Mode, ModeId } from '../../types';
 import { useChat } from './ChatContext';
 import { useSettings } from '../settings/SettingsContext';
 
 // Use a map of direct hex color values to bypass Tailwind's JIT purging for this dynamic element.
 const TOKEN_HEX_COLORS = {
-  default: '#6b7280', // Equivalent to Tailwind's text-gray-500
+  default: '#9ca3af', // text-gray-400
   yellow: '#facc15',  // Equivalent to Tailwind's text-yellow-400
   orange: '#fb923c',  // Equivalent to Tailwind's text-orange-400
   red: '#f87171',    // Equivalent to Tailwind's text-red-400
@@ -139,39 +139,38 @@ const PromptInput: React.FC = () => {
 
 
   return (
-    <form onSubmit={handleSubmit} className="w-full bg-[#1e1f20] transition-all duration-200 rounded-2xl focus-within:ring-2 focus-within:ring-blue-500/50 flex flex-col">
-      <div>
-        <div className="px-4 pt-3 pb-1 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-                {Object.values(modes).map((mode: Mode) => (
-                <button
-                    key={mode.id}
-                    type="button"
-                    onClick={() => setSelectedMode(mode.id)}
-                    className={`p-2 rounded-lg transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
-                    selectedMode === mode.id
-                        ? 'bg-gray-600/70 text-white'
-                        : 'bg-transparent text-gray-400 hover:bg-gray-700/50 hover:text-gray-200'
-                    }`}
-                    title={mode.name}
-                    aria-label={mode.name}
-                >
-                    {React.createElement(mode.icon, { size: 18, 'aria-hidden': true })}
-                </button>
-                ))}
-            </div>
-            {/* Tokens counter now uses inline styles for robust color changes */}
-            <div 
-              className="text-xs bg-[#1e1f20] px-1 rounded-sm z-10 transition-colors duration-200"
-              style={{ color: tokenColor }}
-              title={tokenTooltipText}
+    <form onSubmit={handleSubmit} className="w-full bg-[#1e1f20] transition-all duration-200 rounded-2xl focus-within:ring-2 focus-within:ring-blue-500/50 flex flex-col shadow-2xl shadow-black/30">
+ 
+      <div className="px-4 pt-3 pb-2 flex items-center justify-between border-b border-gray-700/50">
+        <div className="flex items-center gap-2">
+          {Object.values(modes).map((mode: Mode) => (
+            <button
+              key={mode.id}
+              type="button"
+              onClick={() => setSelectedMode(mode.id)}
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-full transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 text-sm font-medium ${selectedMode === mode.id
+                ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20'
+                : 'bg-gray-700/50 text-gray-400 hover:bg-gray-700/80 hover:text-gray-200'
+                }`}
+              title={mode.name}
+              aria-label={mode.name}
             >
-                {totalTokens.toLocaleString()} tokens
-            </div>
+              {React.createElement(mode.icon, { size: 16, 'aria-hidden': true })}
+              {mode.name}
+            </button>
+          ))}
         </div>
-
+        <div
+          className="text-sm bg-gray-800/50 px-2 py-1 rounded-full z-10 transition-colors duration-200"
+          style={{ color: tokenColor }}
+          title={tokenTooltipText}
+        >
+          {totalTokens.toLocaleString()} tokens
+        </div>
+      </div>
+ 
         {attachedFiles.length > 0 && (
-            <div className="flex flex-wrap gap-2 px-4 py-2 border-t border-gray-700/50 max-h-24 overflow-y-auto custom-scrollbar">
+            <div className="flex flex-wrap gap-2 px-4 py-2 border-b border-gray-700/50 max-h-24 overflow-y-auto custom-scrollbar">
                 {attachedFiles.map(file => (
                     <span key={file.name} className="flex items-center gap-1 bg-gray-700/50 text-xs px-2 py-1 rounded-full text-gray-300">
                         {file.type.startsWith('image/') ? <ImageIcon size={12} /> : <FileIcon size={12} />}
@@ -220,7 +219,7 @@ const PromptInput: React.FC = () => {
               <button
                 type="submit"
                 disabled={isSubmitDisabled}
-                className="bg-blue-600 p-3 rounded-full hovear:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-gray-600"
+                className="bg-blue-600 p-3 rounded-full hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-gray-600"
                 aria-label={submitButtonTitle}
               >
                 <Send size={20} />
@@ -228,7 +227,7 @@ const PromptInput: React.FC = () => {
             </div>
           )}
         </div>
-      </div>
+ 
     </form>
   );
 };
