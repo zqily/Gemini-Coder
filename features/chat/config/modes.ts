@@ -1,5 +1,5 @@
 import type { Mode, ModeId } from '../../../types';
-import { Bot, CodeXml, BrainCircuit } from '../../../components/Icons';
+import { Bot, CodeXml, BrainCircuit } from '../../../components/icons';
 import { FunctionDeclaration, Type } from '@google/genai';
 
 export const MODES: Record<ModeId, Mode> = {

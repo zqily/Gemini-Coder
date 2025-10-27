@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { X } from '../../components/Icons';
+import { X } from '../../components/icons';
 import { useSettings } from './SettingsContext';
 
 const SettingsModal: React.FC = () => {

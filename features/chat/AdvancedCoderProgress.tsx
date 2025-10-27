@@ -1,5 +1,5 @@
 import React from 'react';
-import { LoaderCircle, Check, X, ChevronDown, BrainCircuit, CircleDot } from '../../components/Icons';
+import { LoaderCircle, Check, X, ChevronDown, BrainCircuit, CircleDot } from '../../components/icons';
 import type { AdvancedCoderPhase, AdvancedCoderState, AdvancedCoderSubtask } from '../../types';
 
 interface PhaseProps {

@@ -2,3 +2,4 @@ node_modules/
 converter.py
 target.txt
 versions/
+dist/
