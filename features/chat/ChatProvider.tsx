@@ -7,7 +7,7 @@ import { executeManagedBatchCall } from './services/rateLimitManager';
 import type { ChatMessage, AttachedFile, ChatPart, TextPart } from '../../types';
 import { MODES, NO_PROBLEM_DETECTED_TOOL } from './config/modes';
 import { useSettings } from '../settings/SettingsContext';
-import { Type, FunctionCall, GenerateContentResponse } from '@google/genai';
+import { FunctionCall, GenerateContentResponse } from '@google/genai';
 import { ALL_ACCEPTED_MIME_TYPES, CONVERTIBLE_TO_TEXT_MIME_TYPES, fileToDataURL } from './utils/fileUpload';
 import { useFileSystem } from '../file-system/FileSystemContext';
 import { countTextTokens, countImageTokens, countMessageTokens } from './utils/tokenCounter';
@@ -16,6 +16,129 @@ import { countTextTokens, countImageTokens, countMessageTokens } from './utils/t
 interface ChatProviderProps {
   children: ReactNode;
 }
+
+interface CommandMatch {
+    commandLine: string;
+    command: string;
+    args: string[];
+    index: number;
+}
+
+/**
+ * Parses the model's text response to extract a summary and file system commands.
+ * This function is designed to be robust against formatting variations from the model.
+ * It operates by finding all `@@` commands and treating the text between them as
+ * content for the preceding command. For `@@writeFile`, this content becomes the file's
+ * content. For other commands, it's treated as part of the summary.
+ * @param responseText The raw text from the model.
+ * @returns An object with the user-facing summary and an array of FunctionCall objects.
+ */
+const parseHybridResponse = (responseText: string): { summary: string; functionCalls: FunctionCall[] } => {
+    if (!responseText) {
+        return { summary: '', functionCalls: [] };
+    }
+
+    const functionCalls: FunctionCall[] = [];
+    const commandRegex = /^(@@\w+)\s*(.*)/gm;
+    const matches: CommandMatch[] = [];
+    let match;
+
+    // 1. Find all commands and their start indices.
+    while ((match = commandRegex.exec(responseText)) !== null) {
+        const command = match[1];
+        const argsLine = match[2].trim();
+        matches.push({
+            commandLine: match[0],
+            command: command,
+            args: argsLine.split(/\s+/).filter(Boolean), // Filter out empty strings from args
+            index: match.index
+        });
+    }
+
+    if (matches.length === 0) {
+        // No commands found, the entire response is a summary.
+        return { summary: responseText, functionCalls: [] };
+    }
+
+    // 2. Any text before the first command is considered part of the summary.
+    let summary = responseText.substring(0, matches[0].index);
+
+    // 3. Process each command and the content that follows it.
+    for (let i = 0; i < matches.length; i++) {
+        const currentMatch = matches[i];
+        const nextMatch = matches[i + 1];
+
+        // The content for the current command is the text between it and the next command.
+        const contentStartIndex = currentMatch.index + currentMatch.commandLine.length;
+        const contentEndIndex = nextMatch ? nextMatch.index : responseText.length;
+        
+        let content = responseText.substring(contentStartIndex, contentEndIndex);
+
+        switch (currentMatch.command) {
+            case '@@writeFile': {
+                const path = currentMatch.args[0];
+                if (!path) {
+                    // If writeFile is malformed (no path), treat the whole block as summary.
+                    summary += `\n${currentMatch.commandLine}${content}`;
+                    continue;
+                }
+
+                // Robustly clean the content of optional separators and code fences.
+                // This allows for many variations in the model's output.
+                let fileContent = content.trim();
+                fileContent = fileContent.replace(/^--- START OF .*? ---\r?\n/i, '');
+                fileContent = fileContent.replace(/\r?\n--- END OF .*? ---$/i, '');
+                fileContent = fileContent.replace(/^```[a-z]*\r?\n/, '');
+                fileContent = fileContent.replace(/\r?\n```$/, '');
+                
+                functionCalls.push({ name: 'writeFile', args: { path: path.trim(), content: fileContent.trim() } });
+                break;
+            }
+            case '@@moves': {
+                const sourcePath = currentMatch.args[0];
+                const destinationPath = currentMatch.args[1];
+                if (sourcePath && destinationPath) {
+                    functionCalls.push({ name: 'move', args: { sourcePath, destinationPath } });
+                } else {
+                     summary += `\n${currentMatch.commandLine}`;
+                }
+                // For single-line commands, the content that follows is part of the summary.
+                summary += content;
+                break;
+            }
+            case '@@createFolder': {
+                const path = currentMatch.args[0];
+                if (path) {
+                    functionCalls.push({ name: 'createFolder', args: { path } });
+                } else {
+                    summary += `\n${currentMatch.commandLine}`;
+                }
+                summary += content;
+                break;
+            }
+            case '@@deletePaths': {
+                const path = currentMatch.args[0];
+                if (path) {
+                    functionCalls.push({ name: 'deletePath', args: { path } });
+                } else {
+                    summary += `\n${currentMatch.commandLine}`;
+                }
+                summary += content;
+                break;
+            }
+            default:
+                // An unknown command and its content are treated as part of the summary.
+                summary += `\n${currentMatch.commandLine}${content}`;
+                break;
+        }
+    }
+
+    // Final cleanup of the aggregated summary text.
+    summary = summary.trim().replace(/(\r?\n){3,}/g, '\n\n');
+
+    return { summary: summary.trim(), functionCalls };
+};
+
 
 const ChatProvider: React.FC<ChatProviderProps> = ({
   children,
@@ -261,59 +384,6 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
         role: 'model',
         parts: [{ text: "Alright, before providing the final response, I will think step-by-step through the reasoning process and put it inside a <think> block using this format:\n\n```jsx\n<think>\nHuman request: (My interpretation of Human's request)\nHigh-level Plan: (A high level plan of what I'm going to do)\nDetailed Plan: (A more detailed plan that expands on the above plan)\n</think>\n```" }]
     };
-
-    const fileOpsResponseSchema = {
-        type: Type.OBJECT,
-        properties: {
-            summary: {
-                type: Type.STRING,
-                description: "A detailed summary of the changes made, explaining what was created/modified/deleted and why. This will be shown to the user. If the user asks for a simple script, write it here inside a markdown code block."
-            },
-            writeFiles: {
-                type: Type.ARRAY,
-                description: "A list of files to write content to. Creates the file if it does not exist, and overwrites it if it does.",
-                items: {
-                    type: Type.OBJECT,
-                    properties: {
-                        path: { type: Type.STRING },
-                        content: { type: Type.STRING }
-                    },
-                    required: ['path', 'content']
-                }
-            },
-            createFolders: {
-                type: Type.ARRAY,
-                description: "A list of new directories to create.",
-                items: {
-                    type: Type.OBJECT,
-                    properties: { path: { type: Type.STRING } },
-                    required: ['path']
-                }
-            },
-            moves: {
-                type: Type.ARRAY,
-                description: "A list of files or folders to move/rename.",
-                items: {
-                    type: Type.OBJECT,
-                    properties: {
-                        sourcePath: { type: Type.STRING },
-                        destinationPath: { type: Type.STRING }
-                    },
-                    required: ['sourcePath', 'destinationPath']
-                }
-            },
-            deletePaths: {
-                type: Type.ARRAY,
-                description: "A list of files or folders to delete.",
-                items: {
-                    type: Type.OBJECT,
-                    properties: { path: { type: Type.STRING } },
-                    required: ['path']
-                }
-            }
-        },
-        required: ['summary']
-    };
     
     const projectContextPreamble = `The user has provided a project context. This includes a list of all folders, and a list of all files with their full paths and content. All paths are relative to the project root. Use this information to understand the project structure and answer the user's request. When performing file operations, you MUST use the exact paths provided.`;
     const projectContextPreambleForDefault = `The user has provided a project context. This includes a list of all folders, and a list of all files with their full paths and content. All paths are relative to the project root. Use this information to understand the project structure and answer the user's request. Do not mention this context message in your response unless the user asks about it.`;
@@ -418,62 +488,39 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
                 consolidatedReview = extractTextWithoutThink(reviewResult.text);
             }
 
-            // Phase 6: Final Implementation (JSON based)
+            // Phase 6: Final Implementation
             onStatusUpdate('Phase 6/6: Generating final implementation...');
-            const finalSystemInstruction = `You are a file system operations generator. Your sole purpose is to generate a JSON object representing all necessary file system operations and a summary for the user.
+            const finalSystemInstruction = `You are a file system operations generator. Your sole purpose is to generate a user-facing summary and all necessary file system operations based on the provided context.
 
-Your entire output MUST be a single JSON object that strictly adheres to the provided schema. Do not output any other text, reasoning, or markdown. The JSON object must contain:
-1.  A 'summary' (string): A detailed, user-facing explanation of the changes.
-2.  'writeFiles' (array, optional): An array of objects, each with 'path' and 'content', for files to be created or overwritten.
-3.  'createFolders' (array, optional): An array of objects, each with a 'path' for new directories.
-4.  'moves' (array, optional): An array of objects, each with 'sourcePath' and 'destinationPath'.
-5.  'deletePaths' (array, optional): An array of objects, each with a 'path' to be deleted.`;
+Your entire output **MUST** use the following format. Any text that is not part of a command block will be considered the summary.
+
+- **Write/Overwrite a file:**
+  @@writeFile path/to/file
+  (The full content of the file goes on the following lines)
+
+- **Create a folder:**
+  @@createFolder path/to/folder
+
+- **Move/Rename a file or folder:**
+  @@moves source/path destination/path
+
+- **Delete a file or folder:**
+  @@deletePaths path/to/folder_or_file
+
+Ensure your response is complete and contains all necessary file operations.`;
 
             const finalHistory = [...baseHistory];
-            const finalUserContent = `Here is the context for the final implementation. Generate the JSON output containing the summary and file system operations.\n\nCode Draft:\n${codeDraft}\n\n${consolidatedReview ? `Consolidated Review:\n${consolidatedReview}` : 'No issues were found in the draft.'}`;
+            const finalUserContent = `Here is the context for the final implementation. Generate the file system operations.\n\nCode Draft:\n${codeDraft}\n\n${consolidatedReview ? `Consolidated Review:\n${consolidatedReview}` : 'No issues were found in the draft.'}`;
             finalHistory.push({ role: 'user', parts: [{ text: finalUserContent }] });
-
-            const finalImplementationConfig = { responseMimeType: "application/json", responseSchema: fileOpsResponseSchema };
             
             const finalInputTokens = finalHistory.reduce((sum, msg) => sum + countMessageTokens(msg), 0);
-            const finalApiCall = [() => generateContentWithRetries(apiKey, 'gemini-2.5-pro', finalHistory, finalSystemInstruction, undefined, cancellationRef, onStatusUpdate, cancellableSleep, finalImplementationConfig)];
+            const finalApiCall = [() => generateContentWithRetries(apiKey, 'gemini-2.5-pro', finalHistory, finalSystemInstruction, undefined, cancellationRef, onStatusUpdate, cancellableSleep)];
             const response = (await executeManagedBatchCall('gemini-2.5-pro', finalInputTokens, cancellableSleep, finalApiCall, onStatusUpdate))[0];
             
             if (response instanceof Error) throw response;
-
             if (cancellationRef.current) throw new Error('Cancelled by user');
 
-            let summaryText = '';
-            let functionCalls: FunctionCall[] = [];
-
-            try {
-                const jsonResponse = JSON.parse(response.text);
-                summaryText = jsonResponse.summary || "No summary provided.";
-                functionCalls = [];
-                if (jsonResponse.writeFiles && Array.isArray(jsonResponse.writeFiles)) {
-                    jsonResponse.writeFiles.forEach((op: any) => {
-                        functionCalls.push({ name: 'writeFile', args: { path: op.path, content: op.content } });
-                    });
-                }
-                if (jsonResponse.createFolders && Array.isArray(jsonResponse.createFolders)) {
-                    jsonResponse.createFolders.forEach((op: any) => {
-                        functionCalls.push({ name: 'createFolder', args: { path: op.path } });
-                    });
-                }
-                if (jsonResponse.moves && Array.isArray(jsonResponse.moves)) {
-                    jsonResponse.moves.forEach((op: any) => {
-                        functionCalls.push({ name: 'move', args: { sourcePath: op.sourcePath, destinationPath: op.destinationPath } });
-                    });
-                }
-                if (jsonResponse.deletePaths && Array.isArray(jsonResponse.deletePaths)) {
-                    jsonResponse.deletePaths.forEach((op: any) => {
-                        functionCalls.push({ name: 'deletePath', args: { path: op.path } });
-                    });
-                }
-            } catch (e) {
-                console.error("Failed to parse JSON response from model:", response.text, e);
-                summaryText = `An error occurred while processing the model's response. The raw response is provided below.\n\n---\n\n\`\`\`json\n${response.text}\n\`\`\``;
-            }
+            const { summary: summaryText, functionCalls } = parseHybridResponse(response.text);
 
             if (!summaryText && functionCalls.length === 0) {
                 setChatHistory(prev => prev.slice(0, -1));
@@ -509,43 +556,11 @@ Your entire output MUST be a single JSON object that strictly adheres to the pro
             historyForApiWithContext.push(thinkPrimerMessage);
 
             const systemInstruction = MODES['simple-coder'].systemInstruction!;
-            const modelConfig = { responseMimeType: "application/json", responseSchema: fileOpsResponseSchema };
 
-            const response = await generateContentWithRetries(apiKey, activeModel, historyForApiWithContext, systemInstruction, undefined, cancellationRef, onStatusUpdate, cancellableSleep, modelConfig);
+            const response = await generateContentWithRetries(apiKey, activeModel, historyForApiWithContext, systemInstruction, undefined, cancellationRef, onStatusUpdate, cancellableSleep);
             if (cancellationRef.current) throw new Error('Cancelled by user');
 
-            let summaryText = '';
-            let functionCalls: FunctionCall[] = [];
-
-            try {
-                const jsonResponse = JSON.parse(response.text);
-                summaryText = jsonResponse.summary || "No summary provided.";
-
-                functionCalls = [];
-                if (jsonResponse.writeFiles && Array.isArray(jsonResponse.writeFiles)) {
-                    jsonResponse.writeFiles.forEach((op: any) => {
-                        functionCalls.push({ name: 'writeFile', args: { path: op.path, content: op.content } });
-                    });
-                }
-                if (jsonResponse.createFolders && Array.isArray(jsonResponse.createFolders)) {
-                    jsonResponse.createFolders.forEach((op: any) => {
-                        functionCalls.push({ name: 'createFolder', args: { path: op.path } });
-                    });
-                }
-                if (jsonResponse.moves && Array.isArray(jsonResponse.moves)) {
-                    jsonResponse.moves.forEach((op: any) => {
-                        functionCalls.push({ name: 'move', args: { sourcePath: op.sourcePath, destinationPath: op.destinationPath } });
-                    });
-                }
-                if (jsonResponse.deletePaths && Array.isArray(jsonResponse.deletePaths)) {
-                    jsonResponse.deletePaths.forEach((op: any) => {
-                        functionCalls.push({ name: 'deletePath', args: { path: op.path } });
-                    });
-                }
-            } catch (e) {
-                console.error("Failed to parse JSON response from model:", response.text, e);
-                summaryText = `An error occurred while processing the model's response. The raw response is provided below.\n\n---\n\n\`\`\`json\n${response.text}\n\`\`\``;
-            }
+            const { summary: summaryText, functionCalls } = parseHybridResponse(response.text);
 
             if (!summaryText && functionCalls.length === 0) {
                 setChatHistory(prev => prev.slice(0, -1));

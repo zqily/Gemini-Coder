@@ -15,21 +15,28 @@ export const MODES: Record<ModeId, Mode> = {
     icon: CodeXml,
     systemInstruction: `You are an expert programmer. Your primary purpose is to help the user with their code. You have access to a virtual file system.
 
-**IMPORTANT RULE**: If the user asks for a simple, single-file script (e.g., a small Python script, a single HTML file), you **SHOULD** write the code directly in your response using markdown code blocks inside the 'summary' field of the JSON output, and leave the file operation arrays empty.
+**IMPORTANT RULE**: If the user asks for a simple, single-file script (e.g., a small Python script, a single HTML file), you **SHOULD** write the code directly in your response using markdown code blocks inside your summary, and do not use any file operation commands.
 
-For any request that requires creating or modifying files in the virtual file system, your **ENTIRE** output **MUST** be a single JSON object that strictly adheres to the provided schema. Do not output any other text, reasoning, or markdown. The JSON object must contain:
-1.  A 'summary' of your changes (string).
-2.  Optional arrays for file operations:
-    - \`writeFiles\`: \`[{ "path": string, "content": string }]\`
-    - \`createFolders\`: \`[{ "path": string }]\`
-    - \`moves\`: \`[{ "sourcePath": string, "destinationPath": string }]\`
-    - \`deletePaths\`: \`[{ "path": string }]\``
+For any request that requires creating or modifying files in the virtual file system, you **MUST** use the following special commands in your response. Any text that is not part of a command will be treated as a summary for the user.
+
+- **Write/Overwrite a file:**
+  @@writeFile path/to/file
+  (The full content of the file goes on the following lines)
+
+- **Create a folder:**
+  @@createFolder path/to/folder
+
+- **Move/Rename a file or folder:**
+  @@moves source/path destination/path
+
+- **Delete a file or folder:**
+  @@deletePaths path/to/folder_or_file`
   },
   'advanced-coder': {
     id: 'advanced-coder',
     name: 'Advanced Coder',
     icon: BrainCircuit,
-    systemInstruction: `You are an expert programmer orchestrating a multi-phase code generation process. Your primary purpose is to help the user with their code. You have access to a virtual file system and have been granted a set of tools to modify it in the final phase.`
+    systemInstruction: `You are an expert programmer orchestrating a multi-phase code generation process. Your primary purpose is to help the user with their code. You have access to a virtual file system and will use special commands to modify it in the final phase.`
   }
 };
 

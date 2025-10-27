@@ -1,1 +1,36 @@
-export * from 'lucide-react';
+// Fix: Explicitly export icons from lucide-react to resolve import errors.
+// The previous wildcard export (`export * from 'lucide-react'`) was failing.
+// Aliased 'Image' to 'ImageIcon' as it is used with that name in other components.
+export {
+  Image as ImageIcon,
+  Bot,
+  BrainCircuit,
+  Check,
+  ChevronDown,
+  ClipboardCopy,
+  CodeXml,
+  Copy,
+  Eye,
+  EyeOff,
+  File,
+  FilePlus,
+  FileText,
+  Folder,
+  FolderOpen,
+  FolderPlus,
+  FolderSync,
+  GitBranch,
+  HelpCircle,
+  KeyRound,
+  LoaderCircle,
+  Menu,
+  MousePointerClick,
+  Pencil,
+  Plus,
+  Save,
+  Send,
+  Settings,
+  Trash2,
+  User,
+  X,
+} from 'lucide-react';
