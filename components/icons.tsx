@@ -4,6 +4,7 @@ export {
   BrainCircuit,
   Check,
   ChevronDown,
+  CircleDot,
   ClipboardCopy,
   CodeXml,
   Copy,

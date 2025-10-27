@@ -229,4 +229,17 @@
   .animate-fade-out-scale {
     animation: fade-out-scale 0.2s ease-out forwards;
   }
+  
+  /* New animation for pulsing 'running' state in Advanced Coder */
+  @keyframes pulse-strong {
+    0%, 100% {
+      box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.4);
+    }
+    50% {
+      box-shadow: 0 0 0 6px rgba(59, 130, 246, 0);
+    }
+  }
+  .animate-pulse-strong {
+      animation: pulse-strong 1.5s infinite;
+  }
 }
