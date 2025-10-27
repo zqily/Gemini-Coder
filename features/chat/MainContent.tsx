@@ -10,6 +10,7 @@ import GeminiIcon from '../../components/GeminiIcon';
 import { useChat } from './ChatContext';
 import { useSettings } from '../settings/SettingsContext';
 import { useFileSystem } from '../file-system/FileSystemContext';
+import AdvancedCoderProgress from './AdvancedCoderProgress';
 
 
 interface MainContentProps {
@@ -335,7 +336,7 @@ const TypingIndicator = ({ message }: { message?: string }) => (
 const MainContent: React.FC<MainContentProps> = ({ isMobile, toggleSidebar }) => {
   const { 
     chatHistory, isLoading, onSubmit, onStop, onDeleteMessage,
-    selectedMode, selectedModel
+    selectedMode, advancedCoderState
   } = useChat();
   const { setIsHelpModalOpen } = useSettings(); // Use setIsHelpModalOpen from SettingsContext
   const { isReadingFiles } = useFileSystem(); // Still using this for typing indicator in App.tsx
@@ -366,7 +367,9 @@ const MainContent: React.FC<MainContentProps> = ({ isMobile, toggleSidebar }) =>
   const isLastMessageAPlaceholder = isLoading && lastMessageIsModel && (!lastMessageText.trim() || isStatusUpdate);
   const messagesToRender = isLastMessageAPlaceholder ? chatHistory.slice(0, -1) : chatHistory;
   const statusMessageForIndicator = isStatusUpdate ? lastMessageText : '';
-  const showTypingIndicator = isLoading;
+  
+  const showAdvancedCoderProgress = isLoading && selectedMode === 'advanced-coder' && advancedCoderState;
+  const showTypingIndicator = isLoading && !showAdvancedCoderProgress;
   
   return (
     <div className="relative flex-1 flex flex-col h-screen bg-[#131314]">
@@ -421,6 +424,7 @@ const MainContent: React.FC<MainContentProps> = ({ isMobile, toggleSidebar }) =>
 
                         return <ChatBubble key={originalIndex > -1 ? originalIndex : index} message={msg} toolResponseMessage={toolResponseMessage} onDelete={handleDelete} />;
                     })}
+                    {showAdvancedCoderProgress && <AdvancedCoderProgress state={advancedCoderState} />}
                     {showTypingIndicator && <TypingIndicator message={statusMessageForIndicator} />}
                  </div>
             )}

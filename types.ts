@@ -1,8 +1,5 @@
-
 import React from 'react';
-
 export type ModeId = 'default' | 'simple-coder' | 'advanced-coder';
-
 export interface Mode {
   id: ModeId;
   name: string;
@@ -58,4 +55,24 @@ export interface ProjectFile {
 export interface ProjectContext {
     files: Map<string, string>; // path -> content
     dirs: Set<string>;
+}
+
+// ---- New Types for Advanced Coder Progress ----
+
+export interface AdvancedCoderSubtask {
+  title: string;
+  content: string;
+}
+
+export interface AdvancedCoderPhase {
+  id: string;
+  title:string;
+  status: 'pending' | 'running' | 'completed' | 'skipped' | 'error';
+  output?: string; // For sequential phases
+  subtasks?: AdvancedCoderSubtask[]; // For concurrent phases
+}
+
+export interface AdvancedCoderState {
+  phases: AdvancedCoderPhase[];
+  statusMessage: string; // For retry messages etc.
 }

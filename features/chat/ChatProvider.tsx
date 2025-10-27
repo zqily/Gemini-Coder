@@ -4,7 +4,7 @@ import { useSelectedModel } from './useSelectedModel';
 import { useSelectedMode } from './useSelectedMode';
 import { generateContentWithRetries, generateContentStreamWithRetries } from './services/geminiService';
 import { executeManagedBatchCall } from './services/rateLimitManager';
-import type { ChatMessage, AttachedFile, ChatPart, TextPart } from '../../types';
+import type { ChatMessage, AttachedFile, ChatPart, TextPart, AdvancedCoderState } from '../../types';
 import { MODES, NO_PROBLEM_DETECTED_TOOL } from './config/modes';
 import { useSettings } from '../settings/SettingsContext';
 import { FunctionCall, GenerateContentResponse } from '@google/genai';
@@ -139,6 +139,24 @@ const parseHybridResponse = (responseText: string): { summary: string; functionC
     return { summary: summary.trim(), functionCalls };
 };
 
+const initialAdvancedCoderState: AdvancedCoderState = {
+  phases: [
+    { id: 'planning', title: 'Phase 1/6: Planning', status: 'pending', subtasks: [] },
+    { id: 'consolidation', title: 'Phase 2/6: Consolidation', status: 'pending' },
+    { id: 'drafting', title: 'Phase 3/6: Drafting', status: 'pending' },
+    { id: 'debugging', title: 'Phase 4/6: Debugging', status: 'pending', subtasks: [] },
+    { id: 'review', title: 'Phase 5/6: Review Consolidation', status: 'pending' },
+    { id: 'final', title: 'Phase 6/6: Final Implementation', status: 'pending' },
+  ],
+  statusMessage: '',
+};
+
+const updatePhase = (prevState: AdvancedCoderState | null, phaseId: string, updates: object): AdvancedCoderState | null => {
+    if (!prevState) return null;
+    const newPhases = prevState.phases.map(p => p.id === phaseId ? { ...p, ...updates } : p);
+    return { ...prevState, phases: newPhases };
+};
+
 
 const ChatProvider: React.FC<ChatProviderProps> = ({
   children,
@@ -148,6 +166,7 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
   const [isChatProcessing, setIsChatProcessing] = useState(false);
   const [prompt, setPrompt] = useState('');
   const [totalTokens, setTotalTokens] = useState(0);
+  const [advancedCoderState, setAdvancedCoderState] = useState<AdvancedCoderState | null>(null);
 
   const cancellationRef = useRef(false);
   const fileAttachInputRef = useRef<HTMLInputElement>(null);
@@ -226,6 +245,7 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
       setPrompt('');
       clearProjectContext();
       setCreatingInFs(null);
+      setAdvancedCoderState(null);
     };
 
     if (projectContext || chatHistory.length > 0 || prompt.trim() || attachedFiles.length > 0) {
@@ -290,6 +310,8 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
       return;
     }
 
+    setAdvancedCoderState(null);
+
     let activeModel = selectedModel;
     if (selectedMode === 'advanced-coder') {
         activeModel = 'gemini-2.5-pro';
@@ -352,18 +374,7 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
     if (!isResend || chatHistory[chatHistory.length - 1]?.role !== 'model') {
       setChatHistory(prev => [...prev, { role: 'model', parts: [{ text: '' }] }]);
     }
-
-    const onStatusUpdate = (message: string) => {
-        setChatHistory(prev => {
-            const newHistory = [...prev];
-            const lastMessage = newHistory[newHistory.length - 1];
-            if (lastMessage && lastMessage.role === 'model') {
-                newHistory[newHistory.length - 1] = { ...lastMessage, parts: [{ text: message }] };
-            }
-            return newHistory;
-        });
-    };
-
+    
     const extractTextWithoutThink = (rawText: string | undefined): string => {
         if (!rawText) return '';
         const startTag = '<think>';
@@ -390,107 +401,129 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
 
     try {
         if (selectedMode === 'advanced-coder') {
-            let baseHistory = [...historyForApi];
-            const projectFileContext = getProjectContextStringLocal();
-            if (projectFileContext) {
-                baseHistory.splice(baseHistory.length - 1, 0, { role: 'user', parts: [{ text: `${projectContextPreamble}\n\n${projectFileContext}` }] });
-            }
+            const onStatusUpdateForRetries = (message: string) => {
+                setAdvancedCoderState(prev => (prev ? { ...prev, statusMessage: message } : null));
+            };
 
-            // Phase 1: Planning
-            onStatusUpdate('Phase 1/6: Generating initial plans...');
-            const plannerSystemInstruction = `You are a Senior Software Architect. Your task is to create a high-level plan to address the user's request. Do NOT write any code. Focus on the overall strategy, file structure, and key components.`;
-            const planningHistoryForTokens = [...baseHistory, thinkPrimerMessage];
-            const plannerInputTokens = planningHistoryForTokens.reduce((sum, msg) => sum + countMessageTokens(msg), 0);
+            setAdvancedCoderState(initialAdvancedCoderState);
             
-            const planningApiCalls = Array(3).fill(0).map(() =>
-                () => generateContentWithRetries(apiKey, 'gemini-flash-latest', planningHistoryForTokens, plannerSystemInstruction, undefined, cancellationRef, onStatusUpdate, cancellableSleep)
-            );
+            try {
+                let baseHistory = [...historyForApi];
+                const projectFileContext = getProjectContextStringLocal();
+                if (projectFileContext) {
+                    baseHistory.splice(baseHistory.length - 1, 0, { role: 'user', parts: [{ text: `${projectContextPreamble}\n\n${projectFileContext}` }] });
+                }
 
-            const planningResults = await executeManagedBatchCall(
-                'gemini-flash-latest',
-                plannerInputTokens,
-                cancellableSleep,
-                planningApiCalls,
-                onStatusUpdate
-            );
-            
-            const successfulPlans = planningResults
-                .filter((res): res is GenerateContentResponse => !(res instanceof Error) && !!res.text)
-                .map(res => extractTextWithoutThink(res.text));
+                // Phase 1: Planning
+                setAdvancedCoderState(prev => updatePhase(prev, 'planning', { status: 'running' }));
+                const plannerSystemInstruction = `You are a Senior Software Architect. Your task is to create a high-level plan to address the user's request. Do NOT write any code. Focus on the overall strategy, file structure, and key components.`;
+                const planningHistoryForTokens = [...baseHistory, thinkPrimerMessage];
+                const plannerInputTokens = planningHistoryForTokens.reduce((sum, msg) => sum + countMessageTokens(msg), 0);
+                
+                const planningApiCalls = Array(3).fill(0).map(() =>
+                    () => generateContentWithRetries(apiKey, 'gemini-flash-latest', planningHistoryForTokens, plannerSystemInstruction, undefined, cancellationRef, onStatusUpdateForRetries, cancellableSleep)
+                );
 
-            if (successfulPlans.length === 0) throw new Error("All planning instances failed.");
+                const planningResults = await executeManagedBatchCall('gemini-flash-latest', plannerInputTokens, cancellableSleep, planningApiCalls, onStatusUpdateForRetries);
+                if (cancellationRef.current) throw new Error("Cancelled by user");
 
-            // Phase 2: Consolidation
-            onStatusUpdate('Phase 2/6: Consolidating into a master plan...');
-            const consolidationSystemInstruction = `You are a Principal Engineer. Your task is to synthesize multiple high-level plans from your team of architects into a single, cohesive, and highly detailed master plan. The final plan should be actionable for a skilled developer. Do not reference the previous planning phase or the planners themselves; present this as your own unified plan.`;
-            const consolidationHistory = [...baseHistory];
-            consolidationHistory.push({ role: 'user', parts: [{ text: `Here are the plans from the architects:\n\n${successfulPlans.map((p, i) => `--- PLAN ${i+1} ---\n${p}`).join('\n\n')}` }] });
-            consolidationHistory.push(thinkPrimerMessage);
+                const successfulPlans = planningResults
+                    .map((res, i) => ({
+                        title: `Planner ${i+1} Output`,
+                        content: (res instanceof Error || !res.text) ? `Error: ${res instanceof Error ? res.message : 'No output'}` : extractTextWithoutThink(res.text)
+                    }));
 
-            const consolidationInputTokens = consolidationHistory.reduce((sum, msg) => sum + countMessageTokens(msg), 0);
-            const consolidationApiCall = [() => generateContentWithRetries(apiKey, 'gemini-2.5-pro', consolidationHistory, consolidationSystemInstruction, undefined, cancellationRef, onStatusUpdate, cancellableSleep)];
-            
-            const consolidationResult = (await executeManagedBatchCall('gemini-2.5-pro', consolidationInputTokens, cancellableSleep, consolidationApiCall, onStatusUpdate))[0];
-            if (consolidationResult instanceof Error) throw consolidationResult;
-            const masterPlan = extractTextWithoutThink(consolidationResult.text);
+                setAdvancedCoderState(prev => updatePhase(prev, 'planning', { status: 'completed', subtasks: successfulPlans }));
+                if (planningResults.every(res => res instanceof Error)) throw new Error("All planning instances failed.");
 
-            // Phase 3: Drafting
-            onStatusUpdate('Phase 3/6: Drafting code...');
-            const draftingSystemInstruction = `You are a Staff Engineer. Your task is to generate a complete code draft based on the master plan. The output should be in a diff format where applicable. Do not use any function tools.`;
-            const draftingHistory = [...baseHistory];
-            draftingHistory.push({ role: 'user', parts: [{ text: `Here is the master plan. Please generate the code draft.\n\n${masterPlan}` }] });
-            draftingHistory.push(thinkPrimerMessage);
+                // Phase 2: Consolidation
+                setAdvancedCoderState(prev => updatePhase(prev, 'consolidation', { status: 'running' }));
+                const consolidationSystemInstruction = `You are a Principal Engineer. Your task is to synthesize multiple high-level plans from your team of architects into a single, cohesive, and highly detailed master plan. The final plan should be actionable for a skilled developer. Do not reference the previous planning phase or the planners themselves; present this as your own unified plan.`;
+                const consolidationHistory = [...baseHistory];
+                const successfulPlanContents = successfulPlans.filter(p => !p.content.startsWith('Error:')).map(p => p.content);
+                consolidationHistory.push({ role: 'user', parts: [{ text: `Here are the plans from the architects:\n\n${successfulPlanContents.map((p, i) => `--- PLAN ${i+1} ---\n${p}`).join('\n\n')}` }] });
+                consolidationHistory.push(thinkPrimerMessage);
 
-            const draftingInputTokens = draftingHistory.reduce((sum, msg) => sum + countMessageTokens(msg), 0);
-            const draftingApiCall = [() => generateContentWithRetries(apiKey, 'gemini-2.5-pro', draftingHistory, draftingSystemInstruction, undefined, cancellationRef, onStatusUpdate, cancellableSleep)];
-            const draftingResult = (await executeManagedBatchCall('gemini-2.5-pro', draftingInputTokens, cancellableSleep, draftingApiCall, onStatusUpdate))[0];
-            if (draftingResult instanceof Error) throw draftingResult;
-            const codeDraft = extractTextWithoutThink(draftingResult.text);
+                const consolidationInputTokens = consolidationHistory.reduce((sum, msg) => sum + countMessageTokens(msg), 0);
+                const consolidationApiCall = [() => generateContentWithRetries(apiKey, 'gemini-2.5-pro', consolidationHistory, consolidationSystemInstruction, undefined, cancellationRef, onStatusUpdateForRetries, cancellableSleep)];
+                
+                const consolidationResult = (await executeManagedBatchCall('gemini-2.5-pro', consolidationInputTokens, cancellableSleep, consolidationApiCall, onStatusUpdateForRetries))[0];
+                if (cancellationRef.current) throw new Error("Cancelled by user");
+                if (consolidationResult instanceof Error) throw consolidationResult;
+                const masterPlan = extractTextWithoutThink(consolidationResult.text);
+                setAdvancedCoderState(prev => updatePhase(prev, 'consolidation', { status: 'completed', output: masterPlan }));
+                
+                // Phase 3: Drafting
+                setAdvancedCoderState(prev => updatePhase(prev, 'drafting', { status: 'running' }));
+                const draftingSystemInstruction = `You are a Staff Engineer. Your task is to generate a complete code draft based on the master plan. The output should be in a diff format where applicable. Do not use any function tools.`;
+                const draftingHistory = [...baseHistory];
+                draftingHistory.push({ role: 'user', parts: [{ text: `Here is the master plan. Please generate the code draft.\n\n${masterPlan}` }] });
+                draftingHistory.push(thinkPrimerMessage);
+
+                const draftingInputTokens = draftingHistory.reduce((sum, msg) => sum + countMessageTokens(msg), 0);
+                const draftingApiCall = [() => generateContentWithRetries(apiKey, 'gemini-2.5-pro', draftingHistory, draftingSystemInstruction, undefined, cancellationRef, onStatusUpdateForRetries, cancellableSleep)];
+                const draftingResult = (await executeManagedBatchCall('gemini-2.5-pro', draftingInputTokens, cancellableSleep, draftingApiCall, onStatusUpdateForRetries))[0];
+                if (cancellationRef.current) throw new Error("Cancelled by user");
+                if (draftingResult instanceof Error) throw draftingResult;
+                const codeDraft = extractTextWithoutThink(draftingResult.text);
+                setAdvancedCoderState(prev => updatePhase(prev, 'drafting', { status: 'completed', output: codeDraft }));
 
 
-            // Phase 4: Debugging
-            onStatusUpdate('Phase 4/6: Debugging draft...');
-            const debuggerSystemInstruction = `You are a meticulous Code Reviewer. Review the provided code draft for critical errors, bugs, incomplete implementation, or violations of best practices. If the draft is acceptable, you MUST call the \`noProblemDetected\` function. Otherwise, provide your feedback. Do not reference the "Master Plan" or the source of the reasoning.`;
-            const debuggingHistory = [...baseHistory];
-            debuggingHistory.push({ role: 'user', parts: [{ text: `Master Plan:\n${masterPlan}\n\nCode Draft:\n${codeDraft}` }] });
-            debuggingHistory.push(thinkPrimerMessage);
+                // Phase 4: Debugging
+                setAdvancedCoderState(prev => updatePhase(prev, 'debugging', { status: 'running' }));
+                const debuggerSystemInstruction = `You are a meticulous Code Reviewer. Review the provided code draft for critical errors, bugs, incomplete implementation, or violations of best practices. If the draft is acceptable, you MUST call the \`noProblemDetected\` function. Otherwise, provide your feedback. Do not reference the "Master Plan" or the source of the reasoning.`;
+                const debuggingHistory = [...baseHistory];
+                debuggingHistory.push({ role: 'user', parts: [{ text: `Master Plan:\n${masterPlan}\n\nCode Draft:\n${codeDraft}` }] });
+                debuggingHistory.push(thinkPrimerMessage);
 
-            const debuggingInputTokens = debuggingHistory.reduce((sum, msg) => sum + countMessageTokens(msg), 0);
-            const debuggingApiCalls = Array(3).fill(0).map(() =>
-                () => generateContentWithRetries(apiKey, 'gemini-flash-latest', debuggingHistory, debuggerSystemInstruction, [{ functionDeclarations: [NO_PROBLEM_DETECTED_TOOL] }], cancellationRef, onStatusUpdate, cancellableSleep)
-            );
-            const debuggingResults = await executeManagedBatchCall('gemini-flash-latest', debuggingInputTokens, cancellableSleep, debuggingApiCalls, onStatusUpdate);
-            
-            const debuggingReports: string[] = [];
-            let noProblemCount = 0;
-            for (const res of debuggingResults) {
-                if (res instanceof Error) continue;
-                const hasNoProblemCall = res.functionCalls?.some(fc => fc.name === 'noProblemDetected');
-                if (hasNoProblemCall) noProblemCount++;
-                else if (res.text) debuggingReports.push(extractTextWithoutThink(res.text));
-            }
+                const debuggingInputTokens = debuggingHistory.reduce((sum, msg) => sum + countMessageTokens(msg), 0);
+                const debuggingApiCalls = Array(3).fill(0).map(() =>
+                    () => generateContentWithRetries(apiKey, 'gemini-flash-latest', debuggingHistory, debuggerSystemInstruction, [{ functionDeclarations: [NO_PROBLEM_DETECTED_TOOL] }], cancellationRef, onStatusUpdateForRetries, cancellableSleep)
+                );
+                const debuggingResults = await executeManagedBatchCall('gemini-flash-latest', debuggingInputTokens, cancellableSleep, debuggingApiCalls, onStatusUpdateForRetries);
+                if (cancellationRef.current) throw new Error("Cancelled by user");
+                
+                const debuggingReports: string[] = [];
+                let noProblemCount = 0;
+                const debuggerSubtasks = debuggingResults.map((res, i) => {
+                    if (res instanceof Error) return { title: `Debugger ${i+1} Output`, content: `Error: ${res.message}` };
+                    const hasNoProblemCall = res.functionCalls?.some(fc => fc.name === 'noProblemDetected');
+                    if (hasNoProblemCall) {
+                        noProblemCount++;
+                        return { title: `Debugger ${i+1} Output`, content: 'No problems detected.' };
+                    }
+                    const reportText = extractTextWithoutThink(res.text);
+                    if (reportText) debuggingReports.push(reportText);
+                    return { title: `Debugger ${i+1} Output`, content: reportText || 'No feedback provided.' };
+                });
+                setAdvancedCoderState(prev => updatePhase(prev, 'debugging', { status: 'completed', subtasks: debuggerSubtasks }));
 
-            const phase5Skipped = noProblemCount === 3;
-            let consolidatedReview = '';
 
-            // Phase 5: Review Consolidation
-            if (!phase5Skipped && debuggingReports.length > 0) {
-                onStatusUpdate('Phase 5/6: Consolidating feedback...');
-                const reviewConsolidationSystemInstruction = `You are a Tech Lead. Consolidate the following debugging feedback into a single, concise list of required changes for the final implementation. Do not reference the debuggers or the source of the comments.`;
-                const reviewHistory = [...baseHistory];
-                reviewHistory.push({ role: 'user', parts: [{ text: `Code Draft:\n${codeDraft}\n\nDebugging Reports:\n${debuggingReports.join('\n---\n')}` }] });
-                reviewHistory.push(thinkPrimerMessage);
+                const phase5Skipped = noProblemCount === 3;
+                let consolidatedReview = '';
 
-                const reviewInputTokens = reviewHistory.reduce((sum, msg) => sum + countMessageTokens(msg), 0);
-                const reviewApiCall = [() => generateContentWithRetries(apiKey, 'gemini-flash-latest', reviewHistory, reviewConsolidationSystemInstruction, undefined, cancellationRef, onStatusUpdate, cancellableSleep)];
-                const reviewResult = (await executeManagedBatchCall('gemini-flash-latest', reviewInputTokens, cancellableSleep, reviewApiCall, onStatusUpdate))[0];
-                if (reviewResult instanceof Error) throw reviewResult;
-                consolidatedReview = extractTextWithoutThink(reviewResult.text);
-            }
+                // Phase 5: Review Consolidation
+                if (!phase5Skipped && debuggingReports.length > 0) {
+                    setAdvancedCoderState(prev => updatePhase(prev, 'review', { status: 'running' }));
+                    const reviewConsolidationSystemInstruction = `You are a Tech Lead. Consolidate the following debugging feedback into a single, concise list of required changes for the final implementation. Do not reference the debuggers or the source of the comments.`;
+                    const reviewHistory = [...baseHistory];
+                    reviewHistory.push({ role: 'user', parts: [{ text: `Code Draft:\n${codeDraft}\n\nDebugging Reports:\n${debuggingReports.join('\n---\n')}` }] });
+                    reviewHistory.push(thinkPrimerMessage);
 
-            // Phase 6: Final Implementation
-            onStatusUpdate('Phase 6/6: Generating final implementation...');
-            const finalSystemInstruction = `You are a file system operations generator. Your sole purpose is to generate a user-facing summary and all necessary file system operations based on the provided context.
+                    const reviewInputTokens = reviewHistory.reduce((sum, msg) => sum + countMessageTokens(msg), 0);
+                    const reviewApiCall = [() => generateContentWithRetries(apiKey, 'gemini-flash-latest', reviewHistory, reviewConsolidationSystemInstruction, undefined, cancellationRef, onStatusUpdateForRetries, cancellableSleep)];
+                    const reviewResult = (await executeManagedBatchCall('gemini-flash-latest', reviewInputTokens, cancellableSleep, reviewApiCall, onStatusUpdateForRetries))[0];
+                    if (cancellationRef.current) throw new Error("Cancelled by user");
+                    if (reviewResult instanceof Error) throw reviewResult;
+                    consolidatedReview = extractTextWithoutThink(reviewResult.text);
+                    setAdvancedCoderState(prev => updatePhase(prev, 'review', { status: 'completed', output: consolidatedReview }));
+                } else {
+                     setAdvancedCoderState(prev => updatePhase(prev, 'review', { status: 'skipped' }));
+                }
+
+                // Phase 6: Final Implementation
+                setAdvancedCoderState(prev => updatePhase(prev, 'final', { status: 'running' }));
+                const finalSystemInstruction = `You are a file system operations generator. Your sole purpose is to generate a user-facing summary and all necessary file system operations based on the provided context.
 
 Your entire output **MUST** use the following format. Any text that is not part of a command block will be considered the summary.
 
@@ -509,44 +542,60 @@ Your entire output **MUST** use the following format. Any text that is not part 
 
 Ensure your response is complete and contains all necessary file operations.`;
 
-            const finalHistory = [...baseHistory];
-            const finalUserContent = `Here is the context for the final implementation. Generate the file system operations.\n\nCode Draft:\n${codeDraft}\n\n${consolidatedReview ? `Consolidated Review:\n${consolidatedReview}` : 'No issues were found in the draft.'}`;
-            finalHistory.push({ role: 'user', parts: [{ text: finalUserContent }] });
-            
-            const finalInputTokens = finalHistory.reduce((sum, msg) => sum + countMessageTokens(msg), 0);
-            const finalApiCall = [() => generateContentWithRetries(apiKey, 'gemini-2.5-pro', finalHistory, finalSystemInstruction, undefined, cancellationRef, onStatusUpdate, cancellableSleep)];
-            const response = (await executeManagedBatchCall('gemini-2.5-pro', finalInputTokens, cancellableSleep, finalApiCall, onStatusUpdate))[0];
-            
-            if (response instanceof Error) throw response;
-            if (cancellationRef.current) throw new Error('Cancelled by user');
+                const finalHistory = [...baseHistory];
+                const finalUserContent = `Here is the context for the final implementation. Generate the file system operations.\n\nCode Draft:\n${codeDraft}\n\n${consolidatedReview ? `Consolidated Review:\n${consolidatedReview}` : 'No issues were found in the draft.'}`;
+                finalHistory.push({ role: 'user', parts: [{ text: finalUserContent }] });
+                
+                const finalInputTokens = finalHistory.reduce((sum, msg) => sum + countMessageTokens(msg), 0);
+                const finalApiCall = [() => generateContentWithRetries(apiKey, 'gemini-2.5-pro', finalHistory, finalSystemInstruction, undefined, cancellationRef, onStatusUpdateForRetries, cancellableSleep)];
+                const response = (await executeManagedBatchCall('gemini-2.5-pro', finalInputTokens, cancellableSleep, finalApiCall, onStatusUpdateForRetries))[0];
+                
+                if (cancellationRef.current) throw new Error("Cancelled by user");
+                if (response instanceof Error) throw response;
+                
+                setAdvancedCoderState(prev => updatePhase(prev, 'final', { status: 'completed', output: response.text }));
+                
+                const { summary: summaryText, functionCalls } = parseHybridResponse(response.text);
 
-            const { summary: summaryText, functionCalls } = parseHybridResponse(response.text);
+                if (!summaryText && functionCalls.length === 0) {
+                    setChatHistory(prev => prev.slice(0, -1));
+                } else {
+                    const modelTurnParts: ChatPart[] = [];
+                    if (summaryText) modelTurnParts.push({ text: summaryText });
+                    functionCalls.forEach(fc => modelTurnParts.push({ functionCall: fc }));
 
-            if (!summaryText && functionCalls.length === 0) {
-                setChatHistory(prev => prev.slice(0, -1));
-            } else {
-                const modelTurnParts: ChatPart[] = [];
-                if (summaryText) modelTurnParts.push({ text: summaryText });
-                functionCalls.forEach(fc => modelTurnParts.push({ functionCall: fc }));
+                    const modelTurnWithMessage: ChatMessage = { role: 'model', parts: modelTurnParts };
 
-                const modelTurnWithMessage: ChatMessage = { role: 'model', parts: modelTurnParts };
+                    setChatHistory(prev => {
+                        const newHistory = [...prev];
+                        newHistory[newHistory.length - 1] = modelTurnWithMessage;
+                        return newHistory;
+                    });
 
-                setChatHistory(prev => {
-                    const newHistory = [...prev];
-                    newHistory[newHistory.length - 1] = modelTurnWithMessage;
-                    return newHistory;
-                });
+                    if (functionCalls.length > 0) {
+                        if (cancellationRef.current) throw new Error('Cancelled by user');
+                        const functionResponses: ChatPart[] = await applyFunctionCalls(functionCalls);
 
-                if (functionCalls.length > 0) {
-                    if (cancellationRef.current) throw new Error('Cancelled by user');
-                    const functionResponses: ChatPart[] = await applyFunctionCalls(functionCalls);
+                        if (cancellationRef.current) throw new Error('Cancelled by user');
 
-                    if (cancellationRef.current) throw new Error('Cancelled by user');
-
-                    const toolResponseMessage: ChatMessage = { role: 'tool', parts: functionResponses };
-                    setChatHistory(prev => [...prev, toolResponseMessage]);
+                        const toolResponseMessage: ChatMessage = { role: 'tool', parts: functionResponses };
+                        setChatHistory(prev => [...prev, toolResponseMessage]);
+                    }
                 }
+            } catch (phaseError) {
+                setAdvancedCoderState(prev => {
+                    if (!prev) return null;
+                    const runningPhaseIndex = prev.phases.findIndex(p => p.status === 'running');
+                    if (runningPhaseIndex > -1) {
+                        const newPhases = [...prev.phases];
+                        newPhases[runningPhaseIndex] = { ...newPhases[runningPhaseIndex], status: 'error' };
+                        return { ...prev, phases: newPhases };
+                    }
+                    return prev;
+                });
+                throw phaseError; // Re-throw to be caught by the outer handler
             }
+
         } else if (selectedMode === 'simple-coder') {
             let historyForApiWithContext = [...historyForApi];
             const projectFileContext = getProjectContextStringLocal();
@@ -557,7 +606,7 @@ Ensure your response is complete and contains all necessary file operations.`;
 
             const systemInstruction = MODES['simple-coder'].systemInstruction!;
 
-            const response = await generateContentWithRetries(apiKey, activeModel, historyForApiWithContext, systemInstruction, undefined, cancellationRef, onStatusUpdate, cancellableSleep);
+            const response = await generateContentWithRetries(apiKey, activeModel, historyForApiWithContext, systemInstruction, undefined, cancellationRef, () => {}, cancellableSleep);
             if (cancellationRef.current) throw new Error('Cancelled by user');
 
             const { summary: summaryText, functionCalls } = parseHybridResponse(response.text);
@@ -591,6 +640,17 @@ Ensure your response is complete and contains all necessary file operations.`;
         } else {
             let historyForApiWithContext = [...historyForApi];
             const shouldUseStreaming = isStreamingEnabled && selectedMode === 'default';
+            
+            const onStatusUpdate = (message: string) => {
+                setChatHistory(prev => {
+                    const newHistory = [...prev];
+                    const lastMessage = newHistory[newHistory.length - 1];
+                    if (lastMessage && lastMessage.role === 'model') {
+                        newHistory[newHistory.length - 1] = { ...lastMessage, parts: [{ text: message }] };
+                    }
+                    return newHistory;
+                });
+            };
 
             const projectFileContext = getProjectContextStringLocal();
             if (projectFileContext) {
@@ -644,11 +704,23 @@ Ensure your response is complete and contains all necessary file operations.`;
           const errorMessage: ChatMessage = { role: 'model', parts: [{ text: `Error: ${errorMessageText}` }] };
           setChatHistory(prev => {
               const newHistory = [...prev];
-              newHistory[newHistory.length - 1] = errorMessage;
+              // Replace the placeholder message with the error.
+              if (newHistory[newHistory.length - 1]?.role === 'model') {
+                  newHistory[newHistory.length - 1] = errorMessage;
+              } else {
+                  newHistory.push(errorMessage);
+              }
               return newHistory;
           });
       } else {
-          setChatHistory(prev => prev.slice(0, -1));
+           // If cancelled, remove the empty model message placeholder
+          setChatHistory(prev => {
+              const last = prev[prev.length - 1];
+              if (last && last.role === 'model' && last.parts.every(p => ('text' in p) && !p.text)) {
+                  return prev.slice(0, -1);
+              }
+              return prev;
+          });
       }
     } finally {
       setIsChatProcessing(false);
@@ -672,6 +744,7 @@ Ensure your response is complete and contains all necessary file operations.`;
     prompt,
     setPrompt,
     totalTokens,
+    advancedCoderState,
     setAttachedFiles,
     setSelectedModel,
     onSubmit,

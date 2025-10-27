@@ -102,6 +102,14 @@
   .scroll-fade-top-active, .scroll-fade-bottom-active {
     @apply opacity-100;
   }
+  
+  /* Advanced Coder Progress Tracker Arrow */
+  .details-arrow {
+    transition: transform 0.2s ease-in-out;
+  }
+  details[open] > summary .details-arrow {
+    transform: rotate(180deg);
+  }
 }
 
 @layer utilities {
