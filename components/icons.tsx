@@ -33,4 +33,5 @@ export {
   Trash2,
   User,
   X,
+  UploadCloud,
 } from 'lucide-react';
