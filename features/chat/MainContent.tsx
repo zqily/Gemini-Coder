@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { HelpCircle, ChevronDown, User, ImageIcon, File as FileIcon, Menu, Copy, Check,BrainCircuit, Trash2 } from '../../components/icons';
+import { HelpCircle, ChevronDown, User, ImageIcon, File as FileIcon, Menu, Copy, Check, Trash2 } from '../../components/icons';
 import PromptInput from './PromptInput';
 import type { ChatMessage, ChatPart, FunctionCallPart, FunctionResponsePart, TextPart, InlineDataPart } from '../../types';
 import ReactMarkdown from 'react-markdown';
@@ -178,29 +178,13 @@ const isFunctionResponsePart = (part: ChatPart): part is FunctionResponsePart =>
 const ChatBubble: React.FC<ChatBubbleProps> = ({ message, toolResponseMessage, onDelete }) => {
     const isUser = message.role === 'user';
     const isModel = message.role === 'model';
-    const [isThoughtsExpanded, setIsThoughtsExpanded] = useState(false);
     
     const rawTextContent = (message.parts.find((p): p is TextPart => 'text' in p))?.text ?? '';
     const fileParts = message.parts.filter((p): p is InlineDataPart => 'inlineData' in p);
     const functionCallParts = message.parts.filter(isFunctionCallPart);
     const functionResponseParts = toolResponseMessage?.parts.filter(isFunctionResponsePart) ?? [];
 
-    let thoughts: string | null = null;
-    let mainText = rawTextContent;
-
-    const startTag = '<think>';
-    const endTag = '</think>';
-
-    const firstStartTagIndex = rawTextContent.indexOf(startTag);
-    const lastEndTagIndex = rawTextContent.lastIndexOf(endTag);
-    
-    if (firstStartTagIndex !== -1 && lastEndTagIndex !== -1 && firstStartTagIndex < lastEndTagIndex) {
-        // Extract thoughts from between the first <think> and the last </think>
-        thoughts = rawTextContent.substring(firstStartTagIndex + startTag.length, lastEndTagIndex).trim();
-        
-        // The main text is everything after the last </think>
-        mainText = rawTextContent.substring(lastEndTagIndex + endTag.length).trim();
-    }
+    const mainText = rawTextContent;
 
     const Icon = isUser ? User : GeminiIcon;
     const name = isUser ? 'You' : 'Gemini';
@@ -233,29 +217,6 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message, toolResponseMessage, o
                     </div>
                 )}
                 
-                {thoughts && (
-                    <div className="mb-4 border border-gray-700/50 rounded-lg animate-fade-in">
-                        <button 
-                            onClick={() => setIsThoughtsExpanded(!isThoughtsExpanded)}
-                            className="w-full flex justify-between items-center p-3 text-left text-sm font-medium text-gray-300 hover:bg-gray-800/50 transition-colors"
-                            aria-expanded={isThoughtsExpanded}
-                        >
-                            <div className="flex items-center gap-2">
-                                <BrainCircuit size={16} />
-                                <span>{isThoughtsExpanded ? "Hide" : "Show"} Model Thoughts</span>
-                            </div>
-                            <ChevronDown size={18} className={`transition-transform duration-200 ${isThoughtsExpanded ? 'rotate-180' : ''}`} />
-                        </button>
-                        {isThoughtsExpanded && (
-                            <div className="p-4 border-t border-gray-700/50 bg-black/20 animate-fade-in-up-short">
-                                <pre className="text-xs text-gray-400 whitespace-pre-wrap font-mono">
-                                    {thoughts}
-                                </pre>
-                            </div>
-                        )}
-                    </div>
-                )}
-
                 {mainText && <div className="prose prose-invert max-w-none"><MarkdownRenderer content={mainText} /></div>}
                 
                 {functionCallParts.length > 0 && (

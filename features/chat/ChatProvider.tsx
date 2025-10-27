@@ -375,27 +375,10 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
       setChatHistory(prev => [...prev, { role: 'model', parts: [{ text: '' }] }]);
     }
     
-    const extractTextWithoutThink = (rawText: string | undefined): string => {
-        if (!rawText) return '';
-        const startTag = '<think>';
-        const endTag = '</think>';
-        const firstStartTagIndex = rawText.indexOf(startTag);
-        const lastEndTagIndex = rawText.lastIndexOf(endTag);
-        if (firstStartTagIndex !== -1 && lastEndTagIndex !== -1 && firstStartTagIndex < lastEndTagIndex) {
-            return rawText.substring(lastEndTagIndex + endTag.length).trim();
-        }
-        return rawText;
-    };
-
     const getProjectContextStringLocal = (): string | null => {
         return getSerializableContext();
     };
 
-    const thinkPrimerMessage: ChatMessage = {
-        role: 'model',
-        parts: [{ text: "Alright, before providing the final response, I will think step-by-step through the reasoning process and put it inside a <think> block using this format:\n\n```jsx\n<think>\nHuman request: (My interpretation of Human's request)\nHigh-level Plan: (A high level plan of what I'm going to do)\nDetailed Plan: (A more detailed plan that expands on the above plan)\n</think>\n```" }]
-    };
-    
     const projectContextPreamble = `The user has provided a project context. This includes a list of all folders, and a list of all files with their full paths and content. All paths are relative to the project root. Use this information to understand the project structure and answer the user's request. When performing file operations, you MUST use the exact paths provided.`;
     const projectContextPreambleForDefault = `The user has provided a project context. This includes a list of all folders, and a list of all files with their full paths and content. All paths are relative to the project root. Use this information to understand the project structure and answer the user's request. Do not mention this context message in your response unless the user asks about it.`;
 
@@ -417,7 +400,7 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
                 // Phase 1: Planning
                 setAdvancedCoderState(prev => updatePhase(prev, 'planning', { status: 'running' }));
                 const plannerSystemInstruction = `You are a Senior Software Architect. Your task is to create a high-level plan to address the user's request. Do NOT write any code. Focus on the overall strategy, file structure, and key components.`;
-                const planningHistoryForTokens = [...baseHistory, thinkPrimerMessage];
+                const planningHistoryForTokens = [...baseHistory];
                 const plannerInputTokens = planningHistoryForTokens.reduce((sum, msg) => sum + countMessageTokens(msg), 0);
                 
                 const planningApiCalls = Array(3).fill(0).map(() =>
@@ -430,7 +413,7 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
                 const successfulPlans = planningResults
                     .map((res, i) => ({
                         title: `Planner ${i+1} Output`,
-                        content: (res instanceof Error || !res.text) ? `Error: ${res instanceof Error ? res.message : 'No output'}` : extractTextWithoutThink(res.text)
+                        content: (res instanceof Error || !res.text) ? `Error: ${res instanceof Error ? res.message : 'No output'}` : res.text
                     }));
 
                 setAdvancedCoderState(prev => updatePhase(prev, 'planning', { status: 'completed', subtasks: successfulPlans }));
@@ -442,7 +425,6 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
                 const consolidationHistory = [...baseHistory];
                 const successfulPlanContents = successfulPlans.filter(p => !p.content.startsWith('Error:')).map(p => p.content);
                 consolidationHistory.push({ role: 'user', parts: [{ text: `Here are the plans from the architects:\n\n${successfulPlanContents.map((p, i) => `--- PLAN ${i+1} ---\n${p}`).join('\n\n')}` }] });
-                consolidationHistory.push(thinkPrimerMessage);
 
                 const consolidationInputTokens = consolidationHistory.reduce((sum, msg) => sum + countMessageTokens(msg), 0);
                 const consolidationApiCall = [() => generateContentWithRetries(apiKey, 'gemini-2.5-pro', consolidationHistory, consolidationSystemInstruction, undefined, cancellationRef, onStatusUpdateForRetries, cancellableSleep)];
@@ -450,7 +432,7 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
                 const consolidationResult = (await executeManagedBatchCall('gemini-2.5-pro', consolidationInputTokens, cancellableSleep, consolidationApiCall, onStatusUpdateForRetries))[0];
                 if (cancellationRef.current) throw new Error("Cancelled by user");
                 if (consolidationResult instanceof Error) throw consolidationResult;
-                const masterPlan = extractTextWithoutThink(consolidationResult.text);
+                const masterPlan = consolidationResult.text;
                 setAdvancedCoderState(prev => updatePhase(prev, 'consolidation', { status: 'completed', output: masterPlan }));
                 
                 // Phase 3: Drafting
@@ -458,14 +440,13 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
                 const draftingSystemInstruction = `You are a Staff Engineer. Your task is to generate a complete code draft based on the master plan. The output should be in a diff format where applicable. Do not use any function tools.`;
                 const draftingHistory = [...baseHistory];
                 draftingHistory.push({ role: 'user', parts: [{ text: `Here is the master plan. Please generate the code draft.\n\n${masterPlan}` }] });
-                draftingHistory.push(thinkPrimerMessage);
 
                 const draftingInputTokens = draftingHistory.reduce((sum, msg) => sum + countMessageTokens(msg), 0);
                 const draftingApiCall = [() => generateContentWithRetries(apiKey, 'gemini-2.5-pro', draftingHistory, draftingSystemInstruction, undefined, cancellationRef, onStatusUpdateForRetries, cancellableSleep)];
                 const draftingResult = (await executeManagedBatchCall('gemini-2.5-pro', draftingInputTokens, cancellableSleep, draftingApiCall, onStatusUpdateForRetries))[0];
                 if (cancellationRef.current) throw new Error("Cancelled by user");
                 if (draftingResult instanceof Error) throw draftingResult;
-                const codeDraft = extractTextWithoutThink(draftingResult.text);
+                const codeDraft = draftingResult.text;
                 setAdvancedCoderState(prev => updatePhase(prev, 'drafting', { status: 'completed', output: codeDraft }));
 
 
@@ -474,7 +455,6 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
                 const debuggerSystemInstruction = `You are a meticulous Code Reviewer. Review the provided code draft for critical errors, bugs, incomplete implementation, or violations of best practices. If the draft is acceptable, you MUST call the \`noProblemDetected\` function. Otherwise, provide your feedback. Do not reference the "Master Plan" or the source of the reasoning.`;
                 const debuggingHistory = [...baseHistory];
                 debuggingHistory.push({ role: 'user', parts: [{ text: `Master Plan:\n${masterPlan}\n\nCode Draft:\n${codeDraft}` }] });
-                debuggingHistory.push(thinkPrimerMessage);
 
                 const debuggingInputTokens = debuggingHistory.reduce((sum, msg) => sum + countMessageTokens(msg), 0);
                 const debuggingApiCalls = Array(3).fill(0).map(() =>
@@ -492,7 +472,7 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
                         noProblemCount++;
                         return { title: `Debugger ${i+1} Output`, content: 'No problems detected.' };
                     }
-                    const reportText = extractTextWithoutThink(res.text);
+                    const reportText = res.text;
                     if (reportText) debuggingReports.push(reportText);
                     return { title: `Debugger ${i+1} Output`, content: reportText || 'No feedback provided.' };
                 });
@@ -508,14 +488,13 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
                     const reviewConsolidationSystemInstruction = `You are a Tech Lead. Consolidate the following debugging feedback into a single, concise list of required changes for the final implementation. Do not reference the debuggers or the source of the comments.`;
                     const reviewHistory = [...baseHistory];
                     reviewHistory.push({ role: 'user', parts: [{ text: `Code Draft:\n${codeDraft}\n\nDebugging Reports:\n${debuggingReports.join('\n---\n')}` }] });
-                    reviewHistory.push(thinkPrimerMessage);
 
                     const reviewInputTokens = reviewHistory.reduce((sum, msg) => sum + countMessageTokens(msg), 0);
                     const reviewApiCall = [() => generateContentWithRetries(apiKey, 'gemini-flash-latest', reviewHistory, reviewConsolidationSystemInstruction, undefined, cancellationRef, onStatusUpdateForRetries, cancellableSleep)];
                     const reviewResult = (await executeManagedBatchCall('gemini-flash-latest', reviewInputTokens, cancellableSleep, reviewApiCall, onStatusUpdateForRetries))[0];
                     if (cancellationRef.current) throw new Error("Cancelled by user");
                     if (reviewResult instanceof Error) throw reviewResult;
-                    consolidatedReview = extractTextWithoutThink(reviewResult.text);
+                    consolidatedReview = reviewResult.text;
                     setAdvancedCoderState(prev => updatePhase(prev, 'review', { status: 'completed', output: consolidatedReview }));
                 } else {
                      setAdvancedCoderState(prev => updatePhase(prev, 'review', { status: 'skipped' }));
@@ -602,7 +581,6 @@ Ensure your response is complete and contains all necessary file operations.`;
             if (projectFileContext) {
                  historyForApiWithContext.splice(historyForApiWithContext.length - 1, 0, { role: 'user', parts: [{ text: `${projectContextPreamble}\n\n${projectFileContext}`}] });
             }
-            historyForApiWithContext.push(thinkPrimerMessage);
 
             const systemInstruction = MODES['simple-coder'].systemInstruction!;
 
