@@ -8,6 +8,7 @@ import ChatProvider from './features/chat/ChatProvider';
 import { useChat } from './features/chat/ChatContext';
 import { useFileSystem } from './features/file-system/FileSystemContext';
 import { ImageIcon } from './components/icons';
+import FileSearchModal from './features/file-system/FileSearchModal';
 
 
 // Custom hook to detect window size
@@ -30,6 +31,7 @@ const useWindowSize = () => {
 const AppContent: React.FC = () => {
   const isMobile = useWindowSize();
   const [isSidebarOpen, setIsSidebarOpen] = useState(!isMobile);
+  const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
 
   const { isLoading: isChatLoading, isReadingFilesFs: isChatProviderReadingFiles } = useChat();
   const {
@@ -62,6 +64,21 @@ const AppContent: React.FC = () => {
     };
   }, [isChatLoading, combinedIsReadingFiles, handleGlobalDragEnter, handleGlobalDragOver, handleGlobalDrop, handleDragLeave]);
 
+  // Global keyboard shortcut for search modal
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+        e.preventDefault();
+        setIsSearchModalOpen(true);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, []);
+
 
   return (
     <div className="flex h-screen w-full bg-[#131314] text-gray-200 font-sans overflow-hidden">
@@ -84,6 +101,10 @@ const AppContent: React.FC = () => {
         isMobile={isMobile}
       />
       {editingFile && <FileEditorModal />}
+      <FileSearchModal 
+        isOpen={isSearchModalOpen}
+        onClose={() => setIsSearchModalOpen(false)}
+      />
     </div>
   );
 };

@@ -4,7 +4,6 @@ import FileTree from './FileTree';
 import { useFileSystem } from './FileSystemContext';
 import { useChat } from '../chat/ChatContext';
 import { useSettings } from '../settings/SettingsContext';
-import FileSearchModal from './FileSearchModal';
 
 
 interface SidebarProps {
@@ -29,8 +28,6 @@ const Sidebar: React.FC<SidebarProps> = ({
   } = useSettings();
 
   const [isCreateMenuOpen, setCreateMenuOpen] = useState(false);
-  const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
-  const isHoveringFileTree = useRef(false);
   const createMenuRef = useRef<HTMLDivElement>(null);
   const createButtonRef = useRef<HTMLButtonElement>(null);
 
@@ -50,22 +47,6 @@ const Sidebar: React.FC<SidebarProps> = ({
       document.removeEventListener('mousedown', handleClickOutside);
     };
   }, [isCreateMenuOpen]);
-
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
-        if (isHoveringFileTree.current) {
-          e.preventDefault();
-          setIsSearchModalOpen(true);
-        }
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-    };
-  }, []);
 
 
   const handleProjectSyncClick = () => {
@@ -88,10 +69,6 @@ const Sidebar: React.FC<SidebarProps> = ({
 
   return (
     <>
-      <FileSearchModal 
-        isOpen={isSearchModalOpen}
-        onClose={() => setIsSearchModalOpen(false)}
-      />
       <div
         className={`bg-[#1e1f20] flex flex-col transition-all duration-300 ease-in-out ${
           isOpen ? 'w-72 p-4' : 'w-20 p-3'
@@ -199,8 +176,6 @@ const Sidebar: React.FC<SidebarProps> = ({
 
             <div 
               className="flex-1 overflow-y-auto overflow-x-hidden custom-scrollbar pr-1 -mr-2"
-              onMouseEnter={() => { isHoveringFileTree.current = true; }}
-              onMouseLeave={() => { isHoveringFileTree.current = false; }}
             >
               <FileTree />
             </div>
