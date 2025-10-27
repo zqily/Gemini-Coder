@@ -38,6 +38,7 @@ export type ChatPart = TextPart | InlineDataPart | FunctionCallPart | FunctionRe
 export interface ChatMessage {
   role: 'user' | 'model' | 'tool';
   parts: ChatPart[];
+  mode?: ModeId;
 }
 
 export interface AttachedFile {

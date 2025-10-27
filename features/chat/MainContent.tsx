@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { HelpCircle, ChevronDown, User, ImageIcon, File as FileIcon, Menu, Copy, Check, Trash2 } from '../../components/icons';
+import { HelpCircle, ChevronDown, User, ImageIcon, File as FileIcon, Menu, Copy, Check, Trash2 } from '../../components/Icons';
 import PromptInput from './PromptInput';
-import type { ChatMessage, ChatPart, FunctionCallPart, FunctionResponsePart, TextPart, InlineDataPart } from '../../types';
+import type { ChatMessage, ChatPart, FunctionCallPart, FunctionResponsePart, TextPart, InlineDataPart, Mode, ModeId } from '../../types';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
@@ -170,12 +170,13 @@ interface ChatBubbleProps {
   message: ChatMessage;
   toolResponseMessage?: ChatMessage;
   onDelete: () => void;
+  modes: Record<ModeId, Mode>;
 }
 
 const isFunctionCallPart = (part: ChatPart): part is FunctionCallPart => 'functionCall' in part;
 const isFunctionResponsePart = (part: ChatPart): part is FunctionResponsePart => 'functionResponse' in part;
 
-const ChatBubble: React.FC<ChatBubbleProps> = ({ message, toolResponseMessage, onDelete }) => {
+const ChatBubble: React.FC<ChatBubbleProps> = ({ message, toolResponseMessage, onDelete, modes }) => {
     const isUser = message.role === 'user';
     const isModel = message.role === 'model';
     
@@ -187,7 +188,16 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message, toolResponseMessage, o
     const mainText = rawTextContent;
 
     const Icon = isUser ? User : GeminiIcon;
-    const name = isUser ? 'You' : 'Gemini';
+    
+    let name = 'You';
+    if (isModel) {
+        const modeId = message.mode || 'default';
+        if (modeId === 'default') {
+            name = 'Gemini';
+        } else {
+            name = modes[modeId]?.name || 'Gemini';
+        }
+    }
 
     return (
         <div className="group relative flex flex-col mb-10 animate-fade-in-up">
@@ -316,7 +326,7 @@ const TypingIndicator = ({ message }: { message?: string }) => (
 const MainContent: React.FC<MainContentProps> = ({ isMobile, toggleSidebar }) => {
   const { 
     chatHistory, isLoading, onSubmit, onDeleteMessage,
-    selectedMode, advancedCoderState
+    selectedMode, advancedCoderState, modes,
   } = useChat();
   const { setIsHelpModalOpen } = useSettings(); // Use setIsHelpModalOpen from SettingsContext
 
@@ -397,7 +407,7 @@ const MainContent: React.FC<MainContentProps> = ({ isMobile, toggleSidebar }) =>
                             }
                         };
 
-                        return <ChatBubble key={originalIndex > -1 ? originalIndex : index} message={msg} toolResponseMessage={toolResponseMessage} onDelete={handleDelete} />;
+                        return <ChatBubble key={originalIndex > -1 ? originalIndex : index} message={msg} toolResponseMessage={toolResponseMessage} onDelete={handleDelete} modes={modes} />;
                     })}
                     {showAdvancedCoderProgress && <AdvancedCoderProgress state={advancedCoderState} />}
                     {showTypingIndicator && <TypingIndicator message={statusMessageForIndicator} />}

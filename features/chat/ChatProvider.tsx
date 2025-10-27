@@ -372,7 +372,7 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
     };
 
     if (!isResend || chatHistory[chatHistory.length - 1]?.role !== 'model') {
-      setChatHistory(prev => [...prev, { role: 'model', parts: [{ text: '' }] }]);
+      setChatHistory(prev => [...prev, { role: 'model', parts: [{ text: '' }], mode: selectedMode }]);
     }
     
     const getProjectContextStringLocal = (): string | null => {
@@ -543,7 +543,7 @@ Ensure your response is complete and contains all necessary file operations.`;
                     if (summaryText) modelTurnParts.push({ text: summaryText });
                     functionCalls.forEach(fc => modelTurnParts.push({ functionCall: fc }));
 
-                    const modelTurnWithMessage: ChatMessage = { role: 'model', parts: modelTurnParts };
+                    const modelTurnWithMessage: ChatMessage = { role: 'model', parts: modelTurnParts, mode: selectedMode };
 
                     setChatHistory(prev => {
                         const newHistory = [...prev];
@@ -596,7 +596,7 @@ Ensure your response is complete and contains all necessary file operations.`;
                 if (summaryText) modelTurnParts.push({ text: summaryText });
                 functionCalls.forEach(fc => modelTurnParts.push({ functionCall: fc }));
 
-                const modelTurnWithMessage: ChatMessage = { role: 'model', parts: modelTurnParts };
+                const modelTurnWithMessage: ChatMessage = { role: 'model', parts: modelTurnParts, mode: selectedMode };
 
                 setChatHistory(prev => {
                     const newHistory = [...prev];
@@ -666,7 +666,7 @@ Ensure your response is complete and contains all necessary file operations.`;
                 if (!modelResponseText.trim()) {
                     setChatHistory(prev => prev.slice(0, -1));
                 } else {
-                    const modelTurnWithMessage: ChatMessage = { role: 'model', parts: [{ text: modelResponseText }] };
+                    const modelTurnWithMessage: ChatMessage = { role: 'model', parts: [{ text: modelResponseText }], mode: selectedMode };
                     setChatHistory(prev => {
                         const newHistory = [...prev];
                         newHistory[newHistory.length - 1] = modelTurnWithMessage;
@@ -679,7 +679,7 @@ Ensure your response is complete and contains all necessary file operations.`;
       console.error("A critical error occurred during prompt submission:", error);
       const errorMessageText = error instanceof Error ? error.message : 'An unknown error occurred';
       if (errorMessageText !== 'Cancelled by user') {
-          const errorMessage: ChatMessage = { role: 'model', parts: [{ text: `Error: ${errorMessageText}` }] };
+          const errorMessage: ChatMessage = { role: 'model', parts: [{ text: `Error: ${errorMessageText}` }], mode: selectedMode };
           setChatHistory(prev => {
               const newHistory = [...prev];
               // Replace the placeholder message with the error.
