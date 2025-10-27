@@ -271,4 +271,33 @@
     from { background-color: rgba(250, 204, 21, 0.1); }
     to { background-color: transparent; }
   }
+
+  /* New animations for Toasts */
+  @keyframes toast-in {
+    from {
+      opacity: 0;
+      transform: translateX(100%);
+    }
+    to {
+      opacity: 1;
+      transform: translateX(0);
+    }
+  }
+  .animate-toast-in {
+    animation: toast-in 0.3s ease-out forwards;
+  }
+
+  @keyframes toast-out {
+    from {
+      opacity: 1;
+      transform: translateX(0);
+    }
+    to {
+      opacity: 0;
+      transform: translateX(100%);
+    }
+  }
+  .animate-toast-out {
+    animation: toast-out 0.3s ease-in forwards;
+  }
 }

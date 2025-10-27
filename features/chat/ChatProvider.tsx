@@ -11,6 +11,7 @@ import { FunctionCall, GenerateContentResponse } from '@google/genai';
 import { ALL_ACCEPTED_MIME_TYPES, CONVERTIBLE_TO_TEXT_MIME_TYPES, fileToDataURL } from './utils/fileUpload';
 import { useFileSystem } from '../file-system/FileSystemContext';
 import { countTextTokens, countImageTokens, countMessageTokens } from './utils/tokenCounter';
+import { useToast } from '../toast/ToastContext';
 
 
 interface ChatProviderProps {
@@ -224,6 +225,7 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
   const [selectedMode, setSelectedMode] = useSelectedMode();
 
   const { apiKey, isStreamingEnabled, setIsSettingsModalOpen } = useSettings();
+  const { showToast } = useToast();
 
   const { 
     projectContext,
@@ -333,8 +335,9 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
   const handleChatFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     if (event.target.files) {
       const newFiles: AttachedFile[] = [];
-      for (let i = 0; i < event.target.files.length; i++) {
-        const file = event.target.files[i];
+      const files = Array.from(event.target.files);
+      
+      for (const file of files) {
         if (ALL_ACCEPTED_MIME_TYPES.includes(file.type) || Object.keys(CONVERTIBLE_TO_TEXT_MIME_TYPES).includes(file.type)) {
             const dataURL = await fileToDataURL(file);
             newFiles.push({
@@ -344,10 +347,18 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
                 content: dataURL,
             });
         } else {
-            alert(`File type not supported: ${file.type}. Skipping ${file.name}.`);
+            showToast(`File type not supported: ${file.type}. Skipping ${file.name}.`, 'error');
         }
       }
-      setAttachedFiles(prev => [...prev, ...newFiles]);
+
+      if (newFiles.length > 0) {
+        setAttachedFiles(prev => [...prev, ...newFiles]);
+        if (newFiles.length === 1) {
+            showToast(`Attached file: ${newFiles[0].name}`, 'success');
+        } else {
+            showToast(`Attached ${newFiles.length} files.`, 'success');
+        }
+      }
     }
     event.target.value = '';
   };
@@ -756,7 +767,7 @@ Ensure your response is complete and contains all necessary file operations.`;
   }, [
     apiKey, chatHistory, selectedModel, selectedMode, isStreamingEnabled,
     setIsSettingsModalOpen, getSerializableContext, applyFunctionCalls, attachedFiles,
-    clearProjectContext, setCreatingInFs, prompt
+    clearProjectContext, setCreatingInFs, prompt, showToast
   ]);
 
 

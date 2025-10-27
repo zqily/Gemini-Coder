@@ -3,6 +3,7 @@ export {
   Bot,
   BrainCircuit,
   Check,
+  CheckCircle,
   ChevronDown,
   CircleDot,
   ClipboardCopy,
@@ -32,5 +33,6 @@ export {
   Trash2,
   User,
   X,
+  XCircle,
   UploadCloud,
 } from 'lucide-react';

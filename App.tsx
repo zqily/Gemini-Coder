@@ -10,6 +10,7 @@ import { useFileSystem } from './features/file-system/FileSystemContext';
 import { ImageIcon } from './components/icons';
 import FileSearchModal from './features/file-system/FileSearchModal';
 import { useSettings } from './features/settings/SettingsContext';
+import { ToastProvider } from './features/toast/ToastProvider';
 
 
 // Custom hook to detect window size
@@ -139,9 +140,11 @@ const App: React.FC = () => {
   return (
     <SettingsProvider>
       <FileSystemProvider>
-        <ChatProvider>
-          <AppContent />
-        </ChatProvider>
+        <ToastProvider>
+          <ChatProvider>
+            <AppContent />
+          </ChatProvider>
+        </ToastProvider>
       </FileSystemProvider>
     </SettingsProvider>
   );
