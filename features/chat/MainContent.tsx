@@ -285,12 +285,12 @@ const WelcomeScreen: React.FC<{ onExampleClick: (prompt: string) => void }> = ({
         { title: "Create a regex", prompt: "Create a regex to validate an email address according to common standards." },
     ];
     return (
-         <div className="flex flex-col h-full justify-center items-center text-center pb-24">
-            <img src="/assets/gemini.svg" alt="Gemini Logo" className="w-20 h-20 mb-6" />
-            <h1 className="text-5xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-purple-500 animate-flow-gradient">
+         <div className="flex flex-col h-full justify-center items-center text-center pb-16 lg:pb-24">
+            <img src="/assets/gemini.svg" alt="Gemini Logo" className="w-16 h-16 lg:w-20 lg:h-20 mb-4 lg:mb-6" />
+            <h1 className="text-4xl lg:text-5xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-purple-500 animate-flow-gradient">
                 Hello, how can I help?
             </h1>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-12 w-full max-w-2xl">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-8 lg:mt-12 w-full max-w-2xl">
                 {examples.map(ex => (
                     <button key={ex.title} onClick={() => onExampleClick(ex.prompt)} className="bg-[#1e1f20] p-4 rounded-lg text-left hover:bg-[#2a2b2d] transition-all duration-200 transform hover:scale-[1.02]">
                         <p className="font-semibold text-white">{ex.title}</p>
