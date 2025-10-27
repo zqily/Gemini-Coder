@@ -9,6 +9,7 @@ import { useChat } from './features/chat/ChatContext';
 import { useFileSystem } from './features/file-system/FileSystemContext';
 import { ImageIcon } from './components/icons';
 import FileSearchModal from './features/file-system/FileSearchModal';
+import { useSettings } from './features/settings/SettingsContext';
 
 
 // Custom hook to detect window size
@@ -33,7 +34,7 @@ const AppContent: React.FC = () => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(!isMobile);
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
 
-  const { isLoading: isChatLoading, isReadingFilesFs: isChatProviderReadingFiles } = useChat();
+  const { isLoading: isChatLoading, isReadingFilesFs: isChatProviderReadingFiles, onNewChat } = useChat();
   const {
     isDragging,
     isReadingFiles,
@@ -43,6 +44,7 @@ const AppContent: React.FC = () => {
     handleDragLeave,
     editingFile,
   } = useFileSystem();
+  const { setIsSettingsModalOpen } = useSettings();
 
   // Combine both reading states for global drag listener condition
   const combinedIsReadingFiles = isReadingFiles || isChatProviderReadingFiles;
@@ -59,17 +61,40 @@ const AppContent: React.FC = () => {
     return () => {
         window.removeEventListener('dragenter', handleGlobalDragEnter);
         window.removeEventListener('dragover', handleGlobalDragOver);
-        window.removeEventListener('dragleave', handleGlobalDrop);
+        window.removeEventListener('dragleave', handleDragLeave);
         window.removeEventListener('drop', handleGlobalDrop);
     };
   }, [isChatLoading, combinedIsReadingFiles, handleGlobalDragEnter, handleGlobalDragOver, handleGlobalDrop, handleDragLeave]);
 
-  // Global keyboard shortcut for search modal
+  // Global keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+      // We only care about shortcuts with Ctrl or Command
+      if (!e.ctrlKey && !e.metaKey) {
+        return;
+      }
+
+      const key = e.key.toLowerCase();
+
+      // New Chat: Ctrl+N or Ctrl+Shift+N
+      if (key === 'n') {
+        e.preventDefault();
+        onNewChat();
+        return;
+      }
+      
+      // Open File Search: Ctrl+S or Ctrl+Shift+F
+      if (key === 's' || (key === 'f' && e.shiftKey)) {
         e.preventDefault();
         setIsSearchModalOpen(true);
+        return;
+      }
+      
+      // Open Settings: Ctrl+,
+      if (key === ',') {
+        e.preventDefault();
+        setIsSettingsModalOpen(true);
+        return;
       }
     };
 
@@ -77,7 +102,7 @@ const AppContent: React.FC = () => {
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, []);
+  }, [onNewChat, setIsSearchModalOpen, setIsSettingsModalOpen]);
 
 
   return (
