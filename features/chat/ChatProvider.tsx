@@ -27,9 +27,7 @@ interface CommandMatch {
 /**
  * Parses the model's text response to extract a summary and file system commands.
  * This function is designed to be robust against formatting variations from the model.
- * It operates by finding all `@@` commands and treating the text between them as
- * content for the preceding command. For `@@writeFile`, this content becomes the file's
- * content. For other commands, it's treated as part of the summary.
+ * It dynamically chooses a parsing strategy based on the presence of `--- START OF ---` blocks.
  * @param responseText The raw text from the model.
  * @returns An object with the user-facing summary and an array of FunctionCall objects.
  */
@@ -39,104 +37,155 @@ const parseHybridResponse = (responseText: string): { summary: string; functionC
     }
 
     const functionCalls: FunctionCall[] = [];
-    const commandRegex = /^(@@\w+)\s*(.*)/gm;
-    const matches: CommandMatch[] = [];
-    let match;
+    const hasContentBlocks = /--- START OF .*?---/i.test(responseText);
 
-    // 1. Find all commands and their start indices.
-    while ((match = commandRegex.exec(responseText)) !== null) {
-        const command = match[1];
-        const argsLine = match[2].trim();
-        matches.push({
-            commandLine: match[0],
-            command: command,
-            args: argsLine.split(/\s+/).filter(Boolean), // Filter out empty strings from args
-            index: match.index
-        });
-    }
+    // If we detect `--- START OF ---` blocks, we prioritize a block-based parsing strategy.
+    // This handles cases where the model lists commands first, then all file contents.
+    if (hasContentBlocks) {
+        let summary = responseText;
 
-    if (matches.length === 0) {
-        // No commands found, the entire response is a summary.
-        return { summary: responseText, functionCalls: [] };
-    }
-
-    // 2. Any text before the first command is considered part of the summary.
-    let summary = responseText.substring(0, matches[0].index);
-
-    // 3. Process each command and the content that follows it.
-    for (let i = 0; i < matches.length; i++) {
-        const currentMatch = matches[i];
-        const nextMatch = matches[i + 1];
-
-        // The content for the current command is the text between it and the next command.
-        const contentStartIndex = currentMatch.index + currentMatch.commandLine.length;
-        const contentEndIndex = nextMatch ? nextMatch.index : responseText.length;
+        // 1. Extract all content blocks using their START/END markers.
+        const contentBlockRegex = /--- START OF (?:FILE: )?(.*?) ---\r?\n([\s\S]*?)\r?\n--- END OF (?:FILE: )?.*?---\r?\n?/gi;
         
-        let content = responseText.substring(contentStartIndex, contentEndIndex);
+        summary = summary.replace(contentBlockRegex, (match, path, content) => {
+            const cleanedPath = path.trim();
+            if (!cleanedPath) return match; // Don't process blocks with empty paths
 
-        switch (currentMatch.command) {
-            case '@@writeFile': {
-                const path = currentMatch.args[0];
-                if (!path) {
-                    // If writeFile is malformed (no path), treat the whole block as summary.
-                    summary += `\n${currentMatch.commandLine}${content}`;
-                    continue;
-                }
+            let fileContent = content.trim();
+            fileContent = fileContent.replace(/^```[a-z]*\r?\n/, '');
+            fileContent = fileContent.replace(/\r?\n```$/, '');
+            functionCalls.push({ name: 'writeFile', args: { path: cleanedPath, content: fileContent.trim() } });
+            
+            return ''; // Remove this block from the text to be processed further
+        });
 
-                // Robustly clean the content of optional separators and code fences.
-                // This allows for many variations in the model's output.
-                let fileContent = content.trim();
-                fileContent = fileContent.replace(/^--- START OF .*? ---\r?\n/i, '');
-                fileContent = fileContent.replace(/\r?\n--- END OF .*? ---$/i, '');
-                fileContent = fileContent.replace(/^```[a-z]*\r?\n/, '');
-                fileContent = fileContent.replace(/\r?\n```$/, '');
-                
-                functionCalls.push({ name: 'writeFile', args: { path: path.trim(), content: fileContent.trim() } });
-                break;
-            }
-            case '@@moves': {
-                const sourcePath = currentMatch.args[0];
-                const destinationPath = currentMatch.args[1];
-                if (sourcePath && destinationPath) {
-                    functionCalls.push({ name: 'move', args: { sourcePath, destinationPath } });
-                } else {
-                     summary += `\n${currentMatch.commandLine}`;
+        // 2. Remove any `@@writeFile` commands, as their content has been handled.
+        summary = summary.replace(/^(@@writeFile\s+.*)\r?\n?/gm, '');
+
+        // 3. Parse the rest of the text for other commands.
+        const commandRegex = /^(@@\w+)\s*(.*)/gm;
+        
+        const remainingTextWithoutOtherCommands = summary.replace(commandRegex, (match, command, argsLine) => {
+            const args = argsLine.trim().split(/\s+/).filter(Boolean);
+            switch (command) {
+                case '@@moves': {
+                    const [sourcePath, destinationPath] = args;
+                    if (sourcePath && destinationPath) {
+                        functionCalls.push({ name: 'move', args: { sourcePath, destinationPath } });
+                    }
+                    return ''; // Remove command line
                 }
-                // For single-line commands, the content that follows is part of the summary.
-                summary += content;
-                break;
-            }
-            case '@@createFolder': {
-                const path = currentMatch.args[0];
-                if (path) {
-                    functionCalls.push({ name: 'createFolder', args: { path } });
-                } else {
-                    summary += `\n${currentMatch.commandLine}`;
+                case '@@createFolder': {
+                    const [path] = args;
+                    if (path) {
+                        functionCalls.push({ name: 'createFolder', args: { path } });
+                    }
+                    return '';
                 }
-                summary += content;
-                break;
-            }
-            case '@@deletePaths': {
-                const path = currentMatch.args[0];
-                if (path) {
-                    functionCalls.push({ name: 'deletePath', args: { path } });
-                } else {
-                    summary += `\n${currentMatch.commandLine}`;
+                case '@@deletePaths': {
+                    const [path] = args;
+                    if (path) {
+                        functionCalls.push({ name: 'deletePath', args: { path } });
+                    }
+                    return '';
                 }
-                summary += content;
-                break;
+                default:
+                    return match; // Keep unknown commands in the text
             }
-            default:
-                // An unknown command and its content are treated as part of the summary.
-                summary += `\n${currentMatch.commandLine}${content}`;
-                break;
+        });
+        
+        summary = remainingTextWithoutOtherCommands.trim().replace(/(\r?\n){3,}/g, '\n\n');
+        return { summary: summary.trim(), functionCalls };
+
+    } else {
+        // Fallback to the original logic for interleaved commands if no START/END blocks are detected.
+        const commandRegex = /^(@@\w+)\s*(.*)/gm;
+        const matches: CommandMatch[] = [];
+        let match;
+
+        while ((match = commandRegex.exec(responseText)) !== null) {
+            const command = match[1];
+            const argsLine = match[2].trim();
+            matches.push({
+                commandLine: match[0],
+                command: command,
+                args: argsLine.split(/\s+/).filter(Boolean),
+                index: match.index
+            });
         }
+
+        if (matches.length === 0) {
+            return { summary: responseText, functionCalls: [] };
+        }
+
+        let summary = responseText.substring(0, matches[0].index);
+
+        for (let i = 0; i < matches.length; i++) {
+            const currentMatch = matches[i];
+            const nextMatch = matches[i + 1];
+
+            const contentStartIndex = currentMatch.index + currentMatch.commandLine.length;
+            const contentEndIndex = nextMatch ? nextMatch.index : responseText.length;
+            
+            let content = responseText.substring(contentStartIndex, contentEndIndex);
+
+            switch (currentMatch.command) {
+                case '@@writeFile': {
+                    const path = currentMatch.args[0];
+                    if (!path) {
+                        summary += `\n${currentMatch.commandLine}${content}`;
+                        continue;
+                    }
+
+                    let fileContent = content.trim();
+                    fileContent = fileContent.replace(/^--- START OF .*? ---\r?\n/i, '');
+                    fileContent = fileContent.replace(/\r?\n--- END OF .*? ---$/i, '');
+                    fileContent = fileContent.replace(/^```[a-z]*\r?\n/, '');
+                    fileContent = fileContent.replace(/\r?\n```$/, '');
+                    
+                    functionCalls.push({ name: 'writeFile', args: { path: path.trim(), content: fileContent.trim() } });
+                    break;
+                }
+                case '@@moves': {
+                    const sourcePath = currentMatch.args[0];
+                    const destinationPath = currentMatch.args[1];
+                    if (sourcePath && destinationPath) {
+                        functionCalls.push({ name: 'move', args: { sourcePath, destinationPath } });
+                    } else {
+                         summary += `\n${currentMatch.commandLine}`;
+                    }
+                    summary += content;
+                    break;
+                }
+                case '@@createFolder': {
+                    const path = currentMatch.args[0];
+                    if (path) {
+                        functionCalls.push({ name: 'createFolder', args: { path } });
+                    } else {
+                        summary += `\n${currentMatch.commandLine}`;
+                    }
+                    summary += content;
+                    break;
+                }
+                case '@@deletePaths': {
+                    const path = currentMatch.args[0];
+                    if (path) {
+                        functionCalls.push({ name: 'deletePath', args: { path } });
+                    } else {
+                        summary += `\n${currentMatch.commandLine}`;
+                    }
+                    summary += content;
+                    break;
+                }
+                default:
+                    summary += `\n${currentMatch.commandLine}${content}`;
+                    break;
+            }
+        }
+
+        summary = summary.trim().replace(/(\r?\n){3,}/g, '\n\n');
+        return { summary: summary.trim(), functionCalls };
     }
-
-    // Final cleanup of the aggregated summary text.
-    summary = summary.trim().replace(/(\r?\n){3,}/g, '\n\n');
-
-    return { summary: summary.trim(), functionCalls };
 };
 
 const initialAdvancedCoderState: AdvancedCoderState = {
