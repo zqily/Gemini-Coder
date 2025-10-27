@@ -1,5 +1,7 @@
 import React from 'react';
 
+export type IndicatorState = 'loading' | 'error' | 'delay';
+
 export type ModeId = 'default' | 'simple-coder' | 'advanced-coder';
 
 export interface Mode {

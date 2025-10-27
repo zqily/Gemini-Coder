@@ -1,5 +1,5 @@
 import React from 'react';
-import type { ChatMessage, AttachedFile, Mode, ModeId, ChatPart, AdvancedCoderState } from '../../types';
+import type { ChatMessage, AttachedFile, Mode, ModeId, ChatPart, AdvancedCoderState, IndicatorState } from '../../types';
 import type { FunctionCall } from '@google/genai';
 
 export interface ChatContextType {
@@ -13,6 +13,7 @@ export interface ChatContextType {
   setPrompt: React.Dispatch<React.SetStateAction<string>>;
   totalTokens: number;
   advancedCoderState: AdvancedCoderState | null;
+  indicatorState: IndicatorState;
 
   setAttachedFiles: React.Dispatch<React.SetStateAction<AttachedFile[]>>;
   setSelectedModel: (model: string) => void;

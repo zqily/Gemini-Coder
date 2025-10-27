@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { HelpCircle, ChevronDown, User, ImageIcon, File as FileIcon, Menu, Copy, Check, Trash2, Search } from '../../components/icons';
 import PromptInput from './PromptInput';
-import type { ChatMessage, ChatPart, FunctionCallPart, FunctionResponsePart, TextPart, InlineDataPart, Mode, ModeId, GroundingChunk } from '../../types';
+import type { ChatMessage, ChatPart, FunctionCallPart, FunctionResponsePart, TextPart, InlineDataPart, Mode, ModeId, GroundingChunk, IndicatorState } from '../../types';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
@@ -9,7 +9,6 @@ import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import GeminiIcon from '../../components/GeminiIcon';
 import { useChat } from './ChatContext';
 import { useSettings } from '../settings/SettingsContext';
-import { useFileSystem } from '../file-system/FileSystemContext';
 import AdvancedCoderProgress from './AdvancedCoderProgress';
 
 
@@ -344,21 +343,28 @@ const WelcomeScreen: React.FC<{ onExampleClick: (prompt: string) => void }> = ({
     );
 }
 
-const TypingIndicator = ({ message }: { message?: string }) => (
-    <div className="flex items-center space-x-3 mb-6 animate-fade-in-up ml-11">
-        <div className="flex items-center space-x-2 p-3 bg-transparent rounded-lg">
-            <div className="w-3 h-3 bg-blue-500 rounded-full typing-dot"></div>
-            <div className="w-3 h-3 bg-purple-500 rounded-full typing-dot"></div>
-            <div className="w-3 h-3 bg-blue-400 rounded-full typing-dot"></div>
+const TypingIndicator = ({ message, state }: { message?: string, state: IndicatorState }) => {
+    const stateClasses = {
+        loading: '',
+        error: 'typing-dot-error',
+        delay: 'typing-dot-delay',
+    }[state];
+    return (
+        <div className="flex items-center space-x-3 mb-6 animate-fade-in-up ml-11">
+            <div className="flex items-center space-x-2 p-3 bg-transparent rounded-lg">
+                <div className={`w-3 h-3 bg-blue-500 rounded-full typing-dot ${stateClasses}`}></div>
+                <div className={`w-3 h-3 bg-purple-500 rounded-full typing-dot ${stateClasses}`}></div>
+                <div className={`w-3 h-3 bg-blue-400 rounded-full typing-dot ${stateClasses}`}></div>
+            </div>
+            {message && <div className="text-gray-200">{message}</div>}
         </div>
-        {message && <div className="text-gray-200">{message}</div>}
-    </div>
-);
+    );
+};
 
 const MainContent: React.FC<MainContentProps> = ({ isMobile, toggleSidebar }) => {
   const { 
     chatHistory, isLoading, onSubmit, onDeleteMessage,
-    selectedMode, advancedCoderState, modes,
+    selectedMode, advancedCoderState, modes, indicatorState,
   } = useChat();
   const { setIsHelpModalOpen } = useSettings(); // Use setIsHelpModalOpen from SettingsContext
 
@@ -442,7 +448,7 @@ const MainContent: React.FC<MainContentProps> = ({ isMobile, toggleSidebar }) =>
                         return <ChatBubble key={originalIndex > -1 ? originalIndex : index} message={msg} toolResponseMessage={toolResponseMessage} onDelete={handleDelete} modes={modes} />;
                     })}
                     {showAdvancedCoderProgress && <AdvancedCoderProgress state={advancedCoderState} />}
-                    {showTypingIndicator && <TypingIndicator message={statusMessageForIndicator} />}
+                    {showTypingIndicator && <TypingIndicator message={statusMessageForIndicator} state={indicatorState} />}
                  </div>
             )}
         </div>

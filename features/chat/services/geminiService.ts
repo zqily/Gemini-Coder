@@ -1,6 +1,6 @@
 import React from 'react';
 import { GoogleGenAI, FunctionDeclaration, GenerateContentResponse } from "@google/genai";
-import type { ChatMessage } from '../../../types';
+import type { ChatMessage, IndicatorState } from '../../../types';
 
 /**
  * Generates content with the Google Gemini API.
@@ -59,6 +59,7 @@ export const generateContent = async (
  * @param tools - Optional function calling tools.
  * @param cancellationRef - A React ref to check if the user has cancelled the request.
  * @param onStatusUpdate - A callback to update the UI with status messages (e.g., "Retrying...").
+ * @param onStateChange - A callback to update the UI with the indicator's visual state.
  * @param cancellableSleep - A sleep function that can be interrupted by the cancellationRef.
  * @param additionalConfig - Optional additional configuration for the request.
  * @returns A promise that resolves to the generation response, or throws an error if all retries fail.
@@ -71,6 +72,7 @@ export const generateContentWithRetries = async (
   tools: any | undefined,
   cancellationRef: React.MutableRefObject<boolean>,
   onStatusUpdate: (message: string) => void,
+  onStateChange: (state: IndicatorState) => void,
   cancellableSleep: (ms: number) => Promise<void>,
   additionalConfig?: object
 ): Promise<GenerateContentResponse> => {
@@ -93,6 +95,10 @@ export const generateContentWithRetries = async (
       return response; // Success, return response object and exit loop
     } catch (error: any) {
       if (cancellationRef.current) throw error;
+      
+      onStateChange('error');
+      await cancellableSleep(600); // For error animation
+      if (cancellationRef.current) throw new Error("Cancelled by user");
 
       let statusCode: number | undefined;
       const message = error instanceof Error ? error.message : String(error);
@@ -135,8 +141,10 @@ export const generateContentWithRetries = async (
       if (statusCode === 503) {
         const delay = Math.min(initialDelay503 + retries503 * increment503, maxDelay503);
         retries503++;
+        onStateChange('delay');
         onStatusUpdate(`Model is overloaded. Retrying in ${delay / 1000}s...`);
         await cancellableSleep(delay);
+        onStateChange('loading');
         onStatusUpdate('');
         retriesOther = 0; // Reset other error counter
         continue; // Retry
@@ -151,8 +159,10 @@ export const generateContentWithRetries = async (
           : `An unknown error occurred. Retrying in ${delay / 1000}s... (Attempt ${attempt}/${maxRetriesOther})`;
 
         retriesOther++;
+        onStateChange('delay');
         onStatusUpdate(userMessage);
         await cancellableSleep(delay);
+        onStateChange('loading');
         onStatusUpdate('');
         retries503 = 0; // Reset 503 error counter
         continue; // Retry
@@ -172,6 +182,7 @@ export const generateContentWithRetries = async (
  * @param systemInstruction Optional system instruction.
  * @param cancellationRef A React ref to check for user cancellation.
  * @param onStatusUpdate A callback to update the UI with status messages.
+ * @param onStateChange - A callback to update the UI with the indicator's visual state.
  * @param cancellableSleep A sleep function that can be interrupted.
  * @param additionalConfig - Optional additional configuration for the request.
  * @returns An async generator that yields generation response chunks.
@@ -183,6 +194,7 @@ export const generateContentStreamWithRetries = async function* (
   systemInstruction: string | undefined,
   cancellationRef: React.MutableRefObject<boolean>,
   onStatusUpdate: (message: string) => void,
+  onStateChange: (state: IndicatorState) => void,
   cancellableSleep: (ms: number) => Promise<void>,
   additionalConfig?: object
 ): AsyncGenerator<GenerateContentResponse> {
@@ -230,6 +242,10 @@ export const generateContentStreamWithRetries = async function* (
     } catch (error: any) {
       if (cancellationRef.current) throw error;
 
+      onStateChange('error');
+      await cancellableSleep(600);
+      if (cancellationRef.current) throw new Error("Cancelled by user");
+
       let statusCode: number | undefined;
       const message = error instanceof Error ? error.message : String(error);
 
@@ -261,8 +277,10 @@ export const generateContentStreamWithRetries = async function* (
       if (statusCode === 503) {
         const delay = Math.min(initialDelay503 + retries503 * increment503, maxDelay503);
         retries503++;
+        onStateChange('delay');
         onStatusUpdate(`Model is overloaded. Retrying in ${delay / 1000}s...`);
         await cancellableSleep(delay);
+        onStateChange('loading');
         onStatusUpdate('');
         retriesOther = 0;
         continue;
@@ -276,8 +294,10 @@ export const generateContentStreamWithRetries = async function* (
           : `An unknown error occurred. Retrying in ${delay / 1000}s... (Attempt ${attempt}/${maxRetriesOther})`;
 
         retriesOther++;
+        onStateChange('delay');
         onStatusUpdate(userMessage);
         await cancellableSleep(delay);
+        onStateChange('loading');
         onStatusUpdate('');
         retries503 = 0;
         continue;

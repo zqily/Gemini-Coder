@@ -4,7 +4,7 @@ import { useSelectedModel } from './useSelectedModel';
 import { useSelectedMode } from './useSelectedMode';
 import { generateContentWithRetries, generateContentStreamWithRetries } from './services/geminiService';
 import { executeManagedBatchCall } from './services/rateLimitManager';
-import type { ChatMessage, AttachedFile, ChatPart, TextPart, AdvancedCoderState, GroundingChunk } from '../../types';
+import type { ChatMessage, AttachedFile, ChatPart, TextPart, AdvancedCoderState, GroundingChunk, IndicatorState } from '../../types';
 import { MODES, NO_PROBLEM_DETECTED_TOOL } from './config/modes';
 import { useSettings } from '../settings/SettingsContext';
 import { FunctionCall, GenerateContentResponse } from '@google/genai';
@@ -217,6 +217,7 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
   const [prompt, setPrompt] = useState('');
   const [totalTokens, setTotalTokens] = useState(0);
   const [advancedCoderState, setAdvancedCoderState] = useState<AdvancedCoderState | null>(null);
+  const [indicatorState, setIndicatorState] = useState<IndicatorState>('loading');
 
   const cancellationRef = useRef(false);
   const fileAttachInputRef = useRef<HTMLInputElement>(null);
@@ -412,6 +413,7 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
 
     setIsChatProcessing(true);
     cancellationRef.current = false;
+    setIndicatorState('loading');
 
     const cancellableSleep = (ms: number) => {
         return new Promise<void>((resolve, reject) => {
@@ -464,7 +466,7 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
                 const plannerInputTokens = planningHistoryForTokens.reduce((sum, msg) => sum + countMessageTokens(msg), 0);
                 
                 const planningApiCalls = Array(3).fill(0).map(() =>
-                    () => generateContentWithRetries(apiKey, 'gemini-flash-latest', planningHistoryForTokens, plannerSystemInstruction, undefined, cancellationRef, onStatusUpdateForRetries, cancellableSleep)
+                    () => generateContentWithRetries(apiKey, 'gemini-flash-latest', planningHistoryForTokens, plannerSystemInstruction, undefined, cancellationRef, onStatusUpdateForRetries, setIndicatorState, cancellableSleep)
                 );
 
                 const planningResults = await executeManagedBatchCall('gemini-flash-latest', plannerInputTokens, cancellableSleep, planningApiCalls, onStatusUpdateForRetries);
@@ -487,7 +489,7 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
                 consolidationHistory.push({ role: 'user', parts: [{ text: `Here are the plans from the architects:\n\n${successfulPlanContents.map((p, i) => `--- PLAN ${i+1} ---\n${p}`).join('\n\n')}` }] });
 
                 const consolidationInputTokens = consolidationHistory.reduce((sum, msg) => sum + countMessageTokens(msg), 0);
-                const consolidationApiCall = [() => generateContentWithRetries(apiKey, 'gemini-2.5-pro', consolidationHistory, consolidationSystemInstruction, undefined, cancellationRef, onStatusUpdateForRetries, cancellableSleep)];
+                const consolidationApiCall = [() => generateContentWithRetries(apiKey, 'gemini-2.5-pro', consolidationHistory, consolidationSystemInstruction, undefined, cancellationRef, onStatusUpdateForRetries, setIndicatorState, cancellableSleep)];
                 
                 const consolidationResult = (await executeManagedBatchCall('gemini-2.5-pro', consolidationInputTokens, cancellableSleep, consolidationApiCall, onStatusUpdateForRetries))[0];
                 if (cancellationRef.current) throw new Error("Cancelled by user");
@@ -502,7 +504,7 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
                 draftingHistory.push({ role: 'user', parts: [{ text: `Here is the master plan. Please generate the code draft.\n\n${masterPlan}` }] });
 
                 const draftingInputTokens = draftingHistory.reduce((sum, msg) => sum + countMessageTokens(msg), 0);
-                const draftingApiCall = [() => generateContentWithRetries(apiKey, 'gemini-2.5-pro', draftingHistory, draftingSystemInstruction, undefined, cancellationRef, onStatusUpdateForRetries, cancellableSleep)];
+                const draftingApiCall = [() => generateContentWithRetries(apiKey, 'gemini-2.5-pro', draftingHistory, draftingSystemInstruction, undefined, cancellationRef, onStatusUpdateForRetries, setIndicatorState, cancellableSleep)];
                 const draftingResult = (await executeManagedBatchCall('gemini-2.5-pro', draftingInputTokens, cancellableSleep, draftingApiCall, onStatusUpdateForRetries))[0];
                 if (cancellationRef.current) throw new Error("Cancelled by user");
                 if (draftingResult instanceof Error) throw draftingResult;
@@ -518,7 +520,7 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
 
                 const debuggingInputTokens = debuggingHistory.reduce((sum, msg) => sum + countMessageTokens(msg), 0);
                 const debuggingApiCalls = Array(3).fill(0).map(() =>
-                    () => generateContentWithRetries(apiKey, 'gemini-flash-latest', debuggingHistory, debuggerSystemInstruction, [{ functionDeclarations: [NO_PROBLEM_DETECTED_TOOL] }], cancellationRef, onStatusUpdateForRetries, cancellableSleep)
+                    () => generateContentWithRetries(apiKey, 'gemini-flash-latest', debuggingHistory, debuggerSystemInstruction, [{ functionDeclarations: [NO_PROBLEM_DETECTED_TOOL] }], cancellationRef, onStatusUpdateForRetries, setIndicatorState, cancellableSleep)
                 );
                 const debuggingResults = await executeManagedBatchCall('gemini-flash-latest', debuggingInputTokens, cancellableSleep, debuggingApiCalls, onStatusUpdateForRetries);
                 if (cancellationRef.current) throw new Error("Cancelled by user");
@@ -550,7 +552,7 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
                     reviewHistory.push({ role: 'user', parts: [{ text: `Code Draft:\n${codeDraft}\n\nDebugging Reports:\n${debuggingReports.join('\n---\n')}` }] });
 
                     const reviewInputTokens = reviewHistory.reduce((sum, msg) => sum + countMessageTokens(msg), 0);
-                    const reviewApiCall = [() => generateContentWithRetries(apiKey, 'gemini-flash-latest', reviewHistory, reviewConsolidationSystemInstruction, undefined, cancellationRef, onStatusUpdateForRetries, cancellableSleep)];
+                    const reviewApiCall = [() => generateContentWithRetries(apiKey, 'gemini-flash-latest', reviewHistory, reviewConsolidationSystemInstruction, undefined, cancellationRef, onStatusUpdateForRetries, setIndicatorState, cancellableSleep)];
                     const reviewResult = (await executeManagedBatchCall('gemini-flash-latest', reviewInputTokens, cancellableSleep, reviewApiCall, onStatusUpdateForRetries))[0];
                     if (cancellationRef.current) throw new Error("Cancelled by user");
                     if (reviewResult instanceof Error) throw reviewResult;
@@ -586,7 +588,7 @@ Ensure your response is complete and contains all necessary file operations.`;
                 finalHistory.push({ role: 'user', parts: [{ text: finalUserContent }] });
                 
                 const finalInputTokens = finalHistory.reduce((sum, msg) => sum + countMessageTokens(msg), 0);
-                const finalApiCall = [() => generateContentWithRetries(apiKey, 'gemini-2.5-pro', finalHistory, finalSystemInstruction, undefined, cancellationRef, onStatusUpdateForRetries, cancellableSleep)];
+                const finalApiCall = [() => generateContentWithRetries(apiKey, 'gemini-2.5-pro', finalHistory, finalSystemInstruction, undefined, cancellationRef, onStatusUpdateForRetries, setIndicatorState, cancellableSleep)];
                 const response = (await executeManagedBatchCall('gemini-2.5-pro', finalInputTokens, cancellableSleep, finalApiCall, onStatusUpdateForRetries))[0];
                 
                 if (cancellationRef.current) throw new Error("Cancelled by user");
@@ -644,7 +646,7 @@ Ensure your response is complete and contains all necessary file operations.`;
 
             const systemInstruction = MODES['simple-coder'].systemInstruction!;
 
-            const response = await generateContentWithRetries(apiKey, activeModel, historyForApiWithContext, systemInstruction, undefined, cancellationRef, () => {}, cancellableSleep);
+            const response = await generateContentWithRetries(apiKey, activeModel, historyForApiWithContext, systemInstruction, undefined, cancellationRef, () => {}, setIndicatorState, cancellableSleep);
             if (cancellationRef.current) throw new Error('Cancelled by user');
 
             const { summary: summaryText, functionCalls } = parseHybridResponse(response.text);
@@ -699,7 +701,7 @@ Ensure your response is complete and contains all necessary file operations.`;
             const systemInstruction = mode.systemInstruction;
 
             if (shouldUseStreaming) {
-                const stream = generateContentStreamWithRetries( apiKey, activeModel, historyForApiWithContext, systemInstruction, cancellationRef, onStatusUpdate, cancellableSleep );
+                const stream = generateContentStreamWithRetries( apiKey, activeModel, historyForApiWithContext, systemInstruction, cancellationRef, onStatusUpdate, setIndicatorState, cancellableSleep );
                 let fullResponseText = '';
                 for await (const chunk of stream) {
                     if (cancellationRef.current) break;
@@ -720,7 +722,7 @@ Ensure your response is complete and contains all necessary file operations.`;
                 if (!fullResponseText.trim()) setChatHistory(prev => prev.slice(0, -1));
             } else {
                 const toolsForApi = isGoogleSearchEnabled ? [{ googleSearch: {} }] : undefined;
-                const response = await generateContentWithRetries( apiKey, activeModel, historyForApiWithContext, systemInstruction, toolsForApi, cancellationRef, onStatusUpdate, cancellableSleep );
+                const response = await generateContentWithRetries( apiKey, activeModel, historyForApiWithContext, systemInstruction, toolsForApi, cancellationRef, onStatusUpdate, setIndicatorState, cancellableSleep );
                 if (cancellationRef.current) throw new Error('Cancelled by user');
                 const modelResponseText = response.text;
                 const groundingChunks: GroundingChunk[] | undefined = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
@@ -771,6 +773,7 @@ Ensure your response is complete and contains all necessary file operations.`;
     } finally {
       setIsChatProcessing(false);
       cancellationRef.current = false;
+      setIndicatorState('loading');
     }
   }, [
     apiKey, chatHistory, selectedModel, selectedMode, isStreamingEnabled, isGoogleSearchEnabled,
@@ -791,6 +794,7 @@ Ensure your response is complete and contains all necessary file operations.`;
     setPrompt,
     totalTokens,
     advancedCoderState,
+    indicatorState,
     setAttachedFiles,
     setSelectedModel,
     onSubmit,
