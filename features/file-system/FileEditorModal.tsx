@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { X, Save, Copy, Check } from '../../components/Icons';
 import { useFileSystem } from './FileSystemContext';
 import { useChat } from '../chat/ChatContext';
@@ -30,15 +30,24 @@ const getLanguageFromPath = (path: string): string => {
 
 
 const FileEditorModal: React.FC = () => {
-  const { editingFile, saveFile, handleCloseFileEditor } = useFileSystem();
+  const { editingFile, saveFile, handleCloseFileEditor: closeEditor } = useFileSystem();
   const { isLoading: isChatLoading } = useChat();
 
   const [content, setContent] = useState(editingFile?.content || '');
   const [isCopied, setIsCopied] = useState(false);
+  const [isClosing, setIsClosing] = useState(false);
   
   // Refs for scroll synchronization between the visible highlighter and the invisible textarea
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const highlighterContainerRef = useRef<HTMLDivElement>(null);
+
+  const handleClose = useCallback(() => {
+    setIsClosing(true);
+    setTimeout(() => {
+      closeEditor();
+      setIsClosing(false); // Reset for next time
+    }, 200); // Animation duration
+  }, [closeEditor]);
 
   useEffect(() => {
     setContent(editingFile?.content || '');
@@ -48,20 +57,22 @@ const FileEditorModal: React.FC = () => {
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        handleCloseFileEditor();
+        handleClose();
       }
     };
-    window.addEventListener('keydown', handleKeyDown);
+    if (editingFile) {
+        window.addEventListener('keydown', handleKeyDown);
+    }
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [handleCloseFileEditor]);
+  }, [editingFile, handleClose]);
 
   const handleSave = () => {
     if (editingFile) {
       saveFile(editingFile.path, content);
     }
-    handleCloseFileEditor();
+    handleClose();
   };
   
   const handleCopy = () => {
@@ -95,9 +106,9 @@ const FileEditorModal: React.FC = () => {
   };
 
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in" onClick={handleCloseFileEditor}>
+    <div className={`fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 ${isClosing ? 'animate-fade-out' : 'animate-fade-in'}`} onClick={handleClose}>
       <div 
-        className="bg-[#1e1f20] w-full max-w-4xl h-[85vh] rounded-xl shadow-2xl flex flex-col border border-gray-700/50 animate-fade-in-scale"
+        className={`bg-[#1e1f20] w-full max-w-4xl h-[85vh] rounded-xl shadow-2xl flex flex-col border border-gray-700/50 ${isClosing ? 'animate-fade-out-scale' : 'animate-fade-in-scale'}`}
         onClick={(e) => e.stopPropagation()}
       >
         <header className="flex items-center justify-between p-3 border-b border-gray-700/50 flex-shrink-0">
@@ -108,7 +119,7 @@ const FileEditorModal: React.FC = () => {
                 <span aria-live="polite">{isCopied ? 'Copied!' : 'Copy'}</span>
             </button>
              <button
-              onClick={handleCloseFileEditor}
+              onClick={handleClose}
               className="p-2 rounded-full hover:bg-gray-700 transition-colors"
               aria-label="Close editor"
             >

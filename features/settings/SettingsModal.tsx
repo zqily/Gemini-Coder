@@ -13,15 +13,24 @@ const SettingsModal: React.FC = () => {
   const [localKey, setLocalKey] = useState(apiKey);
   const [localSendShortcut, setLocalSendShortcut] = useState(sendWithCtrlEnter);
   const [localStreaming, setLocalStreaming] = useState(isStreamingEnabled);
+  const [isClosing, setIsClosing] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  const handleClose = () => {
+    setIsClosing(true);
+    setTimeout(() => {
+      setIsSettingsModalOpen(false);
+      setIsClosing(false); // Reset for next open
+    }, 200); // Animation duration
+  };
+
   useEffect(() => {
-    setLocalKey(apiKey);
-    setLocalSendShortcut(sendWithCtrlEnter);
-    setLocalStreaming(isStreamingEnabled);
     if (isSettingsModalOpen) {
-        // Autofocus the input when the modal opens
-        setTimeout(() => inputRef.current?.focus(), 100);
+      setLocalKey(apiKey);
+      setLocalSendShortcut(sendWithCtrlEnter);
+      setLocalStreaming(isStreamingEnabled);
+      // Autofocus the input when the modal opens
+      setTimeout(() => inputRef.current?.focus(), 100);
     }
   }, [apiKey, isSettingsModalOpen, sendWithCtrlEnter, isStreamingEnabled]);
 
@@ -29,7 +38,7 @@ const SettingsModal: React.FC = () => {
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        setIsSettingsModalOpen(false);
+        handleClose();
       }
     };
 
@@ -40,7 +49,7 @@ const SettingsModal: React.FC = () => {
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [isSettingsModalOpen, setIsSettingsModalOpen]);
+  }, [isSettingsModalOpen]);
 
 
   if (!isSettingsModalOpen) return null;
@@ -49,13 +58,13 @@ const SettingsModal: React.FC = () => {
     setApiKey(localKey);
     setSendWithCtrlEnter(localSendShortcut);
     setStreamingEnabled(localStreaming);
-    setIsSettingsModalOpen(false);
+    handleClose();
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 animate-fade-in" onClick={() => setIsSettingsModalOpen(false)}>
-      <div className="bg-[#2c2d2f] rounded-lg shadow-xl p-8 w-full max-w-md relative animate-fade-in-scale" onClick={(e) => e.stopPropagation()}>
-        <button onClick={() => setIsSettingsModalOpen(false)} className="absolute top-4 right-4 text-gray-400 hover:text-white" aria-label="Close settings">
+    <div className={`fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 ${isClosing ? 'animate-fade-out' : 'animate-fade-in'}`} onClick={handleClose}>
+      <div className={`bg-[#2c2d2f] rounded-lg shadow-xl p-8 w-full max-w-md relative ${isClosing ? 'animate-fade-out-scale' : 'animate-fade-in-scale'}`} onClick={(e) => e.stopPropagation()}>
+        <button onClick={handleClose} className="absolute top-4 right-4 text-gray-400 hover:text-white" aria-label="Close settings">
           <X size={24} />
         </button>
         <h2 className="text-2xl font-bold mb-6 text-white">Settings</h2>

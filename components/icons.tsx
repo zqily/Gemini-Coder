@@ -1,6 +1,3 @@
-// Fix: Explicitly export icons from lucide-react to resolve import errors.
-// The previous wildcard export (`export * from 'lucide-react'`) was failing.
-// Aliased 'Image' to 'ImageIcon' as it is used with that name in other components.
 export {
   Image as ImageIcon,
   Bot,

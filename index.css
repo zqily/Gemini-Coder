@@ -198,4 +198,27 @@
   .animate-model-response-entry {
     animation: model-response-entry 0.5s ease-out forwards;
   }
+
+  /* Animation for modal closing */
+  @keyframes fade-out {
+    from { opacity: 1; }
+    to { opacity: 0; }
+  }
+  .animate-fade-out {
+    animation: fade-out 0.2s ease-out forwards;
+  }
+
+  @keyframes fade-out-scale {
+    from {
+      opacity: 1;
+      transform: scale(1);
+    }
+    to {
+      opacity: 0;
+      transform: scale(0.95);
+    }
+  }
+  .animate-fade-out-scale {
+    animation: fade-out-scale 0.2s ease-out forwards;
+  }
 }

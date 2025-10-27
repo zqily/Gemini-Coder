@@ -10,15 +10,26 @@ const HelpModal: React.FC = () => {
 
   const [localKey, setLocalKey] = useState(apiKey);
   const [isCopied, setIsCopied] = useState(false);
+  const [isClosing, setIsClosing] = useState(false);
+
+  const handleClose = () => {
+    setIsClosing(true);
+    setTimeout(() => {
+      setIsHelpModalOpen(false);
+      setIsClosing(false); // Reset for next open
+    }, 200); // Animation duration
+  };
 
   useEffect(() => {
-    setLocalKey(apiKey);
+    if (isHelpModalOpen) {
+      setLocalKey(apiKey);
+    }
   }, [apiKey, isHelpModalOpen]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        setIsHelpModalOpen(false);
+        handleClose();
       }
     };
     if (isHelpModalOpen) {
@@ -27,7 +38,7 @@ const HelpModal: React.FC = () => {
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [isHelpModalOpen, setIsHelpModalOpen]);
+  }, [isHelpModalOpen]);
 
   if (!isHelpModalOpen) return null; // Use isHelpModalOpen for visibility
 
@@ -66,14 +77,14 @@ const HelpModal: React.FC = () => {
   ];
 
   return (
-    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in" onClick={() => setIsHelpModalOpen(false)}>
+    <div className={`fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4 ${isClosing ? 'animate-fade-out' : 'animate-fade-in'}`} onClick={handleClose}>
       <div 
-        className="bg-[#2c2d2f] w-full max-w-2xl max-h-[90vh] rounded-xl shadow-2xl flex flex-col border border-gray-700/50 animate-fade-in-scale"
+        className={`bg-[#2c2d2f] w-full max-w-2xl max-h-[90vh] rounded-xl shadow-2xl flex flex-col border border-gray-700/50 ${isClosing ? 'animate-fade-out-scale' : 'animate-fade-in-scale'}`}
         onClick={(e) => e.stopPropagation()}
       >
         <header className="flex items-center justify-between p-4 border-b border-gray-700/50 flex-shrink-0">
           <h2 className="text-xl font-bold text-white">Quick Guide</h2>
-          <button onClick={() => setIsHelpModalOpen(false)} className="p-2 rounded-full hover:bg-gray-700 transition-colors" aria-label="Close help">
+          <button onClick={handleClose} className="p-2 rounded-full hover:bg-gray-700 transition-colors" aria-label="Close help">
             <X size={20} />
           </button>
         </header>
