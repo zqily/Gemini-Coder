@@ -1,4 +1,4 @@
-import React, { useState, useRef, useMemo } from 'react';
+import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { Plus, Send, X, File as FileIcon, LoaderCircle, ImageIcon } from '../../components/Icons';
 import type { AttachedFile, Mode, ModeId, ChatMessage } from '../../types';
 import { useChat } from './ChatContext';
@@ -27,6 +27,14 @@ const PromptInput: React.FC = () => {
   const { apiKey, sendWithCtrlEnter } = useSettings();
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    // When the prompt is cleared (e.g., after sending or new chat), reset height.
+    if (textarea && !prompt) {
+      textarea.style.height = 'auto';
+    }
+  }, [prompt]);
 
   const handleTextareaInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setPrompt(e.target.value);
