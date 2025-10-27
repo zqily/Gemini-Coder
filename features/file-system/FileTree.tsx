@@ -105,7 +105,8 @@ const FileTree: React.FC = () => {
         displayContext, originalProjectContext, deletedItems, excludedPaths,
         onOpenFileEditor, togglePathExclusion, onCreateFile, onCreateFolder,
         onDeletePath, onRenamePath, creatingIn, setCreatingIn, fileTokenCounts,
-        expandedFolders, setExpandedFolders
+        expandedFolders, setExpandedFolders,
+        highlightedPath, fadingPath, clearHighlightedPath
     } = useFileSystem();
 
     const { isLoading: isChatLoading } = useChat();
@@ -166,6 +167,18 @@ const FileTree: React.FC = () => {
         window.removeEventListener('blur', handleBlur);
     }
   }, [handleCancel]);
+
+  useEffect(() => {
+    if (highlightedPath) {
+      // Use a short timeout to allow the folder structure to expand and render
+      setTimeout(() => {
+        const element = document.querySelector(`[data-path="${CSS.escape(highlightedPath)}"]`);
+        if (element) {
+            element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      }, 100);
+    }
+  }, [highlightedPath]);
 
 
   const handleContextMenu = (e: React.MouseEvent, path: string, type: 'file' | 'folder') => {
@@ -243,6 +256,8 @@ const FileTree: React.FC = () => {
     const isCreated = !isDeleted && originalProjectContext && !originalProjectContext.files.has(node.path) && !originalProjectContext.dirs.has(node.path);
     const isModified = !isDeleted && !isCreated && node.type === 'file' && originalProjectContext && originalProjectContext.files.get(node.path) !== displayContext?.files.get(node.path);
 
+    const isHighlighted = highlightedPath === node.path;
+    const fadingInfo = fadingPath?.path === node.path ? fadingPath : null;
     const isBeingDragged = draggedPath === node.path;
     const isDropTarget = dropTarget === node.path;
   
@@ -324,8 +339,13 @@ const FileTree: React.FC = () => {
     return (
       <div key={node.path}>
         <div
+            data-path={node.path}
             onClick={(e) => {
               if (isChatLoading) return;
+
+              if (isHighlighted) {
+                clearHighlightedPath(true); // fast fade
+              }
 
               const showCopiedFeedback = (path: string) => {
                 setCopiedPath(path);
@@ -364,12 +384,19 @@ const FileTree: React.FC = () => {
                 }
               }
             }}
-            onContextMenu={(e) => handleContextMenu(e, node.path, node.type)}
+            onContextMenu={(e) => {
+              if (isHighlighted) {
+                clearHighlightedPath(true); // fast fade
+              }
+              handleContextMenu(e, node.path, node.type);
+            }}
             className={`flex items-center justify-between p-1 rounded-md transition-colors duration-100 ${hoverClass} 
               ${isChatLoading ? 'cursor-not-allowed opacity-70' : 'cursor-pointer'}
               ${isDropTarget ? 'bg-blue-600/30' : ''}
-              ${isBeingDragged ? 'opacity-50' : ''}`
-            }
+              ${isBeingDragged ? 'opacity-50' : ''}
+              ${isHighlighted ? 'highlight-active' : ''}
+              ${fadingInfo ? (fadingInfo.fast ? 'highlight-fade-fast' : 'highlight-fade-slow') : ''}
+            `}
             draggable={!isChatLoading}
             onDragStart={(e) => {
               e.stopPropagation();

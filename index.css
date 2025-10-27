@@ -110,6 +110,19 @@
   details[open] > summary .details-arrow {
     transform: rotate(180deg);
   }
+
+  /* Highlight for searched file */
+  .highlight-active {
+    animation: pulse-yellow 2s infinite;
+    background-color: rgba(250, 204, 21, 0.1);
+  }
+
+  .highlight-fade-slow {
+    animation: fade-out-highlight-bg 2s ease-out forwards;
+  }
+  .highlight-fade-fast {
+    animation: fade-out-highlight-bg 0.5s ease-out forwards;
+  }
 }
 
 @layer utilities {
@@ -241,5 +254,21 @@
   }
   .animate-pulse-strong {
       animation: pulse-strong 1.5s infinite;
+  }
+
+  @keyframes pulse-yellow {
+    0% {
+      box-shadow: 0 0 0 0px rgba(250, 204, 21, 0.4);
+    }
+    70% {
+      box-shadow: 0 0 0 8px rgba(250, 204, 21, 0);
+    }
+    100% {
+      box-shadow: 0 0 0 0px rgba(250, 204, 21, 0);
+    }
+  }
+  @keyframes fade-out-highlight-bg {
+    from { background-color: rgba(250, 204, 21, 0.1); }
+    to { background-color: transparent; }
   }
 }

@@ -15,7 +15,7 @@ interface FileSearchModalProps {
 }
 
 const FileSearchModal: React.FC<FileSearchModalProps> = ({ isOpen, onClose }) => {
-  const { displayContext, onOpenFileEditor, setExpandedFolders } = useFileSystem();
+  const { displayContext, setExpandedFolders, setHighlightedPath } = useFileSystem();
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SearchResult[]>([]);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -80,15 +80,12 @@ const FileSearchModal: React.FC<FileSearchModalProps> = ({ isOpen, onClose }) =>
   }, [query, allSearchableItems]);
 
   const handleSelect = (result: SearchResult) => {
-    // Expand all parent folders
+    // Expand all parent folders to make the item visible
     const parts = result.path.split('/');
     let currentPath = '';
     const pathsToExpand = new Set<string>();
     
-    // For a file, expand up to its parent. For a folder, expand the folder itself too.
-    const loopLimit = result.type === 'file' ? parts.length - 1 : parts.length;
-
-    for (let i = 0; i < loopLimit; i++) {
+    for (let i = 0; i < parts.length - 1; i++) {
         currentPath = currentPath ? `${currentPath}/${parts[i]}` : parts[i];
         if (currentPath) {
           pathsToExpand.add(currentPath);
@@ -98,9 +95,7 @@ const FileSearchModal: React.FC<FileSearchModalProps> = ({ isOpen, onClose }) =>
         setExpandedFolders(prev => new Set([...prev, ...pathsToExpand]));
     }
     
-    if (result.type === 'file') {
-      onOpenFileEditor(result.path);
-    }
+    setHighlightedPath(result.path);
     
     handleClose();
   };

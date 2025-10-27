@@ -43,6 +43,9 @@ const FileSystemProvider: React.FC<FileSystemProviderProps> = ({ children }) => 
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(() => new Set(['']));
   const dragOverTimeout = useRef<number | undefined>(undefined);
   const dragCounter = useRef(0);
+  const [highlightedPath, setHighlightedPathInternal] = useState<string | null>(null);
+  const [fadingPath, setFadingPath] = useState<{ path: string; fast: boolean } | null>(null);
+  const highlightTimeoutRef = useRef<number | null>(null);
 
   useEffect(() => {
     const mergedFiles = new Map<string, string>([
@@ -289,6 +292,35 @@ const FileSystemProvider: React.FC<FileSystemProviderProps> = ({ children }) => 
     return Promise.resolve(results);
   }, [applyFunctionCallsInHook]);
 
+  const clearHighlightedPath = useCallback((fast: boolean) => {
+    if (highlightTimeoutRef.current) {
+      clearTimeout(highlightTimeoutRef.current);
+      highlightTimeoutRef.current = null;
+    }
+    setHighlightedPathInternal(currentPath => {
+      if (currentPath) {
+        setFadingPath({ path: currentPath, fast });
+        setTimeout(() => {
+          setFadingPath(current => (current?.path === currentPath ? null : current));
+        }, fast ? 500 : 2000); // Animation durations
+      }
+      return null;
+    });
+  }, []);
+
+  const setHighlightedPath = useCallback((path: string) => {
+    if (highlightTimeoutRef.current) {
+      clearTimeout(highlightTimeoutRef.current);
+    }
+    setFadingPath(null); // Clear any old fading path
+    setHighlightedPathInternal(path);
+
+    // Pulse for 18s, then start a 2s fade out. Total 20s.
+    highlightTimeoutRef.current = window.setTimeout(() => {
+      clearHighlightedPath(false); // slow fade
+    }, 18000);
+  }, [clearHighlightedPath]);
+
 
   const contextValue: FileSystemContextType = {
     projectContext,
@@ -303,6 +335,8 @@ const FileSystemProvider: React.FC<FileSystemProviderProps> = ({ children }) => 
     fileInputRef,
     fileTokenCounts,
     expandedFolders,
+    highlightedPath,
+    fadingPath,
     setExpandedFolders,
     
     syncProject: handleFolderUpload,
@@ -325,6 +359,8 @@ const FileSystemProvider: React.FC<FileSystemProviderProps> = ({ children }) => 
     handleGlobalDrop,
     handleDragLeave,
     handleAddFiles,
+    setHighlightedPath,
+    clearHighlightedPath,
   };
 
   return (

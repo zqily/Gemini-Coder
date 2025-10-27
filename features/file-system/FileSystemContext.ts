@@ -17,6 +17,8 @@ export interface FileSystemContextType {
   fileInputRef: React.RefObject<HTMLInputElement>;
   fileTokenCounts: Map<string, number>;
   expandedFolders: Set<string>;
+  highlightedPath: string | null;
+  fadingPath: { path: string; fast: boolean } | null;
   setExpandedFolders: React.Dispatch<React.SetStateAction<Set<string>>>;
   
   syncProject: (fileList: FileList) => Promise<void>;
@@ -39,6 +41,8 @@ export interface FileSystemContextType {
   handleGlobalDrop: (e: DragEvent) => void;
   handleDragLeave: (e: DragEvent) => void;
   handleAddFiles: (fileList: FileList) => Promise<void>;
+  setHighlightedPath: (path: string) => void;
+  clearHighlightedPath: (fast: boolean) => void;
 }
 
 export const FileSystemContext = React.createContext<FileSystemContextType | undefined>(undefined);
