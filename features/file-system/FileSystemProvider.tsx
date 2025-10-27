@@ -6,7 +6,8 @@ import * as FileSystem from './utils/fileSystem';
 import type { ProjectContext } from '../../types';
 import type { FunctionCall } from '@google/genai';
 import type { ChatPart } from '../../types';
-import { countTextTokens } from '../chat/utils/tokenCounter';
+import { countTextTokens, countImageTokens } from '../chat/utils/tokenCounter';
+import { fileToDataURL } from '../chat/utils/fileUpload';
 
 interface FileSystemProviderProps {
   children: ReactNode;
@@ -70,45 +71,49 @@ const FileSystemProvider: React.FC<FileSystemProviderProps> = ({ children }) => 
   }, [projectContext, deletedItems]);
 
   useEffect(() => {
-    if (!displayContext) {
-      setFileTokenCounts(new Map());
-      return;
-    }
-
-    const newCounts = new Map<string, number>();
-    
-    // 1. Calculate for all files
-    for (const [path, content] of displayContext.files.entries()) {
-      if (content.startsWith('[Attached file:') || content.startsWith('[Binary file:')) {
-        newCounts.set(path, 0);
-      } else {
-        newCounts.set(path, countTextTokens(content));
+    const calculateTokens = async () => {
+      if (!displayContext) {
+        setFileTokenCounts(new Map());
+        return;
       }
-    }
+      
+      const newCounts = new Map<string, number>();
+      const imageTokenPromises: Promise<void>[] = [];
 
-    // 2. Calculate for all dirs by summing direct children (files and subdirs)
-    // Also add the root path '' to the set of directories to be calculated.
-    const allDirs = new Set(displayContext.dirs);
-    allDirs.add('');
-    const sortedDirs = Array.from(allDirs).sort((a, b) => b.length - a.length);
-
-    for (const dirPath of sortedDirs) {
-      let dirTotal = 0;
-      // Iterate over all items we have counts for so far (files and already-calculated subdirs)
-      for (const [path, count] of newCounts.entries()) {
-        // Find the parent directory of the current item path
-        const parentIndex = path.lastIndexOf('/');
-        const parentDir = parentIndex === -1 ? '' : path.substring(0, parentIndex);
-        
-        // If the item's parent is the directory we're currently calculating, add its token count
-        if (parentDir === dirPath) {
-          dirTotal += count;
+      for (const [path, content] of displayContext.files.entries()) {
+        if (content.startsWith('data:image/')) {
+            const mimeType = content.substring(5, content.indexOf(';'));
+            const promise = countImageTokens({ name: path, content, type: mimeType, size: 0 })
+                .then(count => { newCounts.set(path, count); });
+            imageTokenPromises.push(promise);
+        } else if (content.startsWith('[Attached file:') || content.startsWith('[Binary file:')) {
+          newCounts.set(path, 0);
+        } else {
+          newCounts.set(path, countTextTokens(content));
         }
       }
-      newCounts.set(dirPath, dirTotal);
-    }
-    
-    setFileTokenCounts(newCounts);
+
+      await Promise.all(imageTokenPromises);
+      
+      const allDirs = new Set(displayContext.dirs);
+      allDirs.add('');
+      const sortedDirs = Array.from(allDirs).sort((a, b) => b.length - a.length);
+  
+      for (const dirPath of sortedDirs) {
+        let dirTotal = 0;
+        for (const [path, count] of newCounts.entries()) {
+          const parentIndex = path.lastIndexOf('/');
+          const parentDir = parentIndex === -1 ? '' : path.substring(0, parentIndex);
+          if (parentDir === dirPath) {
+            dirTotal += count;
+          }
+        }
+        newCounts.set(dirPath, dirTotal);
+      }
+      
+      setFileTokenCounts(newCounts);
+    };
+    calculateTokens();
   }, [displayContext]);
 
 
@@ -144,17 +149,27 @@ const FileSystemProvider: React.FC<FileSystemProviderProps> = ({ children }) => 
             const isIgnoreFile = /(^|\/)\.gitignore$/.test(path) || /(^|\/)\.gcignore$/.test(path);
 
             if (path && !isIgnored(path) && !isGitPath && !isIgnoreFile) {
-                try {
-                    const content = await file.text();
-                    newProjectContext.files.set(path, content);
-                    const parts = path.split('/');
-                    let currentPath = '';
-                    for (let i = 0; i < parts.length - 1; i++) {
-                        currentPath = currentPath ? `${currentPath}/${parts[i]}` : parts[i];
-                        newProjectContext.dirs.add(currentPath);
+                if (file.type.startsWith('image/')) {
+                    try {
+                        const dataURL = await fileToDataURL(file);
+                        newProjectContext.files.set(path, dataURL);
+                    } catch(e) {
+                         console.warn(`Could not read image file ${path} as dataURL. Skipping.`, e);
                     }
-                } catch (e) {
-                    console.warn(`Could not read file ${path} as text. Skipping.`, e);
+                } else {
+                    try {
+                        const content = await file.text();
+                        newProjectContext.files.set(path, content);
+                    } catch (e) {
+                        console.warn(`Could not read file ${path} as text. Representing as binary.`, e);
+                        newProjectContext.files.set(path, `[Binary file: ${file.name} (${file.type}). Content not displayed.]`);
+                    }
+                }
+                const parts = path.split('/');
+                let currentPath = '';
+                for (let i = 0; i < parts.length - 1; i++) {
+                    currentPath = currentPath ? `${currentPath}/${parts[i]}` : parts[i];
+                    newProjectContext.dirs.add(currentPath);
                 }
             }
         }
@@ -178,17 +193,22 @@ const FileSystemProvider: React.FC<FileSystemProviderProps> = ({ children }) => 
       const fileContents: { path: string, content: string }[] = [];
       for (const file of files) {
         const path = file.name;
-        try {
-          const isText = file.type.startsWith('text/') || file.size < 1000000;
-          if (isText) {
-             const content = await file.text();
-             fileContents.push({ path, content });
-          } else {
-             fileContents.push({ path, content: `[Binary file: ${file.name} (${file.type}). Content not displayed.]`});
-          }
-        } catch (e) {
-            console.warn(`Could not read file ${path} as text. Treating as binary.`, e);
-            fileContents.push({ path, content: `[Binary file: ${file.name} (${file.type}). Content not displayed.]`});
+        if (file.type.startsWith('image/')) {
+            try {
+                const dataURL = await fileToDataURL(file);
+                fileContents.push({ path, content: dataURL });
+            } catch(e) {
+                console.warn(`Could not read image file ${path} as dataURL. Treating as binary.`, e);
+                fileContents.push({ path, content: `[Binary file: ${file.name} (${file.type}). Content not displayed.]`});
+            }
+        } else {
+            try {
+                const content = await file.text();
+                fileContents.push({ path, content });
+            } catch (e) {
+                console.warn(`Could not read file ${path} as text. Treating as binary.`, e);
+                fileContents.push({ path, content: `[Binary file: ${file.name} (${file.type}). Content not displayed.]`});
+            }
         }
       }
 
@@ -261,11 +281,11 @@ const FileSystemProvider: React.FC<FileSystemProviderProps> = ({ children }) => 
   };
   
   const handleOpenFileEditor = useCallback((path: string) => {
-    const content = projectContext?.files.get(path);
+    const content = projectContext?.files.get(path) ?? deletedItems.files.get(path);
     if (content !== undefined) {
         setEditingFile({ path, content });
     }
-  }, [projectContext]);
+  }, [projectContext, deletedItems]);
 
   const togglePathExclusion = useCallback((path: string) => {
     togglePathExclusionInHook(path);

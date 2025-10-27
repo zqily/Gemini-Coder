@@ -183,7 +183,11 @@ export const serializeProjectContext = (context: ProjectContext): string => {
   if (sortedFiles.length > 0) {
       for (const [path, content] of sortedFiles) {
         output += `--- START OF FILE: ${path} ---\n`;
-        output += `${content}\n`;
+        if (content.startsWith('data:image/')) {
+            output += `[Image file: content not displayed in context. The model can see this image if it is attached to the prompt.]\n`;
+        } else {
+            output += `${content}\n`;
+        }
         output += `--- END OF FILE: ${path} ---\n\n`;
       }
   } else {

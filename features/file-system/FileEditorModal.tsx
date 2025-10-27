@@ -76,7 +76,8 @@ const FileEditorModal: React.FC = () => {
   };
   
   const handleCopy = () => {
-    navigator.clipboard.writeText(content).then(() => {
+    const textToCopy = editingFile?.content || '';
+    navigator.clipboard.writeText(textToCopy).then(() => {
       setIsCopied(true);
       setTimeout(() => setIsCopied(false), 2000);
     });
@@ -84,6 +85,7 @@ const FileEditorModal: React.FC = () => {
 
   if (!editingFile) return null;
 
+  const isImage = editingFile.content.startsWith('data:image/');
   const language = getLanguageFromPath(editingFile.path);
   
   const handleScroll = () => {
@@ -127,61 +129,67 @@ const FileEditorModal: React.FC = () => {
             </button>
           </div>
         </header>
-
-        <main className="flex-1 overflow-hidden relative">
-          <div
-            ref={highlighterContainerRef}
-            className="w-full h-full overflow-auto custom-scrollbar"
-            aria-hidden="true" // Hide from screen readers as textarea is the source of truth
-          >
-            <SyntaxHighlighter
-                language={language}
-                style={vscDarkPlus}
-                customStyle={{
-                    ...editorStyles,
-                    margin: 0,
-                    backgroundColor: '#131314',
-                    // Ensure the highlighter can grow to fit content
-                    minHeight: '100%',
-                    minWidth: '100%',
-                    display: 'inline-block', // Important for width calculation with long lines
-                }}
-                codeTagProps={{ style: { ...editorStyles, fontFamily: 'inherit' } }}
-            >
-                {/* Adding a newline ensures last line is rendered and scrollbar appears correctly */}
-                {content + '\n'}
-            </SyntaxHighlighter>
-          </div>
-          <textarea
-            ref={textareaRef}
-            value={content}
-            onChange={(e) => setContent(e.target.value)}
-            onScroll={handleScroll}
-            readOnly={isChatLoading}
-            disabled={isChatLoading}
-            className="absolute top-0 left-0 w-full h-full bg-transparent text-transparent caret-white resize-none focus:outline-none disabled:opacity-70 disabled:cursor-not-allowed custom-scrollbar"
-            style={{
-                ...editorStyles,
-                WebkitTextFillColor: 'transparent', // Make text invisible in Safari
-                overflow: 'auto', // Important for scroll events to fire
-            }}
-            spellCheck="false"
-            autoCapitalize="off"
-            autoComplete="off"
-            autoCorrect="off"
-          />
+        
+        <main className={`flex-1 ${isImage ? 'overflow-auto p-4 flex items-center justify-center bg-[#131314]' : 'overflow-hidden relative'}`}>
+            {isImage ? (
+                 <img src={editingFile.content} alt={editingFile.path} className="max-w-full max-h-full object-contain rounded-md shadow-lg" />
+            ) : (
+                <>
+                    <div
+                        ref={highlighterContainerRef}
+                        className="w-full h-full overflow-auto custom-scrollbar"
+                        aria-hidden="true"
+                    >
+                        <SyntaxHighlighter
+                            language={language}
+                            style={vscDarkPlus}
+                            customStyle={{
+                                ...editorStyles,
+                                margin: 0,
+                                backgroundColor: '#131314',
+                                minHeight: '100%',
+                                minWidth: '100%',
+                                display: 'inline-block',
+                            }}
+                            codeTagProps={{ style: { ...editorStyles, fontFamily: 'inherit' } }}
+                        >
+                            {content + '\n'}
+                        </SyntaxHighlighter>
+                    </div>
+                    <textarea
+                        ref={textareaRef}
+                        value={content}
+                        onChange={(e) => setContent(e.target.value)}
+                        onScroll={handleScroll}
+                        readOnly={isChatLoading}
+                        disabled={isChatLoading}
+                        className="absolute top-0 left-0 w-full h-full bg-transparent text-transparent caret-white resize-none focus:outline-none disabled:opacity-70 disabled:cursor-not-allowed custom-scrollbar"
+                        style={{
+                            ...editorStyles,
+                            WebkitTextFillColor: 'transparent',
+                            overflow: 'auto',
+                        }}
+                        spellCheck="false"
+                        autoCapitalize="off"
+                        autoComplete="off"
+                        autoCorrect="off"
+                    />
+                </>
+            )}
         </main>
-
-        <footer className="p-3 border-t border-gray-700/50 flex justify-end flex-shrink-0">
-          <button
-            onClick={handleSave}
-            disabled={isChatLoading}
-            className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-md transition-colors disabled:bg-gray-500 disabled:cursor-not-allowed"
-          >
-            <Save size={16} className="inline-block mr-2" />
-            Save Changes
-          </button>
-        </footer>
+        
+        {!isImage && (
+            <footer className="p-3 border-t border-gray-700/50 flex justify-end flex-shrink-0">
+                <button
+                    onClick={handleSave}
+                    disabled={isChatLoading}
+                    className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-md transition-colors disabled:bg-gray-500 disabled:cursor-not-allowed"
+                >
+                    <Save size={16} className="inline-block mr-2" />
+                    Save Changes
+                </button>
+            </footer>
+        )}
       </div>
     </div>
   );
