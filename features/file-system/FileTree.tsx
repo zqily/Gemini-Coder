@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Folder, FolderOpen, FileText, Copy, ClipboardCopy, Check, Eye, EyeOff, FilePlus, FolderPlus, Pencil, Trash2 } from '../../components/Icons';
+import { Folder, FolderOpen, FileText, Copy, ClipboardCopy, Check, Eye, EyeOff, FilePlus, FolderPlus, Pencil, Trash2 } from '../../components/icons';
+import type { ProjectContext } from '../../types';
 import { useFileSystem } from './FileSystemContext';
 import { useChat } from '../chat/ChatContext';
 
@@ -121,7 +122,6 @@ const FileTree: React.FC = () => {
   const [isCtrlPressed, setIsCtrlPressed] = useState(false);
   const [isShiftPressed, setIsShiftPressed] = useState(false);
   const [isHovering, setIsHovering] = useState(false);
-
 
   const tree = buildTree(displayContext?.files ?? new Map(), displayContext?.dirs ?? new Set());
 
@@ -503,15 +503,13 @@ const FileTree: React.FC = () => {
           }}
           onDrop={handleRootDrop}
         >
-          {tree.length > 0
-            ? tree.map((node, index) => renderNode(node, index === tree.length - 1, []))
-            : !creatingIn && (
-              <div className="text-center text-xs text-gray-500 px-2 py-6 border border-dashed border-gray-700 rounded-lg">
-                  <p>No files loaded.</p>
-                  <p className="mt-1">Use the '+' button above to create files/folders.</p>
-              </div>
-            )
-          }
+          {tree.length === 0 && !creatingIn && (
+            <div className="text-center text-xs text-gray-500 px-2 py-6 border border-dashed border-gray-700 rounded-lg">
+                <p>No files loaded.</p>
+                <p className="mt-1">Use the '+' button above to create files/folders.</p>
+            </div>
+          )}
+          {tree.length > 0 && tree.map((node, index) => renderNode(node, index === tree.length - 1, []))}
 
           {creatingIn?.path === '' && (
             <div className="mt-1 flex items-center">
@@ -549,10 +547,10 @@ const FileTree: React.FC = () => {
             {contextMenu.type === 'folder' && (
                 <>
                 <button className="context-menu-item" onClick={() => handleStartCreate('file')}>
-                    <FilePlus size={16} /> <span>New File</span>
+                    <FilePlus size={16} /> New File
                 </button>
                 <button className="context-menu-item" onClick={() => handleStartCreate('folder')}>
-                    <FolderPlus size={16} /> <span>New Folder</span>
+                    <FolderPlus size={16} /> New Folder
                 </button>
                 <div className="context-menu-separator" />
                 </>
@@ -560,22 +558,22 @@ const FileTree: React.FC = () => {
             {contextMenu.path && (
                 <>
                 <button className="context-menu-item" onClick={handleStartRename}>
-                    <Pencil size={16} /> <span>Rename</span>
+                    <Pencil size={16} /> Rename
                 </button>
                 <button className="context-menu-item context-menu-item-destructive" onClick={handleDelete}>
-                    <Trash2 size={16} /> <span>Delete</span>
+                    <Trash2 size={16} /> Delete
                 </button>
                 <div className="context-menu-separator" />
                 <button className="context-menu-item" onClick={handleToggleExclusion}>
                   {excludedPaths.has(contextMenu.path) ? <Eye size={16} /> : <EyeOff size={16} />} 
-                  <span>{excludedPaths.has(contextMenu.path) ? 'Include in Context' : 'Exclude from Context'}</span>
+                    {excludedPaths.has(contextMenu.path) ? 'Include in Context' : 'Exclude from Context'}
                 </button>
                 <button className="context-menu-item" onClick={() => handleCopy('path')}>
-                    <Copy size={16} /> <span>Copy Path</span>
+                    <Copy size={16} /> Copy Path
                 </button>
                 {contextMenu.type === 'file' && (
                     <button className="context-menu-item" onClick={() => handleCopy('content')}>
-                        <ClipboardCopy size={16} /> <span>Copy Content</span>
+                        <ClipboardCopy size={16} /> Copy Content
                     </button>
                 )}
                 </>

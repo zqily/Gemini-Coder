@@ -26,6 +26,7 @@ export {
   Pencil,
   Plus,
   Save,
+  Search,
   Send,
   Settings,
   Trash2,
