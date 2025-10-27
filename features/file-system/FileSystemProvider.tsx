@@ -83,12 +83,22 @@ const FileSystemProvider: React.FC<FileSystemProviderProps> = ({ children }) => 
       }
     }
 
-    // 2. Calculate for all dirs by summing children
-    const sortedDirs = Array.from(displayContext.dirs).sort((a, b) => b.length - a.length);
+    // 2. Calculate for all dirs by summing direct children (files and subdirs)
+    // Also add the root path '' to the set of directories to be calculated.
+    const allDirs = new Set(displayContext.dirs);
+    allDirs.add('');
+    const sortedDirs = Array.from(allDirs).sort((a, b) => b.length - a.length);
+
     for (const dirPath of sortedDirs) {
       let dirTotal = 0;
+      // Iterate over all items we have counts for so far (files and already-calculated subdirs)
       for (const [path, count] of newCounts.entries()) {
-        if (path.startsWith(`${dirPath}/`)) {
+        // Find the parent directory of the current item path
+        const parentIndex = path.lastIndexOf('/');
+        const parentDir = parentIndex === -1 ? '' : path.substring(0, parentIndex);
+        
+        // If the item's parent is the directory we're currently calculating, add its token count
+        if (parentDir === dirPath) {
           dirTotal += count;
         }
       }
