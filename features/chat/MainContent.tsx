@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { HelpCircle, ChevronDown, User, ImageIcon, File as FileIcon, Menu, Copy, Check,BrainCircuit, Trash2 } from '../../components/Icons';
+import { HelpCircle, ChevronDown, User, ImageIcon, File as FileIcon, Menu, Copy, Check,BrainCircuit, Trash2 } from '../../components/icons';
 import PromptInput from './PromptInput';
 import type { ChatMessage, ChatPart, FunctionCallPart, FunctionResponsePart, TextPart, InlineDataPart } from '../../types';
 import ReactMarkdown from 'react-markdown';

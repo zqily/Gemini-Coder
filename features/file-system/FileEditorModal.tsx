@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { X, Save, Copy, Check } from '../../components/Icons';
+import { X, Save, Copy, Check } from '../../components/icons';
 import { useFileSystem } from './FileSystemContext';
 import { useChat } from '../chat/ChatContext';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
