@@ -1,5 +1,7 @@
 import React from 'react';
+
 export type ModeId = 'default' | 'simple-coder' | 'advanced-coder';
+
 export interface Mode {
   id: ModeId;
   name: string;
@@ -22,23 +24,32 @@ export interface InlineDataPart {
 export interface FunctionCallPart {
   functionCall: {
     name?: string;
-    args?: { [key: string]: any };
+    args?: { [key:string]: any };
   };
 }
 
 export interface FunctionResponsePart {
   functionResponse: {
     name: string;
-    response: { [key: string]: any };
+    response: { [key:string]: any };
   };
 }
 
 export type ChatPart = TextPart | InlineDataPart | FunctionCallPart | FunctionResponsePart;
 
+// FIX: Made `uri` and `title` optional to match the type from the @google/genai library.
+export interface GroundingChunk {
+  web?: {
+    uri?: string;
+    title?: string;
+  };
+}
+
 export interface ChatMessage {
   role: 'user' | 'model' | 'tool';
   parts: ChatPart[];
   mode?: ModeId;
+  groundingChunks?: GroundingChunk[];
 }
 
 export interface AttachedFile {

@@ -7,6 +7,8 @@ export interface SettingsContextType {
   setSendWithCtrlEnter: (enabled: boolean) => void;
   isStreamingEnabled: boolean;
   setStreamingEnabled: (enabled: boolean) => void;
+  isGoogleSearchEnabled: boolean;
+  setGoogleSearchEnabled: (enabled: boolean) => void;
   isSettingsModalOpen: boolean;
   setIsSettingsModalOpen: (isOpen: boolean) => void;
   isHelpModalOpen: boolean;

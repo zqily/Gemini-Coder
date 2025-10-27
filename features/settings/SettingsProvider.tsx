@@ -3,6 +3,7 @@ import { SettingsContext, SettingsContextType } from './SettingsContext';
 import { useApiKey } from './useApiKey';
 import { useSendShortcutSetting } from './useSendShortcutSetting';
 import { useStreamingSetting } from './useStreamingSetting';
+import { useGoogleSearchSetting } from './useGoogleSearchSetting';
 import SettingsModal from './SettingsModal';
 import HelpModal from './HelpModal'; // Import HelpModal
 
@@ -14,6 +15,7 @@ const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) => {
   const [apiKey, setApiKey] = useApiKey();
   const [sendWithCtrlEnter, setSendWithCtrlEnter] = useSendShortcutSetting();
   const [isStreamingEnabled, setStreamingEnabled] = useStreamingSetting();
+  const [isGoogleSearchEnabled, setGoogleSearchEnabled] = useGoogleSearchSetting();
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [isHelpModalOpen, setIsHelpModalOpen] = useState(false); // New state for HelpModal
 
@@ -24,6 +26,8 @@ const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) => {
     setSendWithCtrlEnter,
     isStreamingEnabled,
     setStreamingEnabled,
+    isGoogleSearchEnabled,
+    setGoogleSearchEnabled,
     isSettingsModalOpen,
     setIsSettingsModalOpen,
     isHelpModalOpen, // Add to context value

@@ -4,7 +4,7 @@ import { useSelectedModel } from './useSelectedModel';
 import { useSelectedMode } from './useSelectedMode';
 import { generateContentWithRetries, generateContentStreamWithRetries } from './services/geminiService';
 import { executeManagedBatchCall } from './services/rateLimitManager';
-import type { ChatMessage, AttachedFile, ChatPart, TextPart, AdvancedCoderState } from '../../types';
+import type { ChatMessage, AttachedFile, ChatPart, TextPart, AdvancedCoderState, GroundingChunk } from '../../types';
 import { MODES, NO_PROBLEM_DETECTED_TOOL } from './config/modes';
 import { useSettings } from '../settings/SettingsContext';
 import { FunctionCall, GenerateContentResponse } from '@google/genai';
@@ -224,7 +224,7 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
   const [selectedModel, setSelectedModel] = useSelectedModel();
   const [selectedMode, setSelectedMode] = useSelectedMode();
 
-  const { apiKey, isStreamingEnabled, setIsSettingsModalOpen } = useSettings();
+  const { apiKey, isStreamingEnabled, isGoogleSearchEnabled, setIsSettingsModalOpen } = useSettings();
   const { showToast } = useToast();
 
   const { 
@@ -677,7 +677,7 @@ Ensure your response is complete and contains all necessary file operations.`;
 
         } else {
             let historyForApiWithContext = [...historyForApi];
-            const shouldUseStreaming = isStreamingEnabled && selectedMode === 'default';
+            const shouldUseStreaming = isStreamingEnabled && selectedMode === 'default' && !isGoogleSearchEnabled;
             
             const onStatusUpdate = (message: string) => {
                 setChatHistory(prev => {
@@ -719,14 +719,22 @@ Ensure your response is complete and contains all necessary file operations.`;
                 if (cancellationRef.current) throw new Error('Cancelled by user');
                 if (!fullResponseText.trim()) setChatHistory(prev => prev.slice(0, -1));
             } else {
-                const response = await generateContentWithRetries( apiKey, activeModel, historyForApiWithContext, systemInstruction, undefined, cancellationRef, onStatusUpdate, cancellableSleep );
+                const toolsForApi = isGoogleSearchEnabled ? [{ googleSearch: {} }] : undefined;
+                const response = await generateContentWithRetries( apiKey, activeModel, historyForApiWithContext, systemInstruction, toolsForApi, cancellationRef, onStatusUpdate, cancellableSleep );
                 if (cancellationRef.current) throw new Error('Cancelled by user');
                 const modelResponseText = response.text;
+                const groundingChunks: GroundingChunk[] | undefined = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
+
 
                 if (!modelResponseText.trim()) {
                     setChatHistory(prev => prev.slice(0, -1));
                 } else {
-                    const modelTurnWithMessage: ChatMessage = { role: 'model', parts: [{ text: modelResponseText }], mode: selectedMode };
+                    const modelTurnWithMessage: ChatMessage = { 
+                        role: 'model', 
+                        parts: [{ text: modelResponseText }], 
+                        mode: selectedMode,
+                        groundingChunks: groundingChunks
+                    };
                     setChatHistory(prev => {
                         const newHistory = [...prev];
                         newHistory[newHistory.length - 1] = modelTurnWithMessage;
@@ -765,7 +773,7 @@ Ensure your response is complete and contains all necessary file operations.`;
       cancellationRef.current = false;
     }
   }, [
-    apiKey, chatHistory, selectedModel, selectedMode, isStreamingEnabled,
+    apiKey, chatHistory, selectedModel, selectedMode, isStreamingEnabled, isGoogleSearchEnabled,
     setIsSettingsModalOpen, getSerializableContext, applyFunctionCalls, attachedFiles,
     clearProjectContext, setCreatingInFs, prompt, showToast
   ]);

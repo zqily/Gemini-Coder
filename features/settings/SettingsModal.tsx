@@ -7,12 +7,14 @@ const SettingsModal: React.FC = () => {
     apiKey, setApiKey, 
     sendWithCtrlEnter, setSendWithCtrlEnter, 
     isStreamingEnabled, setStreamingEnabled,
+    isGoogleSearchEnabled, setGoogleSearchEnabled,
     isSettingsModalOpen, setIsSettingsModalOpen
   } = useSettings();
 
   const [localKey, setLocalKey] = useState(apiKey);
   const [localSendShortcut, setLocalSendShortcut] = useState(sendWithCtrlEnter);
   const [localStreaming, setLocalStreaming] = useState(isStreamingEnabled);
+  const [localGoogleSearch, setLocalGoogleSearch] = useState(isGoogleSearchEnabled);
   const [isClosing, setIsClosing] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -29,10 +31,11 @@ const SettingsModal: React.FC = () => {
       setLocalKey(apiKey);
       setLocalSendShortcut(sendWithCtrlEnter);
       setLocalStreaming(isStreamingEnabled);
+      setLocalGoogleSearch(isGoogleSearchEnabled);
       // Autofocus the input when the modal opens
       setTimeout(() => inputRef.current?.focus(), 100);
     }
-  }, [apiKey, isSettingsModalOpen, sendWithCtrlEnter, isStreamingEnabled]);
+  }, [apiKey, isSettingsModalOpen, sendWithCtrlEnter, isStreamingEnabled, isGoogleSearchEnabled]);
 
   // Add ESC key listener to close modal
   useEffect(() => {
@@ -58,6 +61,7 @@ const SettingsModal: React.FC = () => {
     setApiKey(localKey);
     setSendWithCtrlEnter(localSendShortcut);
     setStreamingEnabled(localStreaming);
+    setGoogleSearchEnabled(localGoogleSearch);
     handleClose();
   };
 
@@ -70,6 +74,26 @@ const SettingsModal: React.FC = () => {
         <h2 className="text-2xl font-bold mb-6 text-white">Settings</h2>
         
         <div className="space-y-6">
+          <div>
+            <label htmlFor="googleSearchToggle" className="flex items-center justify-between cursor-pointer">
+              <span className="text-sm font-medium text-gray-300">
+                Enable Google Search
+              </span>
+              <div className="relative">
+                <input
+                  type="checkbox"
+                  id="googleSearchToggle"
+                  className="sr-only peer"
+                  checked={localGoogleSearch}
+                  onChange={(e) => setLocalGoogleSearch(e.target.checked)}
+                />
+                <div className="w-11 h-6 bg-gray-600 rounded-full peer peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-500/50 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+              </div>
+            </label>
+            <p className="text-xs text-gray-500 mt-2">
+              Allows the model to search Google for up-to-date information. Only applies to 'Default' mode and disables streaming.
+            </p>
+          </div>
           <div>
             <label htmlFor="streamingToggle" className="flex items-center justify-between cursor-pointer">
               <span className="text-sm font-medium text-gray-300">

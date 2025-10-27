@@ -19,7 +19,7 @@ export const generateContent = async (
   modelName: string,
   history: ChatMessage[],
   systemInstruction?: string,
-  tools?: { functionDeclarations: FunctionDeclaration[] }[],
+  tools?: any,
   additionalConfig?: object
 ): Promise<GenerateContentResponse> => {
   if (!apiKey) {
@@ -68,7 +68,7 @@ export const generateContentWithRetries = async (
   modelName: string,
   history: ChatMessage[],
   systemInstruction: string | undefined,
-  tools: { functionDeclarations: FunctionDeclaration[] }[] | undefined,
+  tools: any | undefined,
   cancellationRef: React.MutableRefObject<boolean>,
   onStatusUpdate: (message: string) => void,
   cancellableSleep: (ms: number) => Promise<void>,

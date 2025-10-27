@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { HelpCircle, ChevronDown, User, ImageIcon, File as FileIcon, Menu, Copy, Check, Trash2 } from '../../components/icons';
+import { HelpCircle, ChevronDown, User, ImageIcon, File as FileIcon, Menu, Copy, Check, Trash2, Search } from '../../components/icons';
 import PromptInput from './PromptInput';
-import type { ChatMessage, ChatPart, FunctionCallPart, FunctionResponsePart, TextPart, InlineDataPart, Mode, ModeId } from '../../types';
+import type { ChatMessage, ChatPart, FunctionCallPart, FunctionResponsePart, TextPart, InlineDataPart, Mode, ModeId, GroundingChunk } from '../../types';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
@@ -165,6 +165,36 @@ const MarkdownRenderer: React.FC<{ content: string }> = ({ content }) => {
   );
 };
 
+const GroundingSources: React.FC<{ chunks: GroundingChunk[] }> = ({ chunks }) => {
+  const validSources = chunks.filter(chunk => chunk.web && chunk.web.uri && chunk.web.title);
+
+  if (validSources.length === 0) return null;
+
+  return (
+    <div className="mt-4 pt-3 border-t border-gray-700/50">
+      <h4 className="flex items-center gap-2 text-sm font-semibold text-gray-400 mb-2">
+        <Search size={14} />
+        Sources
+      </h4>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+        {validSources.map((chunk, index) => (
+          <a
+            key={index}
+            href={chunk.web!.uri}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="block p-2 rounded-md bg-gray-800/50 hover:bg-gray-700/70 transition-colors"
+            title={chunk.web!.uri}
+          >
+            <p className="truncate text-blue-400 font-medium">{chunk.web!.title}</p>
+            <p className="truncate text-gray-500">{chunk.web!.uri}</p>
+          </a>
+        ))}
+      </div>
+    </div>
+  );
+};
+
 
 interface ChatBubbleProps {
   message: ChatMessage;
@@ -229,6 +259,8 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message, toolResponseMessage, o
                 
                 {mainText && <div className="prose prose-invert max-w-none"><MarkdownRenderer content={mainText} /></div>}
                 
+                {message.groundingChunks && <GroundingSources chunks={message.groundingChunks} />}
+
                 {functionCallParts.length > 0 && (
                      <div className="space-y-3">
                         {functionCallParts.map((callPart, index) => {
