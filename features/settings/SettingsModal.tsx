@@ -8,6 +8,7 @@ const SettingsModal: React.FC = () => {
     sendWithCtrlEnter, setSendWithCtrlEnter, 
     isStreamingEnabled, setStreamingEnabled,
     isGoogleSearchEnabled, setGoogleSearchEnabled,
+    isContextTokenUnlocked, setContextTokenUnlocked,
     isSettingsModalOpen, setIsSettingsModalOpen
   } = useSettings();
 
@@ -15,6 +16,7 @@ const SettingsModal: React.FC = () => {
   const [localSendShortcut, setLocalSendShortcut] = useState(sendWithCtrlEnter);
   const [localStreaming, setLocalStreaming] = useState(isStreamingEnabled);
   const [localGoogleSearch, setLocalGoogleSearch] = useState(isGoogleSearchEnabled);
+  const [localContextTokenUnlocked, setLocalContextTokenUnlocked] = useState(isContextTokenUnlocked);
   const [isClosing, setIsClosing] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -32,10 +34,11 @@ const SettingsModal: React.FC = () => {
       setLocalSendShortcut(sendWithCtrlEnter);
       setLocalStreaming(isStreamingEnabled);
       setLocalGoogleSearch(isGoogleSearchEnabled);
+      setLocalContextTokenUnlocked(isContextTokenUnlocked);
       // Autofocus the input when the modal opens
       setTimeout(() => inputRef.current?.focus(), 100);
     }
-  }, [apiKey, isSettingsModalOpen, sendWithCtrlEnter, isStreamingEnabled, isGoogleSearchEnabled]);
+  }, [apiKey, isSettingsModalOpen, sendWithCtrlEnter, isStreamingEnabled, isGoogleSearchEnabled, isContextTokenUnlocked]);
 
   // Add ESC key listener to close modal
   useEffect(() => {
@@ -62,6 +65,7 @@ const SettingsModal: React.FC = () => {
     setSendWithCtrlEnter(localSendShortcut);
     setStreamingEnabled(localStreaming);
     setGoogleSearchEnabled(localGoogleSearch);
+    setContextTokenUnlocked(localContextTokenUnlocked);
     handleClose();
   };
 
@@ -92,6 +96,26 @@ const SettingsModal: React.FC = () => {
             </label>
             <p className="text-xs text-gray-500 mt-2">
               Allows the model to search Google for up-to-date information. Only applies to 'Default' mode and disables streaming.
+            </p>
+          </div>
+          <div>
+            <label htmlFor="unlockContextToggle" className="flex items-center justify-between cursor-pointer">
+              <span className="text-sm font-medium text-gray-300">
+                Unlock Context Token Limit
+              </span>
+              <div className="relative">
+                <input
+                  type="checkbox"
+                  id="unlockContextToggle"
+                  className="sr-only peer"
+                  checked={localContextTokenUnlocked}
+                  onChange={(e) => setLocalContextTokenUnlocked(e.target.checked)}
+                />
+                <div className="w-11 h-6 bg-gray-600 rounded-full peer peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-500/50 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+              </div>
+            </label>
+            <p className="text-xs text-gray-500 mt-2">
+              For paid API keys with higher TPMs. This disables the TPM manager and raises the input token limit to 1M.
             </p>
           </div>
           <div>

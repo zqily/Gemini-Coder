@@ -9,6 +9,8 @@ export interface SettingsContextType {
   setStreamingEnabled: (enabled: boolean) => void;
   isGoogleSearchEnabled: boolean;
   setGoogleSearchEnabled: (enabled: boolean) => void;
+  isContextTokenUnlocked: boolean;
+  setContextTokenUnlocked: (unlocked: boolean) => void;
   isSettingsModalOpen: boolean;
   setIsSettingsModalOpen: (isOpen: boolean) => void;
   isHelpModalOpen: boolean;

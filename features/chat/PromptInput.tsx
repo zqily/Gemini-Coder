@@ -14,8 +14,8 @@ const TOKEN_HEX_COLORS = {
 
 const GEMINI_FLASH_LIMIT = 250000;
 const GEMINI_PRO_LIMIT = 125000;
-// With the refined token counting heuristic, we can be more confident and remove the overage buffer.
-const TOKEN_OVERAGE_BUFFER = 1.0; // 100%, no buffer
+// A standard 2% buffer to account for minor discrepancies in token counting.
+const TOKEN_OVERAGE_BUFFER = 1.02;
 
 const PromptInput: React.FC = () => {
   const { 
@@ -24,7 +24,7 @@ const PromptInput: React.FC = () => {
     attachedFiles, setAttachedFiles,
     prompt, setPrompt, totalTokens, selectedModel
   } = useChat();
-  const { apiKey, sendWithCtrlEnter } = useSettings();
+  const { apiKey, sendWithCtrlEnter, isContextTokenUnlocked } = useSettings();
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -79,7 +79,25 @@ const PromptInput: React.FC = () => {
     let tooltipText = `${totalTokens.toLocaleString()} total input tokens.`;
     let disableSubmit = false;
 
-    if (selectedMode === 'advanced-coder') {
+    if (isContextTokenUnlocked) {
+      const UNLOCKED_LIMIT = 1_000_000;
+      const thresholdYellow = UNLOCKED_LIMIT * 0.75; // 750k
+      const thresholdOrange = UNLOCKED_LIMIT * 0.9;  // 900k
+
+      tooltipText = `${totalTokens.toLocaleString()} / ${UNLOCKED_LIMIT.toLocaleString()} tokens.`;
+      
+      if (totalTokens * TOKEN_OVERAGE_BUFFER > UNLOCKED_LIMIT) {
+        level = 'red';
+        tooltipText = `Input token count exceeds the 1M limit.`;
+        disableSubmit = true;
+      } else if (totalTokens > thresholdOrange) {
+        level = 'orange';
+        tooltipText = `Input token count is very high.`;
+      } else if (totalTokens > thresholdYellow) {
+        level = 'yellow';
+        tooltipText = `Input token count is high.`;
+      }
+    } else if (selectedMode === 'advanced-coder') {
       const advancedCoderThreshold1 = 80000;
       const advancedCoderThreshold2 = 100000;
       const advancedCoderThreshold3 = 118000;
@@ -115,7 +133,7 @@ const PromptInput: React.FC = () => {
     }
     
     return { tokenColor: TOKEN_HEX_COLORS[level], tokenTooltipText: tooltipText, shouldDisableSubmit: disableSubmit };
-  }, [totalTokens, selectedModel, selectedMode]);
+  }, [totalTokens, selectedModel, selectedMode, isContextTokenUnlocked]);
 
   const isSubmitDisabled = !apiKey || isLoading || (!prompt.trim() && !canResend && attachedFiles.length === 0) || shouldDisableSubmit;
   let submitButtonTitle = "Send prompt";

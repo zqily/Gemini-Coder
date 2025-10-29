@@ -38,6 +38,7 @@ function resetModelState(modelName: string) {
  * @param cancellableSleep A sleep function that can be interrupted.
  * @param apiCalls An array of functions, each representing an API call to be made.
  * @param onStatusUpdate A callback to update the UI with status messages.
+ * @param isContextTokenUnlocked A flag to bypass the TPM manager entirely.
  * @returns A promise that resolves to an array of API call results or errors.
  */
 export async function executeManagedBatchCall<T extends GenerateContentResponse>(
@@ -45,8 +46,14 @@ export async function executeManagedBatchCall<T extends GenerateContentResponse>
   inputTokensPerCall: number,
   cancellableSleep: (ms: number) => Promise<void>,
   apiCalls: (() => Promise<T>)[],
-  onStatusUpdate: (message: string) => void
+  onStatusUpdate: (message: string) => void,
+  isContextTokenUnlocked: boolean
 ): Promise<(T | Error)[]> {
+    if (isContextTokenUnlocked) {
+        onStatusUpdate(`TPM Manager: Bypassed due to unlocked context token limit.`);
+        return Promise.all(apiCalls.map(call => call().catch(e => e)));
+    }
+
     const tpmLimit = TPM_LIMITS[modelName as keyof typeof TPM_LIMITS];
     if (!tpmLimit) {
         // Not a managed model, run all in parallel without rate limiting.

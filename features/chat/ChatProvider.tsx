@@ -225,7 +225,7 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
   const [selectedModel, setSelectedModel] = useSelectedModel();
   const [selectedMode, setSelectedMode] = useSelectedMode();
 
-  const { apiKey, isStreamingEnabled, isGoogleSearchEnabled, setIsSettingsModalOpen } = useSettings();
+  const { apiKey, isStreamingEnabled, isGoogleSearchEnabled, isContextTokenUnlocked, setIsSettingsModalOpen } = useSettings();
   const { showToast } = useToast();
 
   const { 
@@ -469,7 +469,7 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
                     () => generateContentWithRetries(apiKey, 'gemini-flash-latest', planningHistoryForTokens, plannerSystemInstruction, undefined, cancellationRef, onStatusUpdateForRetries, setIndicatorState, cancellableSleep)
                 );
 
-                const planningResults = await executeManagedBatchCall('gemini-flash-latest', plannerInputTokens, cancellableSleep, planningApiCalls, onStatusUpdateForRetries);
+                const planningResults = await executeManagedBatchCall('gemini-flash-latest', plannerInputTokens, cancellableSleep, planningApiCalls, onStatusUpdateForRetries, isContextTokenUnlocked);
                 if (cancellationRef.current) throw new Error("Cancelled by user");
 
                 const successfulPlans = planningResults
@@ -491,7 +491,7 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
                 const consolidationInputTokens = consolidationHistory.reduce((sum, msg) => sum + countMessageTokens(msg), 0);
                 const consolidationApiCall = [() => generateContentWithRetries(apiKey, 'gemini-2.5-pro', consolidationHistory, consolidationSystemInstruction, undefined, cancellationRef, onStatusUpdateForRetries, setIndicatorState, cancellableSleep)];
                 
-                const consolidationResult = (await executeManagedBatchCall('gemini-2.5-pro', consolidationInputTokens, cancellableSleep, consolidationApiCall, onStatusUpdateForRetries))[0];
+                const consolidationResult = (await executeManagedBatchCall('gemini-2.5-pro', consolidationInputTokens, cancellableSleep, consolidationApiCall, onStatusUpdateForRetries, isContextTokenUnlocked))[0];
                 if (cancellationRef.current) throw new Error("Cancelled by user");
                 if (consolidationResult instanceof Error) throw consolidationResult;
                 const masterPlan = consolidationResult.text;
@@ -505,7 +505,7 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
 
                 const draftingInputTokens = draftingHistory.reduce((sum, msg) => sum + countMessageTokens(msg), 0);
                 const draftingApiCall = [() => generateContentWithRetries(apiKey, 'gemini-2.5-pro', draftingHistory, draftingSystemInstruction, undefined, cancellationRef, onStatusUpdateForRetries, setIndicatorState, cancellableSleep)];
-                const draftingResult = (await executeManagedBatchCall('gemini-2.5-pro', draftingInputTokens, cancellableSleep, draftingApiCall, onStatusUpdateForRetries))[0];
+                const draftingResult = (await executeManagedBatchCall('gemini-2.5-pro', draftingInputTokens, cancellableSleep, draftingApiCall, onStatusUpdateForRetries, isContextTokenUnlocked))[0];
                 if (cancellationRef.current) throw new Error("Cancelled by user");
                 if (draftingResult instanceof Error) throw draftingResult;
                 const codeDraft = draftingResult.text;
@@ -522,7 +522,7 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
                 const debuggingApiCalls = Array(3).fill(0).map(() =>
                     () => generateContentWithRetries(apiKey, 'gemini-flash-latest', debuggingHistory, debuggerSystemInstruction, [{ functionDeclarations: [NO_PROBLEM_DETECTED_TOOL] }], cancellationRef, onStatusUpdateForRetries, setIndicatorState, cancellableSleep)
                 );
-                const debuggingResults = await executeManagedBatchCall('gemini-flash-latest', debuggingInputTokens, cancellableSleep, debuggingApiCalls, onStatusUpdateForRetries);
+                const debuggingResults = await executeManagedBatchCall('gemini-flash-latest', debuggingInputTokens, cancellableSleep, debuggingApiCalls, onStatusUpdateForRetries, isContextTokenUnlocked);
                 if (cancellationRef.current) throw new Error("Cancelled by user");
                 
                 const debuggingReports: string[] = [];
@@ -553,7 +553,7 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
 
                     const reviewInputTokens = reviewHistory.reduce((sum, msg) => sum + countMessageTokens(msg), 0);
                     const reviewApiCall = [() => generateContentWithRetries(apiKey, 'gemini-flash-latest', reviewHistory, reviewConsolidationSystemInstruction, undefined, cancellationRef, onStatusUpdateForRetries, setIndicatorState, cancellableSleep)];
-                    const reviewResult = (await executeManagedBatchCall('gemini-flash-latest', reviewInputTokens, cancellableSleep, reviewApiCall, onStatusUpdateForRetries))[0];
+                    const reviewResult = (await executeManagedBatchCall('gemini-flash-latest', reviewInputTokens, cancellableSleep, reviewApiCall, onStatusUpdateForRetries, isContextTokenUnlocked))[0];
                     if (cancellationRef.current) throw new Error("Cancelled by user");
                     if (reviewResult instanceof Error) throw reviewResult;
                     consolidatedReview = reviewResult.text;
@@ -589,7 +589,7 @@ Ensure your response is complete and contains all necessary file operations.`;
                 
                 const finalInputTokens = finalHistory.reduce((sum, msg) => sum + countMessageTokens(msg), 0);
                 const finalApiCall = [() => generateContentWithRetries(apiKey, 'gemini-2.5-pro', finalHistory, finalSystemInstruction, undefined, cancellationRef, onStatusUpdateForRetries, setIndicatorState, cancellableSleep)];
-                const response = (await executeManagedBatchCall('gemini-2.5-pro', finalInputTokens, cancellableSleep, finalApiCall, onStatusUpdateForRetries))[0];
+                const response = (await executeManagedBatchCall('gemini-2.5-pro', finalInputTokens, cancellableSleep, finalApiCall, onStatusUpdateForRetries, isContextTokenUnlocked))[0];
                 
                 if (cancellationRef.current) throw new Error("Cancelled by user");
                 if (response instanceof Error) throw response;
@@ -776,7 +776,7 @@ Ensure your response is complete and contains all necessary file operations.`;
       setIndicatorState('loading');
     }
   }, [
-    apiKey, chatHistory, selectedModel, selectedMode, isStreamingEnabled, isGoogleSearchEnabled,
+    apiKey, chatHistory, selectedModel, selectedMode, isStreamingEnabled, isGoogleSearchEnabled, isContextTokenUnlocked,
     setIsSettingsModalOpen, getSerializableContext, applyFunctionCalls, attachedFiles,
     clearProjectContext, setCreatingInFs, prompt, showToast
   ]);
