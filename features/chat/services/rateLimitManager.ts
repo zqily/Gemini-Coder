@@ -1,5 +1,6 @@
 import { countTextTokens } from "../utils/tokenCounter";
 import type { GenerateContentResponse } from "@google/genai";
+import { cancellableSleep } from "./geminiService";
 
 const TPM_LIMITS = {
   'gemini-flash-latest': 250000,
@@ -35,7 +36,7 @@ function resetModelState(modelName: string) {
  * It intelligently splits batches and introduces delays to stay within budget.
  * @param modelName The model being called.
  * @param inputTokensPerCall The estimated input tokens for each individual call in the batch.
- * @param cancellableSleep A sleep function that can be interrupted.
+ * @param signal An AbortSignal to cancel the operation.
  * @param apiCalls An array of functions, each representing an API call to be made.
  * @param onStatusUpdate A callback to update the UI with status messages.
  * @param isContextTokenUnlocked A flag to bypass the TPM manager entirely.
@@ -44,7 +45,7 @@ function resetModelState(modelName: string) {
 export async function executeManagedBatchCall<T extends GenerateContentResponse>(
   modelName: string,
   inputTokensPerCall: number,
-  cancellableSleep: (ms: number) => Promise<void>,
+  signal: AbortSignal,
   apiCalls: (() => Promise<T>)[],
   onStatusUpdate: (message: string) => void,
   isContextTokenUnlocked: boolean
@@ -64,6 +65,8 @@ export async function executeManagedBatchCall<T extends GenerateContentResponse>
     const callsToMake = [...apiCalls];
 
     while (callsToMake.length > 0) {
+        if (signal.aborted) throw new DOMException("Cancelled by user", "AbortError");
+
         const state = getModelState(modelName);
         const now = Date.now();
 
@@ -109,7 +112,7 @@ export async function executeManagedBatchCall<T extends GenerateContentResponse>
                 : 2000; // If no window, just a small safety buffer.
 
             onStatusUpdate(`TPM Manager: Limit reached for ${modelName}. Waiting for ${Math.round(delay/1000)}s...`);
-            await cancellableSleep(delay);
+            await cancellableSleep(delay, signal);
         }
     }
     

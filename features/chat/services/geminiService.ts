@@ -3,6 +3,26 @@ import { GoogleGenAI, FunctionDeclaration, GenerateContentResponse } from "@goog
 import type { ChatMessage, IndicatorState } from '../../../types';
 
 /**
+ * A sleep function that can be interrupted by an AbortSignal.
+ * @param ms - The number of milliseconds to sleep.
+ * @param signal - The AbortSignal to listen to for cancellation.
+ * @returns A promise that resolves after the timeout or rejects if aborted.
+ */
+export const cancellableSleep = (ms: number, signal: AbortSignal): Promise<void> => {
+    return new Promise((resolve, reject) => {
+        if (signal.aborted) {
+            return reject(new DOMException('Cancelled by user', 'AbortError'));
+        }
+        const timeoutId = setTimeout(resolve, ms);
+        signal.addEventListener('abort', () => {
+            clearTimeout(timeoutId);
+            reject(new DOMException('Cancelled by user', 'AbortError'));
+        });
+    });
+};
+
+
+/**
  * Generates content with the Google Gemini API.
  * This is used instead of the Chat API to allow for more complex, multi-turn
  * function calling scenarios.
@@ -57,10 +77,9 @@ export const generateContent = async (
  * @param history - The full conversation history.
  * @param systemInstruction - Optional system instruction.
  * @param tools - Optional function calling tools.
- * @param cancellationRef - A React ref to check if the user has cancelled the request.
+ * @param signal - An AbortSignal to cancel the request.
  * @param onStatusUpdate - A callback to update the UI with status messages (e.g., "Retrying...").
  * @param onStateChange - A callback to update the UI with the indicator's visual state.
- * @param cancellableSleep - A sleep function that can be interrupted by the cancellationRef.
  * @param additionalConfig - Optional additional configuration for the request.
  * @returns A promise that resolves to the generation response, or throws an error if all retries fail.
  */
@@ -70,10 +89,9 @@ export const generateContentWithRetries = async (
   history: ChatMessage[],
   systemInstruction: string | undefined,
   tools: any | undefined,
-  cancellationRef: React.MutableRefObject<boolean>,
+  signal: AbortSignal,
   onStatusUpdate: (message: string) => void,
   onStateChange: (state: IndicatorState) => void,
-  cancellableSleep: (ms: number) => Promise<void>,
   additionalConfig?: object
 ): Promise<GenerateContentResponse> => {
   let retries503 = 0;
@@ -86,19 +104,20 @@ export const generateContentWithRetries = async (
   const delaysOther = [30000, 45000, 60000];
 
   while (true) {
-    if (cancellationRef.current) {
-      throw new Error("Cancelled by user");
+    if (signal.aborted) {
+      throw new DOMException("Cancelled by user", "AbortError");
     }
 
     try {
       const response = await generateContent(apiKey, modelName, history, systemInstruction, tools, additionalConfig);
+      if (signal.aborted) throw new DOMException("Cancelled by user", "AbortError");
       return response; // Success, return response object and exit loop
     } catch (error: any) {
-      if (cancellationRef.current) throw error;
+      if (signal.aborted) throw new DOMException("Cancelled by user", "AbortError");
       
       onStateChange('error');
-      await cancellableSleep(600); // For error animation
-      if (cancellationRef.current) throw new Error("Cancelled by user");
+      await cancellableSleep(600, signal);
+      if (signal.aborted) throw new DOMException("Cancelled by user", "AbortError");
 
       let statusCode: number | undefined;
       const message = error instanceof Error ? error.message : String(error);
@@ -143,7 +162,7 @@ export const generateContentWithRetries = async (
         retries503++;
         onStateChange('delay');
         onStatusUpdate(`Model is overloaded. Retrying in ${delay / 1000}s...`);
-        await cancellableSleep(delay);
+        await cancellableSleep(delay, signal);
         onStateChange('loading');
         onStatusUpdate('');
         retriesOther = 0; // Reset other error counter
@@ -161,7 +180,7 @@ export const generateContentWithRetries = async (
         retriesOther++;
         onStateChange('delay');
         onStatusUpdate(userMessage);
-        await cancellableSleep(delay);
+        await cancellableSleep(delay, signal);
         onStateChange('loading');
         onStatusUpdate('');
         retries503 = 0; // Reset 503 error counter
@@ -180,10 +199,9 @@ export const generateContentWithRetries = async (
  * @param modelName The name of the model to use.
  * @param history The full conversation history.
  * @param systemInstruction Optional system instruction.
- * @param cancellationRef A React ref to check for user cancellation.
+ * @param signal An AbortSignal to cancel the request.
  * @param onStatusUpdate A callback to update the UI with status messages.
  * @param onStateChange - A callback to update the UI with the indicator's visual state.
- * @param cancellableSleep A sleep function that can be interrupted.
  * @param additionalConfig - Optional additional configuration for the request.
  * @returns An async generator that yields generation response chunks.
  */
@@ -192,10 +210,9 @@ export const generateContentStreamWithRetries = async function* (
   modelName: string,
   history: ChatMessage[],
   systemInstruction: string | undefined,
-  cancellationRef: React.MutableRefObject<boolean>,
+  signal: AbortSignal,
   onStatusUpdate: (message: string) => void,
   onStateChange: (state: IndicatorState) => void,
-  cancellableSleep: (ms: number) => Promise<void>,
   additionalConfig?: object
 ): AsyncGenerator<GenerateContentResponse> {
   if (!apiKey) {
@@ -228,23 +245,23 @@ export const generateContentStreamWithRetries = async function* (
   const delaysOther = [30000, 45000, 60000];
 
   while (true) {
-    if (cancellationRef.current) {
-      throw new Error("Cancelled by user");
+    if (signal.aborted) {
+      throw new DOMException("Cancelled by user", "AbortError");
     }
 
     try {
       const streamResponse = await ai.models.generateContentStream(request);
       for await (const chunk of streamResponse) {
-        if (cancellationRef.current) throw new Error("Cancelled by user");
+        if (signal.aborted) throw new DOMException("Cancelled by user", "AbortError");
         yield chunk;
       }
       return; // Success, exit loop
     } catch (error: any) {
-      if (cancellationRef.current) throw error;
+      if (signal.aborted) throw new DOMException("Cancelled by user", "AbortError");
 
       onStateChange('error');
-      await cancellableSleep(600);
-      if (cancellationRef.current) throw new Error("Cancelled by user");
+      await cancellableSleep(600, signal);
+      if (signal.aborted) throw new DOMException("Cancelled by user", "AbortError");
 
       let statusCode: number | undefined;
       const message = error instanceof Error ? error.message : String(error);
@@ -279,7 +296,7 @@ export const generateContentStreamWithRetries = async function* (
         retries503++;
         onStateChange('delay');
         onStatusUpdate(`Model is overloaded. Retrying in ${delay / 1000}s...`);
-        await cancellableSleep(delay);
+        await cancellableSleep(delay, signal);
         onStateChange('loading');
         onStatusUpdate('');
         retriesOther = 0;
@@ -296,7 +313,7 @@ export const generateContentStreamWithRetries = async function* (
         retriesOther++;
         onStateChange('delay');
         onStatusUpdate(userMessage);
-        await cancellableSleep(delay);
+        await cancellableSleep(delay, signal);
         onStateChange('loading');
         onStatusUpdate('');
         retries503 = 0;

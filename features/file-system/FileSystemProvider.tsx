@@ -49,11 +49,13 @@ const FileSystemProvider: React.FC<FileSystemProviderProps> = ({ children }) => 
   const highlightTimeoutRef = useRef<number | null>(null);
 
   useEffect(() => {
+    // FIX: Explicitly type Map and Set to avoid inference issues with spread syntax.
     const mergedFiles = new Map<string, string>([
       ...(deletedItems?.files || []),
       ...(projectContext?.files || [])
     ]);
-    const mergedDirs = new Set([
+    // FIX: Explicitly type Map and Set to avoid inference issues with spread syntax.
+    const mergedDirs = new Set<string>([
         ...(deletedItems?.dirs || []),
         ...(projectContext?.dirs || [])
     ]);
@@ -120,7 +122,8 @@ const FileSystemProvider: React.FC<FileSystemProviderProps> = ({ children }) => 
   const handleFolderUpload = useCallback(async (fileList: FileList) => {
     setIsReadingFiles(true);
     try {
-        const files = Array.from(fileList);
+        // FIX: Explicitly type `files` as `File[]` to ensure correct typing within the loop.
+        const files: File[] = Array.from(fileList);
         let isIgnored = (path: string) => false;
         
         const gitignoreFile = files.find(f => (f as any).webkitRelativePath.endsWith('.gitignore'));
@@ -144,7 +147,8 @@ const FileSystemProvider: React.FC<FileSystemProviderProps> = ({ children }) => 
         
         const newProjectContext: ProjectContext = { files: new Map(), dirs: new Set() };
         for (const file of files) {
-            const path = (file as any).webkitRelativePath;
+            // FIX: Explicitly type `path` as `string` to satisfy downstream functions.
+            const path: string = (file as any).webkitRelativePath;
             const isGitPath = /(^|\/)\.git(\/|$)/.test(path);
             const isIgnoreFile = /(^|\/)\.gitignore$/.test(path) || /(^|\/)\.gcignore$/.test(path);
 

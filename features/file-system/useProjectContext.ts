@@ -31,7 +31,8 @@ export const useProjectContext = () => {
 
     const togglePathExclusion = useCallback((path: string) => {
         const allDirs = new Set([...(projectContext?.dirs || []), ...(deletedItems.dirs || [])]);
-        const allFiles = new Map([...(projectContext?.files || []), ...(deletedItems.files || [])]);
+        // FIX: Explicitly type the new Map to prevent keys from being inferred as 'unknown'.
+        const allFiles = new Map<string, string>([...(projectContext?.files || []), ...(deletedItems.files || [])]);
         const isDirectory = allDirs.has(path) || Array.from(allFiles.keys()).some(p => p.startsWith(`${path}/`));
 
         setExcludedPaths(prev => {
