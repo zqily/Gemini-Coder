@@ -34,7 +34,11 @@ Because it stores your Google Gemini API key in your browser's local storage, th
 
 #### For Windows Users (Easy Method)
 
-1.  Clone or download this repository to your local machine.
+1.  Clone or download this repository to your local machine. If you have Git, you can use this command:
+    ```
+    git clone --branch release --single-branch https://github.com/zqily/Gemini-Coder.git
+    ```
+    to clone the release repository, or if you want the bleeding edge
 2.  Navigate to the project's root folder.
 3.  Double-click the `start.bat` file. This will automatically install all necessary dependencies and start the local development server.
 4.  Your default web browser should open to `http://localhost:3000`.
