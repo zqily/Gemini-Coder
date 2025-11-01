@@ -1,5 +1,5 @@
-import React, { useRef, useState, useEffect } from 'react';
-import { Menu, Plus, Settings, FolderSync, Folder, Trash2, FilePlus, FolderPlus } from '../../components/icons';
+import React, { useRef, useState, useEffect, useCallback } from 'react';
+import { Menu, Plus, Settings, FolderSync, Folder, Trash2, FilePlus, FolderPlus, Save, GitBranch } from '../../components/icons';
 import FileTree from './FileTree';
 import { useFileSystem } from './FileSystemContext';
 import { useChat } from '../chat/ChatContext';
@@ -12,13 +12,37 @@ interface SidebarProps {
   isMobile: boolean;
 }
 
+// --- Resizing Logic Constants ---
+const SIDEBAR_WIDTH_STORAGE_KEY = 'gemini-sidebar-width';
+const MIN_WIDTH = 224; // 14rem
+const MAX_WIDTH = 512; // 32rem
+const DEFAULT_WIDTH = 288; // 18rem
+
+const getInitialWidth = (): number => {
+  try {
+    const storedValue = localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY);
+    if (storedValue) {
+      const parsedWidth = parseInt(storedValue, 10);
+      return Math.max(MIN_WIDTH, Math.min(parsedWidth, MAX_WIDTH));
+    }
+    return DEFAULT_WIDTH;
+  } catch (error) {
+    return DEFAULT_WIDTH;
+  }
+};
+
+
 const Sidebar: React.FC<SidebarProps> = ({ 
     isOpen, setIsOpen, isMobile
 }) => {
   const { 
     syncProject, displayContext, unlinkProject,
-    onCreateFile, onCreateFolder, fileInputRef,
-    setCreatingIn
+    onCreateFile, onCreateFolder,
+    setCreatingIn,
+    rootDirHandle,
+    hasUnappliedChanges,
+    applyChangesToDisk,
+    revertChanges
   } = useFileSystem();
   const { 
     onNewChat, isLoading: isChatLoading
@@ -30,6 +54,81 @@ const Sidebar: React.FC<SidebarProps> = ({
   const [isCreateMenuOpen, setCreateMenuOpen] = useState(false);
   const createMenuRef = useRef<HTMLDivElement>(null);
   const createButtonRef = useRef<HTMLButtonElement>(null);
+
+  // --- Resizing Logic ---
+  const [isResizing, setIsResizing] = useState(false);
+  const [sidebarWidth, setSidebarWidth] = useState(getInitialWidth);
+
+  const startResizing = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsResizing(true);
+  }, []);
+
+  useEffect(() => {
+    const stopResizing = () => setIsResizing(false);
+    
+    const resize = (e: MouseEvent) => {
+        if (isResizing) {
+            const newWidth = e.clientX;
+            const clampedWidth = Math.max(MIN_WIDTH, Math.min(newWidth, MAX_WIDTH));
+            setSidebarWidth(clampedWidth);
+        }
+    };
+  
+    if (!isMobile) {
+        window.addEventListener('mousemove', resize);
+        window.addEventListener('mouseup', stopResizing);
+        document.addEventListener('mouseleave', stopResizing);
+    }
+    
+    return () => {
+        if (!isMobile) {
+            window.removeEventListener('mousemove', resize);
+            window.removeEventListener('mouseup', stopResizing);
+            document.removeEventListener('mouseleave', stopResizing);
+        }
+    };
+  }, [isResizing, isMobile]);
+
+  useEffect(() => {
+    if (!isMobile) {
+      localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(sidebarWidth));
+    }
+  }, [sidebarWidth, isMobile]);
+
+  useEffect(() => {
+    if (isResizing) {
+      document.body.classList.add('resizing-sidebar');
+    } else {
+      document.body.classList.remove('resizing-sidebar');
+    }
+  }, [isResizing]);
+
+  // --- Scroll Fade Logic ---
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const [showTopFade, setShowTopFade] = useState(false);
+  const [showBottomFade, setShowBottomFade] = useState(false);
+
+  useEffect(() => {
+    const element = scrollContainerRef.current;
+    if (!element || !isOpen) return;
+
+    const handleScroll = () => {
+      const { scrollTop, scrollHeight, clientHeight } = element;
+      setShowTopFade(scrollTop > 1);
+      setShowBottomFade(scrollHeight - scrollTop - clientHeight > 1);
+    };
+    
+    handleScroll(); // Initial check
+    element.addEventListener('scroll', handleScroll);
+    const resizeObserver = new ResizeObserver(handleScroll);
+    resizeObserver.observe(element);
+    
+    return () => {
+      element.removeEventListener('scroll', handleScroll);
+      resizeObserver.unobserve(element);
+    };
+  }, [isOpen]); // Re-run when sidebar opens/closes and element becomes available/visible
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -48,18 +147,6 @@ const Sidebar: React.FC<SidebarProps> = ({
     };
   }, [isCreateMenuOpen]);
 
-
-  const handleProjectSyncClick = () => {
-    fileInputRef.current?.click();
-  };
-
-  const handleDirectoryChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    if (event.target.files) {
-      syncProject(event.target.files);
-    }
-    event.target.value = ''; 
-  };
-  
   const handleNewChatClick = () => {
     onNewChat();
     if (isMobile) {
@@ -67,22 +154,23 @@ const Sidebar: React.FC<SidebarProps> = ({
     }
   };
 
+  const desktopWidth = isOpen ? sidebarWidth : '5rem';
+  const mobileWidth = isOpen ? '18rem' : '0rem'; // w-72 for mobile open
+
   return (
     <>
       <div
-        className={`bg-[#1e1f20] flex flex-col transition-all duration-300 ease-in-out ${
-          isOpen ? 'w-72 p-4' : 'w-20 p-3'
+        className={`bg-[#1e1f20] flex flex-col flex-shrink-0 ${
+            isMobile
+                ? `transition-all duration-300 ease-in-out ${isOpen ? 'p-4' : 'p-0 w-0'}`
+                : `${isOpen ? 'p-4' : 'p-3'}`
         }`}
+        style={{
+            width: isMobile ? mobileWidth : desktopWidth,
+            transition: !isMobile && isResizing ? 'none' : 'width 0.2s ease-in-out',
+            overflow: isMobile && !isOpen ? 'hidden' : 'visible',
+        }}
       >
-        <input
-          type="file"
-          ref={fileInputRef}
-          onChange={handleDirectoryChange}
-          className="hidden"
-          // @ts-ignore
-          webkitdirectory="true"
-          directory="true"
-        />
         <div className="flex-shrink-0">
           <button
             onClick={() => setIsOpen(!isOpen)}
@@ -107,22 +195,41 @@ const Sidebar: React.FC<SidebarProps> = ({
             </div>
           </button>
           <button
-            onClick={handleProjectSyncClick}
+            onClick={syncProject}
             disabled={isChatLoading}
-            title="Sync Local Folder"
+            title="Sync Local Folder (Read/Write)"
             className={`flex items-center w-full p-2.5 rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
               isOpen ? 'hover:bg-gray-700/70 justify-start' : 'hover:bg-gray-700 justify-center'
             }`}
           >
             <FolderSync size={24} className="flex-shrink-0" />
             <div className={`overflow-hidden transition-all duration-200 ${isOpen ? 'w-auto ml-3' : 'w-0 ml-0'}`}>
-              <span className="font-medium text-sm whitespace-nowrap">Upload Folder</span>
+              <span className="font-medium text-sm whitespace-nowrap">Sync Folder</span>
             </div>
           </button>
         </div>
         
         {isOpen && (
           <div className="mt-6 pt-4 border-t border-gray-700/60 flex-1 flex flex-col min-h-0">
+            {rootDirHandle && hasUnappliedChanges && (
+              <div className="flex-shrink-0 mb-4 p-3 bg-gray-800/50 rounded-lg animate-fade-in space-y-2">
+                <p className="text-xs text-center text-yellow-300">You have unapplied changes.</p>
+                <button
+                  onClick={applyChangesToDisk}
+                  disabled={isChatLoading}
+                  className="w-full flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-3 rounded-md transition-colors disabled:bg-gray-500"
+                >
+                  <Save size={16} /> Apply Changes
+                </button>
+                <button
+                  onClick={revertChanges}
+                  disabled={isChatLoading}
+                  className="w-full flex items-center justify-center gap-2 border border-red-500 text-red-400 hover:bg-red-500/20 py-1.5 px-3 rounded-md transition-colors text-sm disabled:opacity-50"
+                >
+                  <GitBranch size={14} /> Revert
+                </button>
+              </div>
+            )}
             <div className="group flex items-center justify-between gap-2 mb-2 px-1 text-gray-300 flex-shrink-0">
               <div className="flex items-center gap-2">
                 <Folder size={16} />
@@ -173,15 +280,21 @@ const Sidebar: React.FC<SidebarProps> = ({
                 )}
               </div>
             </div>
-
-            <div 
-              className="flex-1 overflow-y-auto overflow-x-hidden custom-scrollbar pr-1 -mr-2"
-            >
-              <FileTree />
+            
+            <div className="relative flex-1 overflow-hidden">
+                <div 
+                    ref={scrollContainerRef}
+                    className="absolute inset-0 overflow-y-auto overflow-x-hidden custom-scrollbar pr-1 -mr-2"
+                    style={{'--fade-color': '#1e1f20'} as React.CSSProperties}
+                >
+                    <FileTree />
+                </div>
+                <div className={`scroll-fade-top ${showTopFade ? 'scroll-fade-top-active' : ''}`} />
+                <div className={`scroll-fade-bottom ${showBottomFade ? 'scroll-fade-bottom-active' : ''}`} />
             </div>
+
           </div>
         )}
-
 
         <div className="mt-auto flex-shrink-0 space-y-2 pt-4 border-t border-gray-700/60">
           <button
@@ -196,6 +309,14 @@ const Sidebar: React.FC<SidebarProps> = ({
           </button>
         </div>
       </div>
+       {isOpen && !isMobile && (
+        <div
+            onMouseDown={startResizing}
+            className="w-1 h-full cursor-col-resize bg-gray-800/50 hover:bg-blue-600 active:bg-blue-500 transition-colors duration-200 flex-shrink-0"
+            aria-label="Resize sidebar"
+            role="separator"
+        />
+      )}
     </>
   );
 };

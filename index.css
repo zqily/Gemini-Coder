@@ -145,6 +145,14 @@
 }
 
 @layer utilities {
+  .resizing-sidebar {
+    @apply cursor-col-resize;
+    user-select: none;
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+  }
+
   /* Animation for loading dots */
   @keyframes typing-bounce {
     0%,

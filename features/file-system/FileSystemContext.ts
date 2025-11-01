@@ -1,5 +1,5 @@
 import React from 'react';
-import type { ProjectContext, AttachedFile, ChatPart } from '../../types';
+import type { ProjectContext, AttachedFile, ChatPart, FileSystemDirectoryHandle } from '../../types';
 import type { FunctionCall } from '@google/genai';
 
 export const EMPTY_CONTEXT: ProjectContext = { files: new Map(), dirs: new Set() };
@@ -21,8 +21,12 @@ export interface FileSystemContextType {
   fadingPath: { path: string; fast: boolean } | null;
   setExpandedFolders: React.Dispatch<React.SetStateAction<Set<string>>>;
   
-  syncProject: (fileList: FileList) => Promise<void>;
+  rootDirHandle: FileSystemDirectoryHandle | null;
+  hasUnappliedChanges: boolean;
+  syncProject: () => Promise<void>;
   unlinkProject: () => void;
+  applyChangesToDisk: () => Promise<void>;
+  revertChanges: () => void;
   clearProjectContext: () => void;
   saveFile: (path: string, newContent: string) => void;
   togglePathExclusion: (path: string) => void;

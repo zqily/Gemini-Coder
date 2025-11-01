@@ -1,13 +1,23 @@
-import React, { useState, useCallback, useEffect, useRef, ReactNode } from 'react';
+import React, { useState, useCallback, useEffect, useRef, ReactNode, useMemo } from 'react';
 import { FileSystemContext, FileSystemContextType, EMPTY_CONTEXT } from './FileSystemContext';
 import { useProjectContext } from './useProjectContext';
-import { createIsIgnored } from './utils/gitignore';
 import * as FileSystem from './utils/fileSystem';
-import type { ProjectContext } from '../../types';
+import type { ProjectContext, FileSystemDirectoryHandle } from '../../types';
 import type { FunctionCall } from '@google/genai';
 import type { ChatPart } from '../../types';
 import { countTextTokens, countImageTokens } from '../chat/utils/tokenCounter';
 import { fileToDataURL } from '../chat/utils/fileUpload';
+import { readDirectoryHandle, applyChangesToDisk as applyChangesToDiskUtil } from './utils/diskAccess';
+import { useToast } from '../toast/ToastContext';
+
+const areContextsEqual = (a: ProjectContext | null, b: ProjectContext | null): boolean => {
+    if (!a && !b) return true;
+    if (!a || !b) return false;
+    if (a.dirs.size !== b.dirs.size || a.files.size !== b.files.size) return false;
+    for (const dir of a.dirs) if (!b.dirs.has(dir)) return false;
+    for (const [path, content] of a.files) if (b.files.get(path) !== content) return false;
+    return true;
+};
 
 interface FileSystemProviderProps {
   children: ReactNode;
@@ -23,6 +33,7 @@ const FileSystemProvider: React.FC<FileSystemProviderProps> = ({ children }) => 
     setOriginalProjectContext,
     setDeletedItems,
     setExcludedPaths,
+    revertProjectChangesInHook,
     saveFile: saveFileInHook,
     togglePathExclusion: togglePathExclusionInHook,
     getSerializableContext,
@@ -33,6 +44,7 @@ const FileSystemProvider: React.FC<FileSystemProviderProps> = ({ children }) => 
     movePath: movePathInHook,
     unlinkProject: unlinkProjectInHook,
   } = useProjectContext();
+  const { showToast } = useToast();
 
   const [displayContext, setDisplayContext] = useState<ProjectContext | null>(null);
   const [editingFile, setEditingFile] = useState<{ path: string; content: string } | null>(null);
@@ -46,7 +58,14 @@ const FileSystemProvider: React.FC<FileSystemProviderProps> = ({ children }) => 
   const dragCounter = useRef(0);
   const [highlightedPath, setHighlightedPathInternal] = useState<string | null>(null);
   const [fadingPath, setFadingPath] = useState<{ path: string; fast: boolean } | null>(null);
+  const [rootDirHandle, setRootDirHandle] = useState<FileSystemDirectoryHandle | null>(null);
   const highlightTimeoutRef = useRef<number | null>(null);
+
+  const hasUnappliedChanges = useMemo(() => {
+    const hasModifications = !areContextsEqual(originalProjectContext, projectContext);
+    const hasDeletions = deletedItems.files.size > 0 || deletedItems.dirs.size > 0;
+    return hasModifications || hasDeletions;
+  }, [originalProjectContext, projectContext, deletedItems]);
 
   useEffect(() => {
     // FIX: Explicitly type Map and Set to avoid inference issues with spread syntax.
@@ -119,77 +138,61 @@ const FileSystemProvider: React.FC<FileSystemProviderProps> = ({ children }) => 
   }, [displayContext]);
 
 
-  const handleFolderUpload = useCallback(async (fileList: FileList) => {
+  const syncProject = useCallback(async () => {
+    if (!(window as any).showDirectoryPicker) {
+      alert('Your browser does not support the File System Access API. Please use a modern browser like Chrome or Edge.');
+      return;
+    }
     setIsReadingFiles(true);
     try {
-        // FIX: Explicitly type `files` as `File[]` to ensure correct typing within the loop.
-        const files: File[] = Array.from(fileList);
-        let isIgnored = (path: string) => false;
-        
-        const gitignoreFile = files.find(f => (f as any).webkitRelativePath.endsWith('.gitignore'));
-        const gcignoreFile = files.find(f => (f as any).webkitRelativePath.endsWith('.gcignore'));
-        
-        let combinedIgnoreContent = '';
-
-        if (gitignoreFile) {
-            const gitignoreContent = await gitignoreFile.text();
-            combinedIgnoreContent += gitignoreContent + '\n';
-        }
-
-        if (gcignoreFile) {
-            const gcignoreContent = await gcignoreFile.text();
-            combinedIgnoreContent += gcignoreContent;
-        }
-
-        if (combinedIgnoreContent.trim()) {
-          isIgnored = createIsIgnored(combinedIgnoreContent);
-        }
-        
-        const newProjectContext: ProjectContext = { files: new Map(), dirs: new Set() };
-        for (const file of files) {
-            // FIX: Explicitly type `path` as `string` to satisfy downstream functions.
-            const path: string = (file as any).webkitRelativePath;
-            const isGitPath = /(^|\/)\.git(\/|$)/.test(path);
-            const isIgnoreFile = /(^|\/)\.gitignore$/.test(path) || /(^|\/)\.gcignore$/.test(path);
-
-            if (path && !isIgnored(path) && !isGitPath && !isIgnoreFile) {
-                if (file.type.startsWith('image/')) {
-                    try {
-                        const dataURL = await fileToDataURL(file);
-                        newProjectContext.files.set(path, dataURL);
-                    } catch(e) {
-                         console.warn(`Could not read image file ${path} as dataURL. Skipping.`, e);
-                    }
-                } else {
-                    try {
-                        const content = await file.text();
-                        newProjectContext.files.set(path, content);
-                    } catch (e) {
-                        console.warn(`Could not read file ${path} as text. Representing as binary.`, e);
-                        newProjectContext.files.set(path, `[Binary file: ${file.name} (${file.type}). Content not displayed.]`);
-                    }
-                }
-                const parts = path.split('/');
-                let currentPath = '';
-                for (let i = 0; i < parts.length - 1; i++) {
-                    currentPath = currentPath ? `${currentPath}/${parts[i]}` : parts[i];
-                    newProjectContext.dirs.add(currentPath);
-                }
-            }
-        }
-        setProjectContext(newProjectContext);
-        setOriginalProjectContext(newProjectContext);
-        setDeletedItems(EMPTY_CONTEXT);
-        setExcludedPaths(new Set());
-        const allDirs = new Set(newProjectContext.dirs);
-        allDirs.add(''); // Always expand root
-        setExpandedFolders(allDirs);
+      const handle = await (window as any).showDirectoryPicker();
+      setRootDirHandle(handle);
+      const newContext = await readDirectoryHandle(handle);
+      setProjectContext(newContext);
+      setOriginalProjectContext(newContext);
+      setDeletedItems(EMPTY_CONTEXT);
+      setExcludedPaths(new Set());
+      const allDirs = new Set(newContext.dirs);
+      allDirs.add('');
+      setExpandedFolders(allDirs);
+      showToast('Project synced successfully!', 'success');
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        // User cancelled picker, do nothing.
+      } else {
+        console.error('Error syncing project:', err);
+        showToast('Failed to sync project.', 'error');
+      }
     } finally {
-        setIsReadingFiles(false);
+      setIsReadingFiles(false);
     }
-  }, [setProjectContext, setOriginalProjectContext, setDeletedItems, setExcludedPaths, setExpandedFolders]);
+  }, [setProjectContext, setOriginalProjectContext, setDeletedItems, setExcludedPaths, setExpandedFolders, showToast]);
+
+  const applyChangesToDisk = useCallback(async () => {
+    if (!rootDirHandle || !originalProjectContext || !projectContext) {
+      showToast('Cannot apply changes: no project synced.', 'error');
+      return;
+    }
+    try {
+      await applyChangesToDiskUtil(rootDirHandle, originalProjectContext, projectContext, deletedItems);
+      setOriginalProjectContext(projectContext);
+      setDeletedItems(EMPTY_CONTEXT);
+      showToast('Changes applied to local disk!', 'success');
+    } catch (err) {
+      console.error('Failed to apply changes:', err);
+      showToast(`Error applying changes: ${err instanceof Error ? err.message : 'Unknown error'}`, 'error');
+    }
+  }, [rootDirHandle, originalProjectContext, projectContext, deletedItems, showToast, setOriginalProjectContext, setDeletedItems]);
+
+  const revertChanges = useCallback(() => {
+    if (window.confirm('Are you sure you want to revert all virtual changes? This will restore the state from your last sync/apply.')) {
+      revertProjectChangesInHook();
+      showToast('Virtual changes have been reverted.', 'success');
+    }
+  }, [revertProjectChangesInHook, showToast]);
 
   const handleAddFiles = useCallback(async (fileList: FileList) => {
+    setRootDirHandle(null);
     setIsReadingFiles(true);
     try {
       const files = Array.from(fileList);
@@ -272,6 +275,7 @@ const FileSystemProvider: React.FC<FileSystemProviderProps> = ({ children }) => 
   const unlinkProject = useCallback(() => {
     if (window.confirm('Are you sure you want to clear all files? This cannot be undone.')) {
         unlinkProjectInHook();
+        setRootDirHandle(null);
         setExpandedFolders(new Set(['']));
     }
   }, [unlinkProjectInHook]);
@@ -363,9 +367,13 @@ const FileSystemProvider: React.FC<FileSystemProviderProps> = ({ children }) => 
     fadingPath,
     setExpandedFolders,
     
-    syncProject: handleFolderUpload,
+    rootDirHandle,
+    hasUnappliedChanges,
+    syncProject,
     unlinkProject,
     clearProjectContext: unlinkProjectInHook,
+    applyChangesToDisk,
+    revertChanges,
     saveFile,
     togglePathExclusion,
     getSerializableContext,

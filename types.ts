@@ -90,3 +90,32 @@ export interface AdvancedCoderState {
   phases: AdvancedCoderPhase[];
   statusMessage: string; // For retry messages etc.
 }
+
+// These are simplified definitions for the File System Access API handles.
+
+// This type might not be in all TS DOM library versions.
+export interface FileSystemHandlePermissionDescriptor {
+  mode?: 'read' | 'readwrite';
+}
+
+export interface FileSystemHandle {
+  kind: 'file' | 'directory';
+  name: string;
+  isSameEntry(other: FileSystemHandle): Promise<boolean>;
+  queryPermission(descriptor?: FileSystemHandlePermissionDescriptor): Promise<PermissionState>;
+  requestPermission(descriptor?: FileSystemHandlePermissionDescriptor): Promise<PermissionState>;
+}
+
+export interface FileSystemFileHandle extends FileSystemHandle {
+  kind: 'file';
+  getFile(): Promise<File>;
+  createWritable(): Promise<FileSystemWritableFileStream>;
+}
+
+export interface FileSystemDirectoryHandle extends FileSystemHandle {
+  kind: 'directory';
+  entries(): AsyncIterable<[string, FileSystemFileHandle | FileSystemDirectoryHandle]>;
+  getDirectoryHandle(name: string, options?: { create?: boolean }): Promise<FileSystemDirectoryHandle>;
+  getFileHandle(name: string, options?: { create?: boolean }): Promise<FileSystemFileHandle>;
+  removeEntry(name: string, options?: { recursive?: boolean }): Promise<void>;
+}

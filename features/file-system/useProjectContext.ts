@@ -22,6 +22,15 @@ export const useProjectContext = () => {
         setExcludedPaths(new Set());
     }, []);
 
+    const revertProjectChangesInHook = useCallback(() => {
+        if (originalProjectContext) {
+            setProjectContext(originalProjectContext);
+        } else {
+            setProjectContext(null);
+        }
+        setDeletedItems(EMPTY_CONTEXT);
+    }, [originalProjectContext]);
+
     const saveFile = useCallback((path: string, newContent: string) => {
         setProjectContext(prev => {
             const context = prev ?? EMPTY_CONTEXT;
@@ -162,6 +171,7 @@ export const useProjectContext = () => {
         setOriginalProjectContext,
         setDeletedItems,
         setExcludedPaths,
+        revertProjectChangesInHook,
         unlinkProject,
         saveFile,
         togglePathExclusion,

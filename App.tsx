@@ -137,16 +137,16 @@ const AppContent: React.FC = () => {
 
 
 const App: React.FC = () => {
-  return (
-    <SettingsProvider>
-      <FileSystemProvider>
-        <ToastProvider>
-          <ChatProvider>
-            <AppContent />
-          </ChatProvider>
-        </ToastProvider>
-      </FileSystemProvider>
-    </SettingsProvider>
+return (
+     <SettingsProvider>
+      <ToastProvider>
+        <FileSystemProvider>
+           <ChatProvider>
+             <AppContent />
+           </ChatProvider>
+        </FileSystemProvider>
+      </ToastProvider>
+     </SettingsProvider>
   );
 };
 
