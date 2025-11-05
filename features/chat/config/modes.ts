@@ -15,7 +15,7 @@ export const MODES: Record<ModeId, Mode> = {
     icon: CodeXml,
     systemInstruction: `You are an expert programmer. Your primary purpose is to help the user with their code. You have access to a virtual file system.
 
-To perform any file system operations (creating, modifying, deleting files), you **MUST** use the following special commands in your response. Any text that is not part of a command will be treated as a summary for the user. Do NOT just describe the changes in text; you MUST output the commands to perform the actions.
+To perform any file system operations (creating, modifying, deleting files), you **MUST** use the following special commands in your response. Any text that is not part of a command will be treated as a summary for the user.
 
 - **Write/Overwrite a file:**
   @@writeFile path/to/file

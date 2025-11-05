@@ -240,6 +240,26 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
 
   const isLoading = isChatProcessing || isReadingFilesFs;
   
+  // This effect attaches the live Advanced Coder progress to the placeholder model message.
+  useEffect(() => {
+    if (isChatProcessing && selectedMode === 'advanced-coder' && advancedCoderState) {
+      setChatHistory(prev => {
+        if (prev.length === 0) return prev;
+        const lastMessage = prev[prev.length - 1];
+        // Only update if it's the model placeholder for advanced coder.
+        if (lastMessage?.role === 'model' && lastMessage.mode === 'advanced-coder') {
+          const newHistory = [...prev];
+          newHistory[newHistory.length - 1] = {
+            ...lastMessage,
+            advancedCoderState: advancedCoderState,
+          };
+          return newHistory;
+        }
+        return prev;
+      });
+    }
+  }, [advancedCoderState, isChatProcessing, selectedMode]);
+
   // Token Calculation Effect
   useEffect(() => {
     const calculateTokens = async () => {
@@ -429,7 +449,11 @@ Ensure your response is complete and contains all necessary file operations.`;
       if (controller.signal.aborted) throw new DOMException('Cancelled by user', 'AbortError');
       if (response instanceof Error) throw response;
       
-      setAdvancedCoderState(prev => updatePhase(prev, 'final', { status: 'completed', output: response.text }));
+      let finalState: AdvancedCoderState | null = null;
+      setAdvancedCoderState(prev => {
+          finalState = updatePhase(prev, 'final', { status: 'completed', output: response.text });
+          return finalState;
+      });
       
       const { summary: summaryText, functionCalls } = parseHybridResponse(response.text);
 
@@ -444,7 +468,8 @@ Ensure your response is complete and contains all necessary file operations.`;
               role: 'model',
               parts: modelTurnParts,
               mode: selectedMode,
-              advancedCoderContext: context
+              advancedCoderContext: context,
+              advancedCoderState: finalState,
           };
 
           setChatHistory(prev => {

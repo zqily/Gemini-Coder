@@ -59,6 +59,7 @@ export interface ChatMessage {
   mode?: ModeId;
   groundingChunks?: GroundingChunk[];
   advancedCoderContext?: AdvancedCoderRunContext;
+  advancedCoderState?: AdvancedCoderState;
 }
 
 export interface AttachedFile {

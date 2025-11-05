@@ -233,6 +233,12 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message, toolResponseMessage, o
                             message.mode === 'advanced-coder' &&
                             functionCallParts.length === 0 &&
                             message.advancedCoderContext;
+    
+    const hasVisibleParts = message.parts.some(part => 
+        ('text' in part && part.text.trim()) || 
+        'functionCall' in part ||
+        'inlineData' in part
+    );
 
     return (
         <div className="group relative flex flex-col mb-10 animate-fade-in-up">
@@ -251,126 +257,133 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message, toolResponseMessage, o
                 <span className="font-semibold text-white">{name}</span>
             </div>
              <div className={`ml-11 ${isModel ? 'animate-model-response-entry' : ''}`}>
-                <div className={`${isUser ? 'bg-gray-800/30 rounded-xl p-4' : ''} space-y-4`}>
-                    {message.parts.map((part, index) => {
-                        if ('text' in part && part.text.trim()) {
-                            return (
-                                <div key={index} className="prose prose-invert max-w-none">
-                                    <MarkdownRenderer content={part.text} />
-                                </div>
-                            );
-                        }
-                        if ('inlineData' in part) {
-                            return (
-                                <div key={index} className="flex flex-wrap gap-2">
-                                    <div className="bg-gray-700/50 rounded-lg p-2 flex items-center gap-2 text-sm">
-                                        {part.inlineData.mimeType.startsWith('image/') ? <ImageIcon size={16} /> : <FileIcon size={16} />}
-                                        <span>File Attached ({part.inlineData.mimeType})</span>
-                                    </div>
-                                </div>
-                            );
-                        }
-                        if ('functionCall' in part) {
-                            const callPart = part;
-                            const functionCallIndex = functionCallParts.indexOf(callPart);
-                            const correspondingResponse = functionCallIndex > -1 ? functionResponseParts[functionCallIndex] : undefined;
-                            
-                            const responseData = correspondingResponse?.functionResponse?.response;
-                            const isSuccess = responseData?.success === true;
-                          
-                            const functionName = callPart.functionCall.name ?? 'unknown';
-                            const args = callPart.functionCall.args ?? {};
-                            let argsDisplay = '';
-                            switch (functionName) {
-                                case 'writeFile':
-                                case 'createFolder':
-                                case 'deletePath':
-                                    argsDisplay = args.path || '';
-                                    break;
-                                case 'move':
-                                    argsDisplay = `${args.sourcePath || ''} ${args.destinationPath || ''}`;
-                                    break;
-                                default:
-                                    // A generic fallback that avoids showing long content.
-                                    argsDisplay = Object.entries(args)
-                                        .filter(([key, value]) => key !== 'content' && typeof value === 'string')
-                                        .map(([, value]) => value)
-                                        .join(' ');
-                                    break;
-                            }
-
-                            if (correspondingResponse && isSuccess) {
+                {message.advancedCoderState && (
+                    <AdvancedCoderProgress state={message.advancedCoderState} />
+                )}
+                
+                {(hasVisibleParts || message.groundingChunks || showRetryButton) && (
+                    <div className={`${isUser ? 'bg-gray-800/30 rounded-xl p-4' : ''} space-y-4 ${message.advancedCoderState ? 'mt-4' : ''}`}>
+                        {message.parts.map((part, index) => {
+                            if ('text' in part && part.text.trim()) {
                                 return (
-                                    <div key={index} className="flex items-center gap-2.5 p-3 rounded-lg bg-green-900/30 text-sm animate-fade-in-up-short border border-green-700/30">
-                                        <CheckCircle size={16} className="text-green-400 flex-shrink-0" />
-                                        <p className="text-gray-300">
-                                            Tool Call: <code className="font-mono text-green-300 font-medium">{`${functionName} ${argsDisplay}`}</code>
-                                            <span className="text-green-400/80"> (Success)</span>
-                                        </p>
+                                    <div key={index} className="prose prose-invert max-w-none">
+                                        <MarkdownRenderer content={part.text} />
                                     </div>
                                 );
                             }
-
-                            const errorMessage = responseData?.error;
-                            const argsJson = JSON.stringify(args, null, 2);
-
-                            return (
-                                <div key={index} className={`rounded-lg overflow-hidden text-sm animate-fade-in-up-short ${correspondingResponse
-                                ? (isSuccess ? 'bg-green-900/40 border border-green-700/50' : 'bg-red-900/40 border border-red-700/50')
-                                : 'bg-gray-800/50 border border-gray-700/50'
-                                }`}>
-                                    <div className="p-3">
-                                        <p className={`font-semibold ${correspondingResponse && !isSuccess ? 'text-red-300' : 'text-gray-300'}`}>
-                                            <span className="font-normal text-gray-400">Tool Call: </span>
-                                            <code className={`font-mono ${!correspondingResponse ? 'text-blue-300' :
-                                                isSuccess ? 'text-green-300' : 'text-red-300'
-                                                }`}>
-                                                {`${functionName} ${argsDisplay}`}
-                                            </code>
-                                            {correspondingResponse && (
-                                                <span className={`font-normal text-xs pl-2 ${isSuccess ? 'text-green-400' : 'text-red-400'}`}>
-                                                    ({isSuccess ? 'Success' : 'Failed'})
-                                                </span>
-                                            )}
-                                        </p>
-
-                                        <details className="mt-2" open={!isSuccess}>
-                                            <summary className="list-none flex items-center gap-2 cursor-pointer text-xs text-gray-400 hover:text-white transition-colors">
-                                                <ChevronDown size={14} className="details-arrow flex-shrink-0" />
-                                                {`Arguments (${Object.keys(args).length})`}
-                                            </summary>
-                                            <pre className="text-xs text-gray-400 mt-1 overflow-x-auto bg-black/20 p-2 rounded-md font-mono">
-                                                {argsJson}
-                                            </pre>
-                                        </details>
-
-                                        {!isSuccess && errorMessage && (
-                                            <div className="mt-3 p-2 bg-red-900/40 text-red-300 border-l-4 border-red-500 rounded-r-md">
-                                                <p className="font-medium text-xs">Execution Error:</p>
-                                                <pre className="text-xs mt-1 whitespace-pre-wrap font-mono">{errorMessage}</pre>
-                                            </div>
-                                        )}
+                            if ('inlineData' in part) {
+                                return (
+                                    <div key={index} className="flex flex-wrap gap-2">
+                                        <div className="bg-gray-700/50 rounded-lg p-2 flex items-center gap-2 text-sm">
+                                            {part.inlineData.mimeType.startsWith('image/') ? <ImageIcon size={16} /> : <FileIcon size={16} />}
+                                            <span>File Attached ({part.inlineData.mimeType})</span>
+                                        </div>
                                     </div>
-                                </div>
-                            );
-                        }
-                        return null;
-                    }).filter(Boolean)}
+                                );
+                            }
+                            if ('functionCall' in part) {
+                                const callPart = part;
+                                const functionCallIndex = functionCallParts.indexOf(callPart);
+                                const correspondingResponse = functionCallIndex > -1 ? functionResponseParts[functionCallIndex] : undefined;
+                                
+                                const responseData = correspondingResponse?.functionResponse?.response;
+                                const isSuccess = responseData?.success === true;
 
-                    {message.groundingChunks && <GroundingSources chunks={message.groundingChunks} />}
+                                const functionName = callPart.functionCall.name ?? 'unknown';
+                                const args = callPart.functionCall.args ?? {};
+                                let argsDisplay = '';
+                                switch (functionName) {
+                                    case 'writeFile':
+                                    case 'createFolder':
+                                    case 'deletePath':
+                                        argsDisplay = args.path || '';
+                                        break;
+                                    case 'move':
+                                        argsDisplay = `${args.sourcePath || ''} ${args.destinationPath || ''}`;
+                                        break;
+                                    default:
+                                        // A generic fallback that avoids showing long content.
+                                        argsDisplay = Object.entries(args)
+                                            .filter(([key, value]) => key !== 'content' && typeof value === 'string')
+                                            .map(([, value]) => value)
+                                            .join(' ');
+                                        break;
+                                }
 
-                    {showRetryButton && (
-                        <div className="pt-4 border-t border-gray-700/50">
-                            <button
-                                onClick={onRetry}
-                                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400"
-                            >
-                                <BrainCircuit size={16} />
-                                Retry Last Phase
-                            </button>
-                        </div>
-                    )}
-                </div>
+
+                                if (correspondingResponse && isSuccess) {
+                                    return (
+                                        <div key={index} className="flex items-center gap-2.5 p-3 rounded-lg bg-green-900/30 text-sm animate-fade-in-up-short border border-green-700/30">
+                                            <CheckCircle size={16} className="text-green-400 flex-shrink-0" />
+                                            <p className="text-gray-300">
+                                                Tool Call: <code className="font-mono text-green-300 font-medium">{`${functionName} ${argsDisplay}`}</code>
+                                                <span className="text-green-400/80"> (Success)</span>
+                                            </p>
+                                        </div>
+                                    );
+                                }
+
+                                const errorMessage = responseData?.error;
+                                const argsJson = JSON.stringify(args, null, 2);
+
+                                return (
+                                    <div key={index} className={`rounded-lg overflow-hidden text-sm animate-fade-in-up-short ${correspondingResponse
+                                    ? (isSuccess ? 'bg-green-900/40 border border-green-700/50' : 'bg-red-900/40 border border-red-700/50')
+                                    : 'bg-gray-800/50 border border-gray-700/50'
+                                    }`}>
+                                        <div className="p-3">
+                                            <p className={`font-semibold ${correspondingResponse && !isSuccess ? 'text-red-300' : 'text-gray-300'}`}>
+                                                <span className="font-normal text-gray-400">Tool Call: </span>
+                                                <code className={`font-mono ${!correspondingResponse ? 'text-blue-300' :
+                                                    isSuccess ? 'text-green-300' : 'text-red-300'
+                                                    }`}>
+                                                    {`${functionName} ${argsDisplay}`}
+                                                </code>
+                                                {correspondingResponse && (
+                                                    <span className={`font-normal text-xs pl-2 ${isSuccess ? 'text-green-400' : 'text-red-400'}`}>
+                                                        ({isSuccess ? 'Success' : 'Failed'})
+                                                    </span>
+                                                )}
+                                            </p>
+
+                                            <details className="mt-2" open={!isSuccess}>
+                                                <summary className="list-none flex items-center gap-2 cursor-pointer text-xs text-gray-400 hover:text-white transition-colors">
+                                                    <ChevronDown size={14} className="details-arrow flex-shrink-0" />
+                                                    {`Arguments (${Object.keys(args).length})`}
+                                                </summary>
+                                                <pre className="text-xs text-gray-400 mt-1 overflow-x-auto bg-black/20 p-2 rounded-md font-mono">
+                                                    {argsJson}
+                                                </pre>
+                                            </details>
+
+                                            {!isSuccess && errorMessage && (
+                                                <div className="mt-3 p-2 bg-red-900/40 text-red-300 border-l-4 border-red-500 rounded-r-md">
+                                                    <p className="font-medium text-xs">Execution Error:</p>
+                                                    <pre className="text-xs mt-1 whitespace-pre-wrap font-mono">{errorMessage}</pre>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                );
+                            }
+                            return null;
+                        }).filter(Boolean)}
+
+                        {message.groundingChunks && <GroundingSources chunks={message.groundingChunks} />}
+
+                        {showRetryButton && (
+                            <div className="pt-4 border-t border-gray-700/50">
+                                <button
+                                    onClick={onRetry}
+                                    className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400"
+                                >
+                                    <BrainCircuit size={16} />
+                                    Retry Last Phase
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                )}
              </div>
         </div>
     );
@@ -447,12 +460,11 @@ const MainContent: React.FC<MainContentProps> = ({ isMobile, toggleSidebar }) =>
     lastMessageText.startsWith('Error:')
   );
 
-  const isLastMessageAPlaceholder = isLoading && lastMessageIsModel && (!lastMessageText.trim() || isStatusUpdate);
+  const isLastMessageAPlaceholder = isLoading && lastMessageIsModel && (!lastMessageText.trim() || isStatusUpdate) && !lastMessage.advancedCoderState;
   const messagesToRender = isLastMessageAPlaceholder ? chatHistory.slice(0, -1) : chatHistory;
   const statusMessageForIndicator = isStatusUpdate ? lastMessageText : '';
   
-  const showAdvancedCoderProgress = isLoading && selectedMode === 'advanced-coder' && advancedCoderState;
-  const showTypingIndicator = isLoading && !showAdvancedCoderProgress;
+  const showTypingIndicator = isLoading && selectedMode !== 'advanced-coder';
   
   return (
     <div className="relative flex-1 flex flex-col h-screen bg-[#131314]">
@@ -520,7 +532,6 @@ const MainContent: React.FC<MainContentProps> = ({ isMobile, toggleSidebar }) =>
                           />
                         );
                     })}
-                    {showAdvancedCoderProgress && <AdvancedCoderProgress state={advancedCoderState} />}
                     {showTypingIndicator && <TypingIndicator message={statusMessageForIndicator} state={indicatorState} />}
                  </div>
             )}
