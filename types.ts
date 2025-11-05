@@ -10,6 +10,14 @@ export interface Mode {
   systemInstruction?: string;
   systemInstructionNoProject?: string;
   icon: React.ElementType;
+  phases?: {
+    planning: string;
+    consolidation: string;
+    drafting: string;
+    debugging: string;
+    review: string;
+    final: string;
+  };
 }
 
 export interface TextPart {

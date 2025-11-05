@@ -399,28 +399,7 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
           setAdvancedCoderState(retryState);
       }
 
-      const finalSystemInstruction = `You are a file system operations generator. Your sole purpose is to generate a user-facing summary and all necessary file system operations based on the provided context.
-
-Your entire output **MUST** use the following format. Any text that is not part of a command block will be considered the summary. Do NOT just describe the changes you are making; you MUST output the commands themselves to perform the actions.
-
-You **MUST** output commands sequentially. The system executes them in the order they appear. Incorrect ordering will lead to errors.
-
-- **Write/Overwrite a file:**
-  @@writeFile path/to/file [-f | --force]
-  (The full content of the file goes on the following lines)
-  - By default, if you have moved a file, writing to its original path will write to the *new* location.
-  - Use the optional \`-f\` or \`--force\` flag to write to the literal path, even if it was part of a move operation.
-
-- **Create a folder:**
-  @@createFolder path/to/folder
-
-- **Move/Rename a file or folder:**
-  @@moves source/path destination/path
-
-- **Delete a file or folder:**
-  @@deletePaths path/to/folder_or_file
-
-Ensure your response is complete and contains all necessary file operations.`;
+      const finalSystemInstruction = MODES['advanced-coder'].phases!.final;
 
       const finalHistory = [...baseHistory];
       const finalUserContent = `Here is the context for the final implementation. Generate the file system operations.\n\nCode Draft:\n${codeDraft}\n\n${consolidatedReview ? `Consolidated Review:\n${consolidatedReview}` : 'No issues were found in the draft.'}`;
@@ -553,10 +532,12 @@ Ensure your response is complete and contains all necessary file operations.`;
                 if (projectFileContext) {
                     baseHistory.splice(baseHistory.length - 1, 0, { role: 'user', parts: [{ text: `${projectContextPreamble}\n\n${projectFileContext}` }] });
                 }
+                
+                const advancedCoderMode = MODES['advanced-coder'];
 
                 // Phase 1: Planning
                 setAdvancedCoderState(prev => updatePhase(prev, 'planning', { status: 'running' }));
-                const plannerSystemInstruction = `You are a Senior Software Architect. Your task is to create a high-level plan to address the user's request. Do NOT write any code. Focus on the overall strategy, file structure, and key components.`;
+                const plannerSystemInstruction = advancedCoderMode.phases!.planning;
                 const planningHistoryForTokens = [...baseHistory];
                 // TODO: Replace this with a single countTotalTokens call for better accuracy
                 const plannerInputTokens = 0;
@@ -579,7 +560,7 @@ Ensure your response is complete and contains all necessary file operations.`;
 
                 // Phase 2: Consolidation
                 setAdvancedCoderState(prev => updatePhase(prev, 'consolidation', { status: 'running' }));
-                const consolidationSystemInstruction = `You are a Principal Engineer. Your task is to synthesize multiple high-level plans from your team of architects into a single, cohesive, and highly detailed master plan. The final plan should be actionable for a skilled developer. Do not reference the previous planning phase or the planners themselves; present this as your own unified plan.`;
+                const consolidationSystemInstruction = advancedCoderMode.phases!.consolidation;
                 const consolidationHistory = [...baseHistory];
                 const successfulPlanContents = successfulPlans.filter(p => !p.content.startsWith('Error:')).map(p => p.content);
                 consolidationHistory.push({ role: 'user', parts: [{ text: `Here are the plans from the architects:\n\n${successfulPlanContents.map((p, i) => `--- PLAN ${i+1} ---\n${p}`).join('\n\n')}` }] });
@@ -595,7 +576,7 @@ Ensure your response is complete and contains all necessary file operations.`;
                 
                 // Phase 3: Drafting
                 setAdvancedCoderState(prev => updatePhase(prev, 'drafting', { status: 'running' }));
-                const draftingSystemInstruction = `You are a Staff Engineer. Your task is to generate a complete code draft based on the master plan. The output should be in a diff format where applicable. Do not use any function tools.`;
+                const draftingSystemInstruction = advancedCoderMode.phases!.drafting;
                 const draftingHistory = [...baseHistory];
                 draftingHistory.push({ role: 'user', parts: [{ text: `Here is the master plan. Please generate the code draft.\n\n${masterPlan}` }] });
 
@@ -610,7 +591,7 @@ Ensure your response is complete and contains all necessary file operations.`;
 
                 // Phase 4: Debugging
                 setAdvancedCoderState(prev => updatePhase(prev, 'debugging', { status: 'running' }));
-                const debuggerSystemInstruction = `You are a meticulous Code Reviewer. Review the provided code draft for critical errors, bugs, incomplete implementation, or violations of best practices. If the draft is acceptable, you MUST call the \`noProblemDetected\` function. Otherwise, provide your feedback. Do not reference the "Master Plan" or the source of the reasoning.`;
+                const debuggerSystemInstruction = advancedCoderMode.phases!.debugging;
                 const debuggingHistory = [...baseHistory];
                 debuggingHistory.push({ role: 'user', parts: [{ text: `Master Plan:\n${masterPlan}\n\nCode Draft:\n${codeDraft}` }] });
 
@@ -643,7 +624,7 @@ Ensure your response is complete and contains all necessary file operations.`;
                 // Phase 5: Review Consolidation
                 if (!phase5Skipped && debuggingReports.length > 0) {
                     setAdvancedCoderState(prev => updatePhase(prev, 'review', { status: 'running' }));
-                    const reviewConsolidationSystemInstruction = `You are a Tech Lead. Consolidate the following debugging feedback into a single, concise list of required changes for the final implementation. Do not reference the debuggers or the source of the comments.`;
+                    const reviewConsolidationSystemInstruction = advancedCoderMode.phases!.review;
                     const reviewHistory = [...baseHistory];
                     reviewHistory.push({ role: 'user', parts: [{ text: `Code Draft:\n${codeDraft}\n\nDebugging Reports:\n${debuggingReports.join('\n---\n')}` }] });
 
