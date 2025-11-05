@@ -4,7 +4,7 @@ import { useSelectedModel } from './useSelectedModel';
 import { useSelectedMode } from './useSelectedMode';
 import { generateContentWithRetries, generateContentStreamWithRetries } from './services/geminiService';
 import { executeManagedBatchCall } from './services/rateLimitManager';
-import type { ChatMessage, AttachedFile, ChatPart, TextPart, AdvancedCoderState, GroundingChunk, IndicatorState } from '../../types';
+import type { ChatMessage, AttachedFile, ChatPart, TextPart, AdvancedCoderState, GroundingChunk, IndicatorState, AdvancedCoderRunContext } from '../../types';
 import { MODES, NO_PROBLEM_DETECTED_TOOL } from './config/modes';
 import { useSettings } from '../settings/SettingsContext';
 import { FunctionCall, GenerateContentResponse } from '@google/genai';
@@ -371,6 +371,99 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
     }
     event.target.value = '';
   };
+    
+  const runFinalImplementationPhase = useCallback(async (
+    context: AdvancedCoderRunContext,
+    controller: AbortController,
+    isFirstRun: boolean
+  ) => {
+      const { baseHistory, codeDraft, consolidatedReview } = context;
+      const onStatusUpdateForRetries = (message: string) => {
+          setAdvancedCoderState(prev => (prev ? { ...prev, statusMessage: message } : null));
+      };
+
+      if (isFirstRun) {
+          setAdvancedCoderState(prev => updatePhase(prev, 'final', { status: 'running' }));
+      } else {
+          const retryState: AdvancedCoderState = {
+              phases: [
+                  { id: 'planning', title: 'Phase 1/6: Planning', status: 'completed', subtasks: [] },
+                  { id: 'consolidation', title: 'Phase 2/6: Consolidation', status: 'completed' },
+                  { id: 'drafting', title: 'Phase 3/6: Drafting', status: 'completed' },
+                  { id: 'debugging', title: 'Phase 4/6: Debugging', status: 'completed', subtasks: [] },
+                  { id: 'review', title: 'Phase 5/6: Review Consolidation', status: 'completed' },
+                  { id: 'final', title: 'Phase 6/6: Final Implementation', status: 'running' },
+              ],
+              statusMessage: 'Retrying final phase...',
+          };
+          setAdvancedCoderState(retryState);
+      }
+
+      const finalSystemInstruction = `You are a file system operations generator. Your sole purpose is to generate a user-facing summary and all necessary file system operations based on the provided context.
+
+Your entire output **MUST** use the following format. Any text that is not part of a command block will be considered the summary. Do NOT just describe the changes you are making; you MUST output the commands themselves to perform the actions.
+
+- **Write/Overwrite a file:**
+  @@writeFile path/to/file
+  (The full content of the file goes on the following lines)
+
+- **Create a folder:**
+  @@createFolder path/to/folder
+
+- **Move/Rename a file or folder:**
+  @@moves source/path destination/path
+
+- **Delete a file or folder:**
+  @@deletePaths path/to/folder_or_file
+
+Ensure your response is complete and contains all necessary file operations.`;
+
+      const finalHistory = [...baseHistory];
+      const finalUserContent = `Here is the context for the final implementation. Generate the file system operations.\n\nCode Draft:\n${codeDraft}\n\n${consolidatedReview ? `Consolidated Review:\n${consolidatedReview}` : 'No issues were found in the draft.'}`;
+      finalHistory.push({ role: 'user', parts: [{ text: finalUserContent }] });
+      
+      const finalInputTokens = 0; // TODO: Replace
+      const finalApiCall = [() => generateContentWithRetries(apiKey, 'gemini-2.5-pro', finalHistory, finalSystemInstruction, undefined, controller.signal, onStatusUpdateForRetries, setIndicatorState)];
+      const response = (await executeManagedBatchCall('gemini-2.5-pro', finalInputTokens, controller.signal, finalApiCall, onStatusUpdateForRetries, isContextTokenUnlocked))[0];
+      
+      if (controller.signal.aborted) throw new DOMException('Cancelled by user', 'AbortError');
+      if (response instanceof Error) throw response;
+      
+      setAdvancedCoderState(prev => updatePhase(prev, 'final', { status: 'completed', output: response.text }));
+      
+      const { summary: summaryText, functionCalls } = parseHybridResponse(response.text);
+
+      if (!summaryText && functionCalls.length === 0) {
+          setChatHistory(prev => prev.slice(0, -1));
+      } else {
+          const modelTurnParts: ChatPart[] = [];
+          if (summaryText) modelTurnParts.push({ text: summaryText });
+          functionCalls.forEach(fc => modelTurnParts.push({ functionCall: fc }));
+
+          const modelTurnWithMessage: ChatMessage = {
+              role: 'model',
+              parts: modelTurnParts,
+              mode: selectedMode,
+              advancedCoderContext: context
+          };
+
+          setChatHistory(prev => {
+              const newHistory = [...prev];
+              newHistory[newHistory.length - 1] = modelTurnWithMessage;
+              return newHistory;
+          });
+
+          if (functionCalls.length > 0) {
+              if (controller.signal.aborted) throw new DOMException('Cancelled by user', 'AbortError');
+              const functionResponses: ChatPart[] = await applyFunctionCalls(functionCalls);
+
+              if (controller.signal.aborted) throw new DOMException('Cancelled by user', 'AbortError');
+
+              const toolResponseMessage: ChatMessage = { role: 'tool', parts: functionResponses };
+              setChatHistory(prev => [...prev, toolResponseMessage]);
+          }
+      }
+  }, [apiKey, applyFunctionCalls, isContextTokenUnlocked, selectedMode]);
 
   const onSubmit = useCallback(async (currentPrompt: string) => {
     if (abortControllerRef.current) {
@@ -557,66 +650,14 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
                 }
 
                 // Phase 6: Final Implementation
-                setAdvancedCoderState(prev => updatePhase(prev, 'final', { status: 'running' }));
-                const finalSystemInstruction = `You are a file system operations generator. Your sole purpose is to generate a user-facing summary and all necessary file system operations based on the provided context.
-
-Your entire output **MUST** use the following format. Any text that is not part of a command block will be considered the summary.
-
-- **Write/Overwrite a file:**
-  @@writeFile path/to/file
-  (The full content of the file goes on the following lines)
-
-- **Create a folder:**
-  @@createFolder path/to/folder
-
-- **Move/Rename a file or folder:**
-  @@moves source/path destination/path
-
-- **Delete a file or folder:**
-  @@deletePaths path/to/folder_or_file
-
-Ensure your response is complete and contains all necessary file operations.`;
-
-                const finalHistory = [...baseHistory];
-                const finalUserContent = `Here is the context for the final implementation. Generate the file system operations.\n\nCode Draft:\n${codeDraft}\n\n${consolidatedReview ? `Consolidated Review:\n${consolidatedReview}` : 'No issues were found in the draft.'}`;
-                finalHistory.push({ role: 'user', parts: [{ text: finalUserContent }] });
+                const advancedCoderContextForRetry: AdvancedCoderRunContext = {
+                    baseHistory,
+                    codeDraft,
+                    consolidatedReview,
+                };
                 
-                const finalInputTokens = 0; // TODO: Replace
-                const finalApiCall = [() => generateContentWithRetries(apiKey, 'gemini-2.5-pro', finalHistory, finalSystemInstruction, undefined, controller.signal, onStatusUpdateForRetries, setIndicatorState)];
-                const response = (await executeManagedBatchCall('gemini-2.5-pro', finalInputTokens, controller.signal, finalApiCall, onStatusUpdateForRetries, isContextTokenUnlocked))[0];
-                
-                if (controller.signal.aborted) throw new DOMException('Cancelled by user', 'AbortError');
-                if (response instanceof Error) throw response;
-                
-                setAdvancedCoderState(prev => updatePhase(prev, 'final', { status: 'completed', output: response.text }));
-                
-                const { summary: summaryText, functionCalls } = parseHybridResponse(response.text);
+                await runFinalImplementationPhase(advancedCoderContextForRetry, controller, true);
 
-                if (!summaryText && functionCalls.length === 0) {
-                    setChatHistory(prev => prev.slice(0, -1));
-                } else {
-                    const modelTurnParts: ChatPart[] = [];
-                    if (summaryText) modelTurnParts.push({ text: summaryText });
-                    functionCalls.forEach(fc => modelTurnParts.push({ functionCall: fc }));
-
-                    const modelTurnWithMessage: ChatMessage = { role: 'model', parts: modelTurnParts, mode: selectedMode };
-
-                    setChatHistory(prev => {
-                        const newHistory = [...prev];
-                        newHistory[newHistory.length - 1] = modelTurnWithMessage;
-                        return newHistory;
-                    });
-
-                    if (functionCalls.length > 0) {
-                        if (controller.signal.aborted) throw new DOMException('Cancelled by user', 'AbortError');
-                        const functionResponses: ChatPart[] = await applyFunctionCalls(functionCalls);
-
-                        if (controller.signal.aborted) throw new DOMException('Cancelled by user', 'AbortError');
-
-                        const toolResponseMessage: ChatMessage = { role: 'tool', parts: functionResponses };
-                        setChatHistory(prev => [...prev, toolResponseMessage]);
-                    }
-                }
             } catch (phaseError) {
                 setAdvancedCoderState(prev => {
                     if (!prev) return null;
@@ -776,9 +817,62 @@ Ensure your response is complete and contains all necessary file operations.`;
   }, [
     apiKey, chatHistory, selectedModel, selectedMode, isStreamingEnabled, isGoogleSearchEnabled, isContextTokenUnlocked,
     setIsSettingsModalOpen, getSerializableContext, applyFunctionCalls, attachedFiles,
-    clearProjectContext, setCreatingInFs, prompt, showToast
+    clearProjectContext, setCreatingInFs, prompt, showToast, runFinalImplementationPhase
   ]);
 
+  const onRetryLastAdvancedCoderPhase = useCallback(async () => {
+    // FIX: Replace findLastIndex with a manual loop for broader JS compatibility.
+    let lastModelMessageIndex = -1;
+    for (let i = chatHistory.length - 1; i >= 0; i--) {
+        if (chatHistory[i].role === 'model') {
+            lastModelMessageIndex = i;
+            break;
+        }
+    }
+    if (lastModelMessageIndex === -1) return;
+
+    const lastModelMessage = chatHistory[lastModelMessageIndex];
+    if (!lastModelMessage || !lastModelMessage.advancedCoderContext) return;
+
+    if (abortControllerRef.current) abortControllerRef.current.abort();
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
+    // Remove the last model message. A tool response won't exist because the button only shows if there are no function calls.
+    setChatHistory(prev => prev.slice(0, lastModelMessageIndex));
+    setChatHistory(prev => [...prev, { role: 'model', parts: [{ text: '' }], mode: 'advanced-coder' }]);
+    
+    setIsChatProcessing(true);
+    setIndicatorState('loading');
+
+    try {
+        await runFinalImplementationPhase(lastModelMessage.advancedCoderContext, controller, false);
+    } catch (error) {
+        console.error("A critical error occurred during retry:", error);
+        const isAbortError = error instanceof DOMException && error.name === 'AbortError';
+        if (!isAbortError) {
+            const errorMessageText = error instanceof Error ? error.message : 'An unknown error occurred';
+            const errorMessage: ChatMessage = { role: 'model', parts: [{ text: `Error: ${errorMessageText}` }], mode: selectedMode };
+            setChatHistory(prev => {
+                const newHistory = [...prev];
+                if (newHistory[newHistory.length - 1]?.role === 'model') {
+                    newHistory[newHistory.length - 1] = errorMessage;
+                } else {
+                    newHistory.push(errorMessage);
+                }
+                return newHistory;
+            });
+        }
+    } finally {
+        if (abortControllerRef.current === controller) {
+            abortControllerRef.current = null;
+        }
+        if (!controller.signal.aborted) {
+            setIsChatProcessing(false);
+        }
+        setIndicatorState('loading');
+    }
+}, [chatHistory, runFinalImplementationPhase, selectedMode]);
 
   const contextValue: ChatContextType = {
     chatHistory,
@@ -801,6 +895,7 @@ Ensure your response is complete and contains all necessary file operations.`;
     setSelectedMode,
     onDeleteMessage,
     onFileAddClick,
+    onRetryLastAdvancedCoderPhase,
   };
 
   return (

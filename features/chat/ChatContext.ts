@@ -23,6 +23,7 @@ export interface ChatContextType {
   setSelectedMode: (mode: ModeId) => void;
   onDeleteMessage: (index: number) => void;
   onFileAddClick: () => void; // This will trigger the file input managed by ChatProvider for attached files
+  onRetryLastAdvancedCoderPhase: () => void;
 
   // From FileSystemContext (consumed by ChatProvider and re-exposed if needed by its children)
   isReadingFilesFs: boolean; // Filesystem file reading status, used to compute overall isLoading

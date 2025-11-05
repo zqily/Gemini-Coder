@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { HelpCircle, ChevronDown, User, ImageIcon, File as FileIcon, Menu, Copy, Check, Trash2, Search, CheckCircle } from '../../components/icons';
+import { HelpCircle, ChevronDown, User, ImageIcon, File as FileIcon, Menu, Copy, Check, Trash2, Search, CheckCircle, BrainCircuit } from '../../components/icons';
 import PromptInput from './PromptInput';
 import type { ChatMessage, ChatPart, FunctionCallPart, FunctionResponsePart, TextPart, InlineDataPart, Mode, ModeId, GroundingChunk, IndicatorState } from '../../types';
 import ReactMarkdown from 'react-markdown';
@@ -200,12 +200,15 @@ interface ChatBubbleProps {
   toolResponseMessage?: ChatMessage;
   onDelete: () => void;
   modes: Record<ModeId, Mode>;
+  isLastMessage: boolean;
+  onRetry: () => void;
+  isLoading: boolean;
 }
 
 const isFunctionCallPart = (part: ChatPart): part is FunctionCallPart => 'functionCall' in part;
 const isFunctionResponsePart = (part: ChatPart): part is FunctionResponsePart => 'functionResponse' in part;
 
-const ChatBubble: React.FC<ChatBubbleProps> = ({ message, toolResponseMessage, onDelete, modes }) => {
+const ChatBubble: React.FC<ChatBubbleProps> = ({ message, toolResponseMessage, onDelete, modes, isLastMessage, onRetry, isLoading }) => {
     const isUser = message.role === 'user';
     const isModel = message.role === 'model';
     
@@ -227,6 +230,13 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message, toolResponseMessage, o
             name = modes[modeId]?.name || 'Gemini';
         }
     }
+    
+    const showRetryButton = !isLoading &&
+                            isLastMessage &&
+                            message.role === 'model' &&
+                            message.mode === 'advanced-coder' &&
+                            functionCallParts.length === 0 &&
+                            message.advancedCoderContext;
 
     return (
         <div className="group relative flex flex-col mb-10 animate-fade-in-up">
@@ -328,6 +338,18 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message, toolResponseMessage, o
                             })}
                         </div>
                     )}
+
+                    {showRetryButton && (
+                        <div className="mt-4 pt-4 border-t border-gray-700/50">
+                            <button
+                                onClick={onRetry}
+                                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400"
+                            >
+                                <BrainCircuit size={16} />
+                                Retry Last Phase
+                            </button>
+                        </div>
+                    )}
                 </div>
              </div>
         </div>
@@ -382,6 +404,7 @@ const MainContent: React.FC<MainContentProps> = ({ isMobile, toggleSidebar }) =>
   const { 
     chatHistory, isLoading, onSubmit, onDeleteMessage,
     selectedMode, advancedCoderState, modes, indicatorState,
+    onRetryLastAdvancedCoderPhase,
   } = useChat();
   const { setIsHelpModalOpen } = useSettings(); // Use setIsHelpModalOpen from SettingsContext
 
@@ -461,8 +484,21 @@ const MainContent: React.FC<MainContentProps> = ({ isMobile, toggleSidebar }) =>
                                 onDeleteMessage(originalIndex);
                             }
                         };
+                        
+                        const isLastMessage = index === messagesToRender.length - 1;
 
-                        return <ChatBubble key={originalIndex > -1 ? originalIndex : index} message={msg} toolResponseMessage={toolResponseMessage} onDelete={handleDelete} modes={modes} />;
+                        return (
+                          <ChatBubble
+                            key={originalIndex > -1 ? originalIndex : index}
+                            message={msg}
+                            toolResponseMessage={toolResponseMessage}
+                            onDelete={handleDelete}
+                            modes={modes}
+                            isLastMessage={isLastMessage}
+                            onRetry={onRetryLastAdvancedCoderPhase}
+                            isLoading={isLoading}
+                          />
+                        );
                     })}
                     {showAdvancedCoderProgress && <AdvancedCoderProgress state={advancedCoderState} />}
                     {showTypingIndicator && <TypingIndicator message={statusMessageForIndicator} state={indicatorState} />}

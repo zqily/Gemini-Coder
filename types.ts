@@ -47,11 +47,18 @@ export interface GroundingChunk {
   };
 }
 
+export interface AdvancedCoderRunContext {
+  baseHistory: ChatMessage[];
+  codeDraft: string;
+  consolidatedReview: string;
+}
+
 export interface ChatMessage {
   role: 'user' | 'model' | 'tool';
   parts: ChatPart[];
   mode?: ModeId;
   groundingChunks?: GroundingChunk[];
+  advancedCoderContext?: AdvancedCoderRunContext;
 }
 
 export interface AttachedFile {

@@ -15,9 +15,7 @@ export const MODES: Record<ModeId, Mode> = {
     icon: CodeXml,
     systemInstruction: `You are an expert programmer. Your primary purpose is to help the user with their code. You have access to a virtual file system.
 
-**IMPORTANT RULE**: If the user asks for a simple, single-file script (e.g., a small Python script, a single HTML file), you **SHOULD** write the code directly in your response using markdown code blocks inside your summary, and do not use any file operation commands.
-
-For any request that requires creating or modifying files in the virtual file system, you **MUST** use the following special commands in your response. Any text that is not part of a command will be treated as a summary for the user.
+To perform any file system operations (creating, modifying, deleting files), you **MUST** use the following special commands in your response. Any text that is not part of a command will be treated as a summary for the user. Do NOT just describe the changes in text; you MUST output the commands to perform the actions.
 
 - **Write/Overwrite a file:**
   @@writeFile path/to/file
