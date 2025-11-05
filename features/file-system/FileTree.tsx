@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Folder, FolderOpen, FileText, Copy, ClipboardCopy, Check, Eye, EyeOff, FilePlus, FolderPlus, Pencil, Trash2 } from '../../components/icons';
-import type { ProjectContext } from '../../types';
 import { useFileSystem } from './FileSystemContext';
 import { useChat } from '../chat/ChatContext';
 
@@ -499,7 +498,7 @@ const FileTree: React.FC = () => {
       onMouseLeave={() => setIsHovering(false)}
     >
         <div 
-          className={`text-gray-300 overflow-y-auto flex-grow p-1 -m-1 transition-all duration-200 ${dropTarget === '' ? 'border-2 border-dashed border-blue-500 rounded-lg bg-blue-900/10' : ''}`} 
+          className={`text-gray-300 overflow-y-auto flex-grow p-1 transition-all duration-200 ${dropTarget === '' ? 'border-2 border-dashed border-blue-500 rounded-lg bg-blue-900/10' : ''}`} 
           onContextMenu={(e) => {
             if (e.target === e.currentTarget) {
               handleContextMenu(e, '', 'folder');
