@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Folder, FolderOpen, FileText, Copy, ClipboardCopy, Check, Eye, EyeOff, FilePlus, FolderPlus, Pencil, Trash2 } from '../../components/icons';
+import type { ProjectContext } from '../../types';
 import { useFileSystem } from './FileSystemContext';
 import { useChat } from '../chat/ChatContext';
 
@@ -567,7 +568,7 @@ const FileTree: React.FC = () => {
         {contextMenu && (
             <div
             ref={menuRef}
-            className="context-menu animate-fade-in-up-short"
+            className="fixed context-menu animate-fade-in-up-short"
             style={{ top: contextMenu.y, left: contextMenu.x }}
             >
             {contextMenu.type === 'folder' && (
