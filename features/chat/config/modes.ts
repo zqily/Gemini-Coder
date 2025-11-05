@@ -4,22 +4,29 @@ import { FunctionDeclaration, Type } from '@google/genai';
 
 const FILE_SYSTEM_COMMAND_INSTRUCTIONS = `You have access to a virtual file system. Use the following commands sequentially to modify it. Any other text is treated as a summary for the user.
 
+**IMPORTANT RULES:**
+- You **must always** write the full, complete content of a file from start to finish.
+- **NEVER** use diff formats, provide partial code snippets, or use placeholders like \`// ... rest of the file\`.
+
 **Commands:**
-- \`@@writeFile path/to/file [-f | --force]\`: Writes or overwrites a file. The file content must follow on the next lines. The system tracks file moves; writing to an old path redirects to the new one unless the \`-f\` or \`--force\` flag is used to write to the literal path.
+- \`@@writeFile path/to/file [-f | --force]\`: Writes or overwrites a file. The file content must follow on the next lines.
+- \`@@endWriteFile path/to/file\`: (Optional) Marks the end of a file's content block.
 - \`@@createFolder path/to/folder\`: Creates a new folder, including any necessary parent folders.
 - \`@@moves source destination\`: Moves or renames a file or folder.
 - \`@@deletePaths path/to/delete\`: Deletes a file or an entire folder recursively.
 
 **Usage Examples:**
 
-*Example 1: Create a new React component and its stylesheet.*
-I will create a 'Button' component in 'src/components' and add a corresponding CSS module.
+*Example 1: Creating a new React component and its stylesheet.*
 @@createFolder src/components
 @@writeFile src/components/Button.jsx
+--- START OF src/components/Button.jsx ---
 import React from 'react';
 import './Button.module.css';
 const Button = () => <button className="button">Click Me</button>;
 export default Button;
+--- END OF src/components/Button.jsx ---
+@@endWriteFile src/components/Button.jsx
 @@writeFile src/components/Button.module.css
 --- START OF src/components/Button.module.css ---
 .button {
@@ -27,29 +34,33 @@ export default Button;
   color: white;
 }
 --- END OF src/components/Button.module.css ---
+@@endWriteFile src/components/Button.module.css
 
-*Example 2: Refactor by moving a file and deleting an old directory.*
-Okay, I'll move the helper to a new 'utils' directory and update its import path in 'main.js'. I'll also delete the now-empty 'lib' folder. 
+*Example 2: Refactoring by moving a file and deleting an old directory.*
 @@createFolder src/utils
 @@moves src/lib/helper.js src/utils/helper.js
 @@deletePaths src/lib
 @@writeFile src/main.js
 --- START OF src/main.js ---
 import { helper } from './utils/helper.js';
-// ... rest of the file
+
+helper();
 console.log('Main file updated.');
 --- END OF src/main.js ---
+@@endWriteFile src/main.js
 
-*Example 3: Complex move operation demonstrating the force flag.*
-I'm moving 'config.json' to a 'data' folder. Note: If I later write to 'config.json', it will automatically write to the new 'data/config.json' path. To create a *new* file at the original 'config.json' path, I must use the --force flag.
+*Example 3: Complex move operation and the --force flag.*
+(Note: The virtual file system is stateful. After a \`@@moves\` command, subsequent writes to the original path are automatically redirected. The \`--force\` flag overrides this redirection to create a new file at the original path.)
 @@createFolder data
 @@moves config.json data/config.json
 @@writeFile data/config.json
 --- START OF data/config.json ---
 { "setting": "new-value" }
+--- END OF data/config.json ---
+@@endWriteFile data/config.json
 @@writeFile config.json --force
 { "setting": "old-value-recreated" }
---- END OF data/config.json ---`;
+@@endWriteFile config.json`;
 
 export const MODES: Record<ModeId, Mode> = {
   'default': {

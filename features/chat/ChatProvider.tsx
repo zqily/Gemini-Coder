@@ -87,34 +87,83 @@ const parseHybridResponse = (responseText: string): { summary: string; functionC
                 let fileContent = '';
                 let trailingSummary = '';
 
-                // Regexes with capture groups for the whole block and the inner content.
-                const startSeparatorRegex = /^(\s*--- START OF .*? ---\r?\n([\s\S]*?)\r?\n--- END OF .*? ---)/i;
-                const markdownFenceRegex = /^(\s*```[a-z]*\r?\n([\s\S]*?)\r?\n```)/;
+                // Idea 3: Handle --- START/END --- blocks with nesting
+                const startSeparatorRegex = /^\s*--- START OF .*? ---\r?\n/i;
+                const endSeparatorRegex = /--- END OF .*? ---\r?\n?/i;
+                const startMatch = contentBlock.match(startSeparatorRegex);
 
-                let regexMatch;
+                if (startMatch) {
+                    const startIndexAfterHeader = contentBlock.indexOf(startMatch[0]) + startMatch[0].length;
+                    
+                    let openCount = 1;
+                    let searchOffset = startIndexAfterHeader;
+                    let contentEndIndex = -1;
+                    let endMatchLength = 0;
 
-                // Priority 1: Check for --- START OF --- blocks
-                regexMatch = contentBlock.match(startSeparatorRegex);
-                if (regexMatch) {
-                    const matchedBlock = regexMatch[1];
-                    fileContent = regexMatch[2]; // Content is in the second capture group
-                    trailingSummary = contentBlock.substring(matchedBlock.length);
-                } else {
-                    // Priority 2: Check for markdown code fences
-                    regexMatch = contentBlock.match(markdownFenceRegex);
-                    if (regexMatch) {
-                        const matchedBlock = regexMatch[1];
-                        fileContent = regexMatch[2]; // Content is in the second capture group
-                        trailingSummary = contentBlock.substring(matchedBlock.length);
+                    while (openCount > 0 && searchOffset < contentBlock.length) {
+                        const remaining = contentBlock.substring(searchOffset);
+                        const nextStartResult = remaining.match(startSeparatorRegex);
+                        const nextEndResult = remaining.match(endSeparatorRegex);
+
+                        if (nextEndResult === null) {
+                            break; // No more closing tags, malformed.
+                        }
+                        
+                        const nextEndIndexInRemaining = nextEndResult.index!;
+                        
+                        if (nextStartResult !== null && nextStartResult.index! < nextEndIndexInRemaining) {
+                            openCount++;
+                            searchOffset += nextStartResult.index! + nextStartResult[0].length;
+                        } else {
+                            openCount--;
+                            if (openCount === 0) {
+                                contentEndIndex = searchOffset + nextEndIndexInRemaining;
+                                endMatchLength = nextEndResult[0].length;
+                                break;
+                            }
+                            searchOffset += nextEndIndexInRemaining + nextEndResult[0].length;
+                        }
+                    }
+
+                    if (contentEndIndex !== -1) {
+                        fileContent = contentBlock.substring(startIndexAfterHeader, contentEndIndex);
+                        let restOfBlock = contentBlock.substring(contentEndIndex + endMatchLength);
+                        
+                        // Idea 1: Check for optional @@endWriteFile
+                        const endWriteFileMatch = restOfBlock.match(/^\s*@@endWriteFile\b.*/m);
+                        if (endWriteFileMatch) {
+                            trailingSummary = restOfBlock.substring(endWriteFileMatch[0].length);
+                        } else {
+                            trailingSummary = restOfBlock;
+                        }
                     } else {
-                        // Fallback: No structured block found, treat entire block as content
+                        // Malformed START/END block, treat everything as content.
                         fileContent = contentBlock;
                         trailingSummary = '';
+                    }
+                } else {
+                    // Idea 1: No START/END block. Look for @@endWriteFile or code fence.
+                    const endWriteFileMatch = contentBlock.match(/@@endWriteFile\b.*/m);
+                    if (endWriteFileMatch) {
+                        const contentEnd = endWriteFileMatch.index!;
+                        fileContent = contentBlock.substring(0, contentEnd);
+                        trailingSummary = contentBlock.substring(endWriteFileMatch.index! + endWriteFileMatch[0].length);
+                    } else {
+                        // Fallback to old logic (markdown fence or treat whole block as content)
+                        const markdownFenceRegex = /^(\s*```[a-z]*\r?\n([\s\S]*?)\r?\n```)/;
+                        let regexMatch = contentBlock.match(markdownFenceRegex);
+                        if (regexMatch) {
+                            const matchedBlock = regexMatch[1];
+                            fileContent = regexMatch[2];
+                            trailingSummary = contentBlock.substring(matchedBlock.length);
+                        } else {
+                            fileContent = contentBlock;
+                            trailingSummary = '';
+                        }
                     }
                 }
 
                 summary += trailingSummary;
-                
                 functionCalls.push({ name: 'writeFile', args: { path: path.trim(), content: fileContent.trim() } });
                 break;
             }
@@ -156,6 +205,12 @@ const parseHybridResponse = (responseText: string): { summary: string; functionC
                 } else {
                     summary += `\n${currentMatch.commandLine}`;
                 }
+                summary += contentBlock;
+                break;
+            }
+            case '@@endWriteFile': {
+                // This command is handled by @@writeFile. If it appears here, its "content"
+                // (the text between it and the next command) is just part of the summary.
                 summary += contentBlock;
                 break;
             }
