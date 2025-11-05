@@ -277,13 +277,34 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message, toolResponseMessage, o
                             
                             const responseData = correspondingResponse?.functionResponse?.response;
                             const isSuccess = responseData?.success === true;
+                          
+                            const functionName = callPart.functionCall.name ?? 'unknown';
+                            const args = callPart.functionCall.args ?? {};
+                            let argsDisplay = '';
+                            switch (functionName) {
+                                case 'writeFile':
+                                case 'createFolder':
+                                case 'deletePath':
+                                    argsDisplay = args.path || '';
+                                    break;
+                                case 'move':
+                                    argsDisplay = `${args.sourcePath || ''} ${args.destinationPath || ''}`;
+                                    break;
+                                default:
+                                    // A generic fallback that avoids showing long content.
+                                    argsDisplay = Object.entries(args)
+                                        .filter(([key, value]) => key !== 'content' && typeof value === 'string')
+                                        .map(([, value]) => value)
+                                        .join(' ');
+                                    break;
+                            }
 
                             if (correspondingResponse && isSuccess) {
                                 return (
                                     <div key={index} className="flex items-center gap-2.5 p-3 rounded-lg bg-green-900/30 text-sm animate-fade-in-up-short border border-green-700/30">
                                         <CheckCircle size={16} className="text-green-400 flex-shrink-0" />
                                         <p className="text-gray-300">
-                                            Tool Call: <code className="font-mono text-green-300 font-medium">{callPart.functionCall.name ?? 'unknown'}</code>
+                                            Tool Call: <code className="font-mono text-green-300 font-medium">{`${functionName} ${argsDisplay}`}</code>
                                             <span className="text-green-400/80"> (Success)</span>
                                         </p>
                                     </div>
@@ -291,8 +312,7 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message, toolResponseMessage, o
                             }
 
                             const errorMessage = responseData?.error;
-                            const functionName = callPart.functionCall.name ?? 'unknown';
-                            const argsJson = JSON.stringify(callPart.functionCall.args ?? {}, null, 2);
+                            const argsJson = JSON.stringify(args, null, 2);
 
                             return (
                                 <div key={index} className={`rounded-lg overflow-hidden text-sm animate-fade-in-up-short ${correspondingResponse
@@ -305,7 +325,7 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message, toolResponseMessage, o
                                             <code className={`font-mono ${!correspondingResponse ? 'text-blue-300' :
                                                 isSuccess ? 'text-green-300' : 'text-red-300'
                                                 }`}>
-                                                {functionName}
+                                                {`${functionName} ${argsDisplay}`}
                                             </code>
                                             {correspondingResponse && (
                                                 <span className={`font-normal text-xs pl-2 ${isSuccess ? 'text-green-400' : 'text-red-400'}`}>
@@ -317,7 +337,7 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message, toolResponseMessage, o
                                         <details className="mt-2" open={!isSuccess}>
                                             <summary className="list-none flex items-center gap-2 cursor-pointer text-xs text-gray-400 hover:text-white transition-colors">
                                                 <ChevronDown size={14} className="details-arrow flex-shrink-0" />
-                                                {`Arguments (${Object.keys(callPart.functionCall.args ?? {}).length})`}
+                                                {`Arguments (${Object.keys(args).length})`}
                                             </summary>
                                             <pre className="text-xs text-gray-400 mt-1 overflow-x-auto bg-black/20 p-2 rounded-md font-mono">
                                                 {argsJson}
