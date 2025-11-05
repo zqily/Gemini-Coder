@@ -212,12 +212,8 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message, toolResponseMessage, o
     const isUser = message.role === 'user';
     const isModel = message.role === 'model';
     
-    const rawTextContent = (message.parts.find((p): p is TextPart => 'text' in p))?.text ?? '';
-    const fileParts = message.parts.filter((p): p is InlineDataPart => 'inlineData' in p);
     const functionCallParts = message.parts.filter(isFunctionCallPart);
     const functionResponseParts = toolResponseMessage?.parts.filter(isFunctionResponsePart) ?? [];
-
-    const mainText = rawTextContent;
 
     const Icon = isUser ? User : GeminiIcon;
     
@@ -255,92 +251,96 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message, toolResponseMessage, o
                 <span className="font-semibold text-white">{name}</span>
             </div>
              <div className={`ml-11 ${isModel ? 'animate-model-response-entry' : ''}`}>
-                <div className={isUser ? 'bg-gray-800/30 rounded-xl p-4' : ''}>
-                    {fileParts.length > 0 && (
-                        <div className="flex flex-wrap gap-2 mb-2">
-                            {fileParts.map((part, index) => (
-                                <div key={index} className="bg-gray-700/50 rounded-lg p-2 flex items-center gap-2 text-sm">
-                                    {part.inlineData.mimeType.startsWith('image/') ? <ImageIcon size={16} /> : <FileIcon size={16} />}
-                                    <span>File Attached ({part.inlineData.mimeType})</span>
+                <div className={`${isUser ? 'bg-gray-800/30 rounded-xl p-4' : ''} space-y-4`}>
+                    {message.parts.map((part, index) => {
+                        if ('text' in part && part.text.trim()) {
+                            return (
+                                <div key={index} className="prose prose-invert max-w-none">
+                                    <MarkdownRenderer content={part.text} />
                                 </div>
-                            ))}
-                        </div>
-                    )}
-                    
-                    {mainText && <div className="prose prose-invert max-w-none"><MarkdownRenderer content={mainText} /></div>}
-                    
-                    {message.groundingChunks && <GroundingSources chunks={message.groundingChunks} />}
+                            );
+                        }
+                        if ('inlineData' in part) {
+                            return (
+                                <div key={index} className="flex flex-wrap gap-2">
+                                    <div className="bg-gray-700/50 rounded-lg p-2 flex items-center gap-2 text-sm">
+                                        {part.inlineData.mimeType.startsWith('image/') ? <ImageIcon size={16} /> : <FileIcon size={16} />}
+                                        <span>File Attached ({part.inlineData.mimeType})</span>
+                                    </div>
+                                </div>
+                            );
+                        }
+                        if ('functionCall' in part) {
+                            const callPart = part;
+                            const functionCallIndex = functionCallParts.indexOf(callPart);
+                            const correspondingResponse = functionCallIndex > -1 ? functionResponseParts[functionCallIndex] : undefined;
+                            
+                            const responseData = correspondingResponse?.functionResponse?.response;
+                            const isSuccess = responseData?.success === true;
 
-                    {functionCallParts.length > 0 && (
-                        <div className="mt-4 space-y-3">
-                            {functionCallParts.map((callPart, index) => {
-                                const correspondingResponse = functionResponseParts[index];
-                                const responseData = correspondingResponse?.functionResponse?.response;
-                                const isSuccess = responseData?.success === true;
-
-                                // Compact success view
-                                if (correspondingResponse && isSuccess) {
-                                    return (
-                                        <div key={index} className="flex items-center gap-2.5 p-3 rounded-lg bg-green-900/30 text-sm animate-fade-in-up-short border border-green-700/30">
-                                            <CheckCircle size={16} className="text-green-400 flex-shrink-0" />
-                                            <p className="text-gray-300">
-                                                Tool Call: <code className="font-mono text-green-300 font-medium">{callPart.functionCall.name ?? 'unknown'}</code>
-                                                <span className="text-green-400/80"> (Success)</span>
-                                            </p>
-                                        </div>
-                                    );
-                                }
-
-                                // Detailed view for pending or failed calls
-                                const errorMessage = responseData?.error;
-                                const functionName = callPart.functionCall.name ?? 'unknown';
-                                const argsJson = JSON.stringify(callPart.functionCall.args ?? {}, null, 2);
-    
+                            if (correspondingResponse && isSuccess) {
                                 return (
-                                    <div key={index} className={`rounded-lg overflow-hidden text-sm animate-fade-in-up-short ${correspondingResponse
-                                    ? (isSuccess ? 'bg-green-900/40 border border-green-700/50' : 'bg-red-900/40 border border-red-700/50')
-                                    : 'bg-gray-800/50 border border-gray-700/50'
-                                    }`}>
-                                        <div className="p-3">
-                                            <p className={`font-semibold ${correspondingResponse && !isSuccess ? 'text-red-300' : 'text-gray-300'}`}>
-                                                <span className="font-normal text-gray-400">Tool Call: </span>
-                                                <code className={`font-mono ${!correspondingResponse ? 'text-blue-300' :
-                                                    isSuccess ? 'text-green-300' : 'text-red-300'
-                                                    }`}>
-                                                    {functionName}
-                                                </code>
-                                                {correspondingResponse && (
-                                                    <span className={`font-normal text-xs pl-2 ${isSuccess ? 'text-green-400' : 'text-red-400'}`}>
-                                                        ({isSuccess ? 'Success' : 'Failed'})
-                                                    </span>
-                                                )}
-                                            </p>
-    
-                                            <details className="mt-2" open={!isSuccess}>
-                                                <summary className="list-none flex items-center gap-2 cursor-pointer text-xs text-gray-400 hover:text-white transition-colors">
-                                                    <ChevronDown size={14} className="details-arrow flex-shrink-0" />
-                                                    {`Arguments (${Object.keys(callPart.functionCall.args ?? {}).length})`}
-                                                </summary>
-                                                <pre className="text-xs text-gray-400 mt-1 overflow-x-auto bg-black/20 p-2 rounded-md font-mono">
-                                                    {argsJson}
-                                                </pre>
-                                            </details>
-    
-                                            {!isSuccess && errorMessage && (
-                                                <div className="mt-3 p-2 bg-red-900/40 text-red-300 border-l-4 border-red-500 rounded-r-md">
-                                                    <p className="font-medium text-xs">Execution Error:</p>
-                                                    <pre className="text-xs mt-1 whitespace-pre-wrap font-mono">{errorMessage}</pre>
-                                                </div>
-                                            )}
-                                        </div>
+                                    <div key={index} className="flex items-center gap-2.5 p-3 rounded-lg bg-green-900/30 text-sm animate-fade-in-up-short border border-green-700/30">
+                                        <CheckCircle size={16} className="text-green-400 flex-shrink-0" />
+                                        <p className="text-gray-300">
+                                            Tool Call: <code className="font-mono text-green-300 font-medium">{callPart.functionCall.name ?? 'unknown'}</code>
+                                            <span className="text-green-400/80"> (Success)</span>
+                                        </p>
                                     </div>
                                 );
-                            })}
-                        </div>
-                    )}
+                            }
+
+                            const errorMessage = responseData?.error;
+                            const functionName = callPart.functionCall.name ?? 'unknown';
+                            const argsJson = JSON.stringify(callPart.functionCall.args ?? {}, null, 2);
+
+                            return (
+                                <div key={index} className={`rounded-lg overflow-hidden text-sm animate-fade-in-up-short ${correspondingResponse
+                                ? (isSuccess ? 'bg-green-900/40 border border-green-700/50' : 'bg-red-900/40 border border-red-700/50')
+                                : 'bg-gray-800/50 border border-gray-700/50'
+                                }`}>
+                                    <div className="p-3">
+                                        <p className={`font-semibold ${correspondingResponse && !isSuccess ? 'text-red-300' : 'text-gray-300'}`}>
+                                            <span className="font-normal text-gray-400">Tool Call: </span>
+                                            <code className={`font-mono ${!correspondingResponse ? 'text-blue-300' :
+                                                isSuccess ? 'text-green-300' : 'text-red-300'
+                                                }`}>
+                                                {functionName}
+                                            </code>
+                                            {correspondingResponse && (
+                                                <span className={`font-normal text-xs pl-2 ${isSuccess ? 'text-green-400' : 'text-red-400'}`}>
+                                                    ({isSuccess ? 'Success' : 'Failed'})
+                                                </span>
+                                            )}
+                                        </p>
+
+                                        <details className="mt-2" open={!isSuccess}>
+                                            <summary className="list-none flex items-center gap-2 cursor-pointer text-xs text-gray-400 hover:text-white transition-colors">
+                                                <ChevronDown size={14} className="details-arrow flex-shrink-0" />
+                                                {`Arguments (${Object.keys(callPart.functionCall.args ?? {}).length})`}
+                                            </summary>
+                                            <pre className="text-xs text-gray-400 mt-1 overflow-x-auto bg-black/20 p-2 rounded-md font-mono">
+                                                {argsJson}
+                                            </pre>
+                                        </details>
+
+                                        {!isSuccess && errorMessage && (
+                                            <div className="mt-3 p-2 bg-red-900/40 text-red-300 border-l-4 border-red-500 rounded-r-md">
+                                                <p className="font-medium text-xs">Execution Error:</p>
+                                                <pre className="text-xs mt-1 whitespace-pre-wrap font-mono">{errorMessage}</pre>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            );
+                        }
+                        return null;
+                    }).filter(Boolean)}
+
+                    {message.groundingChunks && <GroundingSources chunks={message.groundingChunks} />}
 
                     {showRetryButton && (
-                        <div className="mt-4 pt-4 border-t border-gray-700/50">
+                        <div className="pt-4 border-t border-gray-700/50">
                             <button
                                 onClick={onRetry}
                                 className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400"
