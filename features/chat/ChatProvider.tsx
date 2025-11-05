@@ -10,7 +10,7 @@ import { useSettings } from '../settings/SettingsContext';
 import { FunctionCall, GenerateContentResponse } from '@google/genai';
 import { ALL_ACCEPTED_MIME_TYPES, CONVERTIBLE_TO_TEXT_MIME_TYPES, fileToDataURL } from './utils/fileUpload';
 import { useFileSystem } from '../file-system/FileSystemContext';
-import { countTextTokens, countImageTokens, countMessageTokens } from './utils/tokenCounter';
+import { countTotalTokens } from './utils/tokenCounter';
 import { useToast } from '../toast/ToastContext';
 
 
@@ -243,48 +243,54 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
   // Token Calculation Effect
   useEffect(() => {
     const calculateTokens = async () => {
-      // Defer calculation to avoid blocking render
-      await new Promise(resolve => setTimeout(resolve, 50));
+        const projectContextString = getSerializableContext();
 
-      const promptTokens = countTextTokens(prompt);
-      const historyTokens = chatHistory.reduce((sum, msg) => sum + countMessageTokens(msg), 0);
-      const projectContextString = getSerializableContext();
-      const projectContextTokens = countTextTokens(projectContextString);
+        if ((!prompt.trim() && attachedFiles.length === 0 && chatHistory.length === 0 && !projectContextString) || !apiKey) {
+            setTotalTokens(0);
+            return;
+        }
 
-      const imagePromises = attachedFiles
-        .filter(file => file.type.startsWith('image/'))
-        .map(countImageTokens);
-      
-      const imageTokensArray = await Promise.all(imagePromises);
-      const imageTokens = imageTokensArray.reduce((sum, count) => sum + count, 0);
-
-      const attachedTextTokens = attachedFiles
-        .filter(file => !file.type.startsWith('image/'))
-        .reduce((sum, file) => {
-            try {
-                const base64Content = file.content.split(',')[1];
-                if (base64Content) {
-                    const textContent = atob(base64Content);
-                    return sum + countTextTokens(textContent);
-                }
-                return sum;
-            } catch (e) {
-                console.error("Failed to decode attached file for token counting:", file.name);
-                return sum;
-            }
-        }, 0);
+        const projectContextPreamble = `The user has provided a project context. This includes a list of all folders, and a list of all files with their full paths and content. All paths are relative to the project root. Use this information to understand the project structure and answer the user's request. When performing file operations, you MUST use the exact paths provided.`;
+        const projectContextPreambleForDefault = `The user has provided a project context. This includes a list of all folders, and a list of all files with their full paths and content. All paths are relative to the project root. Use this information to understand the project structure and answer the user's request. Do not mention this context message in your response unless the user asks about it.`;
         
-      setTotalTokens(
-        promptTokens +
-        historyTokens +
-        projectContextTokens +
-        imageTokens +
-        attachedTextTokens
-      );
+        const preamble = selectedMode === 'default' ? projectContextPreambleForDefault : projectContextPreamble;
+
+        let activeModel = selectedModel;
+        if (selectedMode === 'advanced-coder') {
+            activeModel = 'gemini-2.5-pro';
+        }
+        if (!activeModel) {
+            setTotalTokens(0);
+            return;
+        }
+
+        const tokens = await countTotalTokens(
+            apiKey,
+            activeModel,
+            chatHistory,
+            prompt,
+            attachedFiles,
+            projectContextString,
+            preamble
+        );
+
+        if (tokens === -1) {
+            showToast("Invalid API Key. Token counting failed.", "error");
+            setTotalTokens(0);
+        } else {
+            setTotalTokens(tokens);
+        }
     };
 
-    calculateTokens();
-  }, [prompt, chatHistory, attachedFiles, getSerializableContext]);
+    // Debounce the calculation
+    const handler = setTimeout(() => {
+      calculateTokens();
+    }, 500);
+
+    return () => {
+      clearTimeout(handler);
+    };
+  }, [prompt, chatHistory, attachedFiles, getSerializableContext, apiKey, selectedModel, selectedMode, showToast]);
 
   const onStop = useCallback(() => {
     abortControllerRef.current?.abort();
@@ -391,7 +397,6 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
 
     const filesForThisTurn = [...attachedFiles];
     let historyForApi: ChatMessage[];
-    let isResend = false;
 
     if (currentPrompt.trim() || filesForThisTurn.length > 0) {
         const userParts: ChatPart[] = [];
@@ -406,14 +411,17 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
         });
         const newUserMessage: ChatMessage = { role: 'user', parts: userParts };
         historyForApi = [...chatHistory, newUserMessage];
-        setChatHistory(historyForApi);
+        
+        const modelPlaceholder: ChatMessage = { role: 'model', parts: [{ text: '' }], mode: selectedMode };
+        setChatHistory(prev => [...prev, newUserMessage, modelPlaceholder]);
+
         setAttachedFiles([]);
         setPrompt('');
     } else {
         const lastMessage = chatHistory[chatHistory.length - 1];
         if (lastMessage?.role === 'user') {
             historyForApi = [...chatHistory];
-            isResend = true;
+            setChatHistory(prev => [...prev, { role: 'model', parts: [{ text: '' }], mode: selectedMode }]);
         } else {
             return;
         }
@@ -421,10 +429,6 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
 
     setIsChatProcessing(true);
     setIndicatorState('loading');
-
-    if (!isResend || chatHistory[chatHistory.length - 1]?.role !== 'model') {
-      setChatHistory(prev => [...prev, { role: 'model', parts: [{ text: '' }], mode: selectedMode }]);
-    }
     
     const getProjectContextStringLocal = (): string | null => {
         return getSerializableContext();
@@ -452,7 +456,8 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
                 setAdvancedCoderState(prev => updatePhase(prev, 'planning', { status: 'running' }));
                 const plannerSystemInstruction = `You are a Senior Software Architect. Your task is to create a high-level plan to address the user's request. Do NOT write any code. Focus on the overall strategy, file structure, and key components.`;
                 const planningHistoryForTokens = [...baseHistory];
-                const plannerInputTokens = planningHistoryForTokens.reduce((sum, msg) => sum + countMessageTokens(msg), 0);
+                // TODO: Replace this with a single countTotalTokens call for better accuracy
+                const plannerInputTokens = 0;
                 
                 const planningApiCalls = Array(3).fill(0).map(() =>
                     () => generateContentWithRetries(apiKey, 'gemini-flash-latest', planningHistoryForTokens, plannerSystemInstruction, undefined, controller.signal, onStatusUpdateForRetries, setIndicatorState)
@@ -477,7 +482,7 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
                 const successfulPlanContents = successfulPlans.filter(p => !p.content.startsWith('Error:')).map(p => p.content);
                 consolidationHistory.push({ role: 'user', parts: [{ text: `Here are the plans from the architects:\n\n${successfulPlanContents.map((p, i) => `--- PLAN ${i+1} ---\n${p}`).join('\n\n')}` }] });
 
-                const consolidationInputTokens = consolidationHistory.reduce((sum, msg) => sum + countMessageTokens(msg), 0);
+                const consolidationInputTokens = 0; // TODO: Replace
                 const consolidationApiCall = [() => generateContentWithRetries(apiKey, 'gemini-2.5-pro', consolidationHistory, consolidationSystemInstruction, undefined, controller.signal, onStatusUpdateForRetries, setIndicatorState)];
                 
                 const consolidationResult = (await executeManagedBatchCall('gemini-2.5-pro', consolidationInputTokens, controller.signal, consolidationApiCall, onStatusUpdateForRetries, isContextTokenUnlocked))[0];
@@ -492,7 +497,7 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
                 const draftingHistory = [...baseHistory];
                 draftingHistory.push({ role: 'user', parts: [{ text: `Here is the master plan. Please generate the code draft.\n\n${masterPlan}` }] });
 
-                const draftingInputTokens = draftingHistory.reduce((sum, msg) => sum + countMessageTokens(msg), 0);
+                const draftingInputTokens = 0; // TODO: Replace
                 const draftingApiCall = [() => generateContentWithRetries(apiKey, 'gemini-2.5-pro', draftingHistory, draftingSystemInstruction, undefined, controller.signal, onStatusUpdateForRetries, setIndicatorState)];
                 const draftingResult = (await executeManagedBatchCall('gemini-2.5-pro', draftingInputTokens, controller.signal, draftingApiCall, onStatusUpdateForRetries, isContextTokenUnlocked))[0];
                 if (controller.signal.aborted) throw new DOMException('Cancelled by user', 'AbortError');
@@ -507,7 +512,7 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
                 const debuggingHistory = [...baseHistory];
                 debuggingHistory.push({ role: 'user', parts: [{ text: `Master Plan:\n${masterPlan}\n\nCode Draft:\n${codeDraft}` }] });
 
-                const debuggingInputTokens = debuggingHistory.reduce((sum, msg) => sum + countMessageTokens(msg), 0);
+                const debuggingInputTokens = 0; // TODO: Replace
                 const debuggingApiCalls = Array(3).fill(0).map(() =>
                     () => generateContentWithRetries(apiKey, 'gemini-flash-latest', debuggingHistory, debuggerSystemInstruction, [{ functionDeclarations: [NO_PROBLEM_DETECTED_TOOL] }], controller.signal, onStatusUpdateForRetries, setIndicatorState)
                 );
@@ -540,7 +545,7 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
                     const reviewHistory = [...baseHistory];
                     reviewHistory.push({ role: 'user', parts: [{ text: `Code Draft:\n${codeDraft}\n\nDebugging Reports:\n${debuggingReports.join('\n---\n')}` }] });
 
-                    const reviewInputTokens = reviewHistory.reduce((sum, msg) => sum + countMessageTokens(msg), 0);
+                    const reviewInputTokens = 0; // TODO: Replace
                     const reviewApiCall = [() => generateContentWithRetries(apiKey, 'gemini-flash-latest', reviewHistory, reviewConsolidationSystemInstruction, undefined, controller.signal, onStatusUpdateForRetries, setIndicatorState)];
                     const reviewResult = (await executeManagedBatchCall('gemini-flash-latest', reviewInputTokens, controller.signal, reviewApiCall, onStatusUpdateForRetries, isContextTokenUnlocked))[0];
                     if (controller.signal.aborted) throw new DOMException('Cancelled by user', 'AbortError');
@@ -576,7 +581,7 @@ Ensure your response is complete and contains all necessary file operations.`;
                 const finalUserContent = `Here is the context for the final implementation. Generate the file system operations.\n\nCode Draft:\n${codeDraft}\n\n${consolidatedReview ? `Consolidated Review:\n${consolidatedReview}` : 'No issues were found in the draft.'}`;
                 finalHistory.push({ role: 'user', parts: [{ text: finalUserContent }] });
                 
-                const finalInputTokens = finalHistory.reduce((sum, msg) => sum + countMessageTokens(msg), 0);
+                const finalInputTokens = 0; // TODO: Replace
                 const finalApiCall = [() => generateContentWithRetries(apiKey, 'gemini-2.5-pro', finalHistory, finalSystemInstruction, undefined, controller.signal, onStatusUpdateForRetries, setIndicatorState)];
                 const response = (await executeManagedBatchCall('gemini-2.5-pro', finalInputTokens, controller.signal, finalApiCall, onStatusUpdateForRetries, isContextTokenUnlocked))[0];
                 

@@ -1,4 +1,4 @@
-import { countTextTokens } from "../utils/tokenCounter";
+import { countTextTokensApprox } from "../utils/tokenCounter";
 import type { GenerateContentResponse } from "@google/genai";
 import { cancellableSleep } from "./geminiService";
 
@@ -94,7 +94,7 @@ export async function executeManagedBatchCall<T extends GenerateContentResponse>
             const batchPromises = batch.map(call => 
                 call().then(res => {
                     // Account for output tokens as each response arrives.
-                    const outputTokens = countTextTokens(res.text);
+                    const outputTokens = countTextTokensApprox(res.text);
                     getModelState(modelName).tokensUsedInWindow += outputTokens;
                     return res;
                 }).catch(e => e)

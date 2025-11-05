@@ -5,7 +5,7 @@ import * as FileSystem from './utils/fileSystem';
 import type { ProjectContext, FileSystemDirectoryHandle } from '../../types';
 import type { FunctionCall } from '@google/genai';
 import type { ChatPart } from '../../types';
-import { countTextTokens, countImageTokens } from '../chat/utils/tokenCounter';
+import { countTextTokensApprox, countImageTokensApprox } from '../chat/utils/tokenCounter';
 import { fileToDataURL } from '../chat/utils/fileUpload';
 import { readDirectoryHandle, applyChangesToDisk as applyChangesToDiskUtil } from './utils/diskAccess';
 import { useToast } from '../toast/ToastContext';
@@ -104,13 +104,13 @@ const FileSystemProvider: React.FC<FileSystemProviderProps> = ({ children }) => 
       for (const [path, content] of displayContext.files.entries()) {
         if (content.startsWith('data:image/')) {
             const mimeType = content.substring(5, content.indexOf(';'));
-            const promise = countImageTokens({ name: path, content, type: mimeType, size: 0 })
+            const promise = countImageTokensApprox({ name: path, content, type: mimeType, size: 0 })
                 .then(count => { newCounts.set(path, count); });
             imageTokenPromises.push(promise);
         } else if (content.startsWith('[Attached file:') || content.startsWith('[Binary file:')) {
           newCounts.set(path, 0);
         } else {
-          newCounts.set(path, countTextTokens(content));
+          newCounts.set(path, countTextTokensApprox(content));
         }
       }
 
