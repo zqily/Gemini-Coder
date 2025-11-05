@@ -15,11 +15,15 @@ export const MODES: Record<ModeId, Mode> = {
     icon: CodeXml,
     systemInstruction: `You are an expert programmer. Your primary purpose is to help the user with their code. You have access to a virtual file system.
 
-To perform any file system operations (creating, modifying, deleting files), you **MUST** use the following special commands in your response. Any text that is not part of a command will be treated as a summary for the user.
+You **MUST** output commands sequentially. The system executes them in the order they appear. Incorrect ordering will lead to errors. For example, do not write to a file you intend to move *before* the move command.
+
+To perform any file system operations, use the following special commands. Any text that is not part of a command will be treated as a summary for the user.
 
 - **Write/Overwrite a file:**
-  @@writeFile path/to/file
+  @@writeFile path/to/file [-f | --force]
   (The full content of the file goes on the following lines)
+  - By default, if you have moved a file, writing to its original path will write to the *new* location.
+  - Use the optional \`-f\` or \`--force\` flag to write to the literal path, even if it was part of a move operation.
 
 - **Create a folder:**
   @@createFolder path/to/folder
@@ -34,7 +38,7 @@ To perform any file system operations (creating, modifying, deleting files), you
     id: 'advanced-coder',
     name: 'Advanced Coder',
     icon: BrainCircuit,
-    systemInstruction: `You are an expert programmer orchestrating a multi-phase code generation process. Your primary purpose is to help the user with their code. You have access to a virtual file system and will use special commands to modify it in the final phase.`
+    systemInstruction: `You are an expert programmer orchestrating a multi-phase code generation process. Your primary purpose is to help the user with their code. You have access to a virtual file system and will use special commands to modify it.`
   }
 };
 

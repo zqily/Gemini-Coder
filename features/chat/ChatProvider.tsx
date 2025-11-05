@@ -27,8 +27,8 @@ interface CommandMatch {
 
 /**
  * Parses the model's text response to extract a summary and file system commands.
- * This function is designed to be robust against formatting variations from the model.
- * It dynamically chooses a parsing strategy based on the presence of `--- START OF ---` blocks.
+ * This function processes commands sequentially to handle dependencies, such as a file
+ * being moved and then written to.
  * @param responseText The raw text from the model.
  * @returns An object with the user-facing summary and an array of FunctionCall objects.
  */
@@ -38,155 +38,112 @@ const parseHybridResponse = (responseText: string): { summary: string; functionC
     }
 
     const functionCalls: FunctionCall[] = [];
-    const hasContentBlocks = /--- START OF .*?---/i.test(responseText);
+    const moveMap = new Map<string, string>(); // Tracks source -> destination path remappings
 
-    // If we detect `--- START OF ---` blocks, we prioritize a block-based parsing strategy.
-    // This handles cases where the model lists commands first, then all file contents.
-    if (hasContentBlocks) {
-        let summary = responseText;
+    const commandRegex = /^(@@\w+)\s*(.*)/gm;
+    const matches: CommandMatch[] = [];
+    let match;
 
-        // 1. Extract all content blocks using their START/END markers.
-        const contentBlockRegex = /--- START OF (?:FILE: )?(.*?) ---\r?\n([\s\S]*?)\r?\n--- END OF (?:FILE: )?.*?---\r?\n?/gi;
-        
-        summary = summary.replace(contentBlockRegex, (match, path, content) => {
-            const cleanedPath = path.trim();
-            if (!cleanedPath) return match; // Don't process blocks with empty paths
-
-            let fileContent = content.trim();
-            fileContent = fileContent.replace(/^```[a-z]*\r?\n/, '');
-            fileContent = fileContent.replace(/\r?\n```$/, '');
-            functionCalls.push({ name: 'writeFile', args: { path: cleanedPath, content: fileContent.trim() } });
-            
-            return ''; // Remove this block from the text to be processed further
+    while ((match = commandRegex.exec(responseText)) !== null) {
+        const command = match[1];
+        const argsLine = match[2].trim();
+        matches.push({
+            commandLine: match[0],
+            command: command,
+            args: argsLine.split(/\s+/).filter(Boolean),
+            index: match.index
         });
-
-        // 2. Remove any `@@writeFile` commands, as their content has been handled.
-        summary = summary.replace(/^(@@writeFile\s+.*)\r?\n?/gm, '');
-
-        // 3. Parse the rest of the text for other commands.
-        const commandRegex = /^(@@\w+)\s*(.*)/gm;
-        
-        const remainingTextWithoutOtherCommands = summary.replace(commandRegex, (match, command, argsLine) => {
-            const args = argsLine.trim().split(/\s+/).filter(Boolean);
-            switch (command) {
-                case '@@moves': {
-                    const [sourcePath, destinationPath] = args;
-                    if (sourcePath && destinationPath) {
-                        functionCalls.push({ name: 'move', args: { sourcePath, destinationPath } });
-                    }
-                    return ''; // Remove command line
-                }
-                case '@@createFolder': {
-                    const [path] = args;
-                    if (path) {
-                        functionCalls.push({ name: 'createFolder', args: { path } });
-                    }
-                    return '';
-                }
-                case '@@deletePaths': {
-                    const [path] = args;
-                    if (path) {
-                        functionCalls.push({ name: 'deletePath', args: { path } });
-                    }
-                    return '';
-                }
-                default:
-                    return match; // Keep unknown commands in the text
-            }
-        });
-        
-        summary = remainingTextWithoutOtherCommands.trim().replace(/(\r?\n){3,}/g, '\n\n');
-        return { summary: summary.trim(), functionCalls };
-
-    } else {
-        // Fallback to the original logic for interleaved commands if no START/END blocks are detected.
-        const commandRegex = /^(@@\w+)\s*(.*)/gm;
-        const matches: CommandMatch[] = [];
-        let match;
-
-        while ((match = commandRegex.exec(responseText)) !== null) {
-            const command = match[1];
-            const argsLine = match[2].trim();
-            matches.push({
-                commandLine: match[0],
-                command: command,
-                args: argsLine.split(/\s+/).filter(Boolean),
-                index: match.index
-            });
-        }
-
-        if (matches.length === 0) {
-            return { summary: responseText, functionCalls: [] };
-        }
-
-        let summary = responseText.substring(0, matches[0].index);
-
-        for (let i = 0; i < matches.length; i++) {
-            const currentMatch = matches[i];
-            const nextMatch = matches[i + 1];
-
-            const contentStartIndex = currentMatch.index + currentMatch.commandLine.length;
-            const contentEndIndex = nextMatch ? nextMatch.index : responseText.length;
-            
-            let content = responseText.substring(contentStartIndex, contentEndIndex);
-
-            switch (currentMatch.command) {
-                case '@@writeFile': {
-                    const path = currentMatch.args[0];
-                    if (!path) {
-                        summary += `\n${currentMatch.commandLine}${content}`;
-                        continue;
-                    }
-
-                    let fileContent = content.trim();
-                    fileContent = fileContent.replace(/^--- START OF .*? ---\r?\n/i, '');
-                    fileContent = fileContent.replace(/\r?\n--- END OF .*? ---$/i, '');
-                    fileContent = fileContent.replace(/^```[a-z]*\r?\n/, '');
-                    fileContent = fileContent.replace(/\r?\n```$/, '');
-                    
-                    functionCalls.push({ name: 'writeFile', args: { path: path.trim(), content: fileContent.trim() } });
-                    break;
-                }
-                case '@@moves': {
-                    const sourcePath = currentMatch.args[0];
-                    const destinationPath = currentMatch.args[1];
-                    if (sourcePath && destinationPath) {
-                        functionCalls.push({ name: 'move', args: { sourcePath, destinationPath } });
-                    } else {
-                         summary += `\n${currentMatch.commandLine}`;
-                    }
-                    summary += content;
-                    break;
-                }
-                case '@@createFolder': {
-                    const path = currentMatch.args[0];
-                    if (path) {
-                        functionCalls.push({ name: 'createFolder', args: { path } });
-                    } else {
-                        summary += `\n${currentMatch.commandLine}`;
-                    }
-                    summary += content;
-                    break;
-                }
-                case '@@deletePaths': {
-                    const path = currentMatch.args[0];
-                    if (path) {
-                        functionCalls.push({ name: 'deletePath', args: { path } });
-                    } else {
-                        summary += `\n${currentMatch.commandLine}`;
-                    }
-                    summary += content;
-                    break;
-                }
-                default:
-                    summary += `\n${currentMatch.commandLine}${content}`;
-                    break;
-            }
-        }
-
-        summary = summary.trim().replace(/(\r?\n){3,}/g, '\n\n');
-        return { summary: summary.trim(), functionCalls };
     }
+
+    if (matches.length === 0) {
+        return { summary: responseText, functionCalls: [] };
+    }
+
+    let summary = responseText.substring(0, matches[0].index);
+
+    for (let i = 0; i < matches.length; i++) {
+        const currentMatch = matches[i];
+        const nextMatch = matches[i + 1];
+
+        const contentStartIndex = currentMatch.index + currentMatch.commandLine.length;
+        const contentEndIndex = nextMatch ? nextMatch.index : responseText.length;
+        let content = responseText.substring(contentStartIndex, contentEndIndex);
+
+        switch (currentMatch.command) {
+            case '@@writeFile': {
+                const args = currentMatch.args;
+                let path = args[0];
+                const force = args.includes('-f') || args.includes('--force');
+                
+                if (!path) {
+                    summary += `\n${currentMatch.commandLine}${content}`;
+                    continue;
+                }
+                
+                // Apply move remapping if not forced
+                if (!force && moveMap.has(path)) {
+                    path = moveMap.get(path)!;
+                }
+
+                let fileContent = content.trim();
+                // Clean up potential block markers and code fences, just in case.
+                fileContent = fileContent.replace(/^--- START OF .*? ---\r?\n/i, '');
+                fileContent = fileContent.replace(/\r?\n--- END OF .*? ---$/i, '');
+                fileContent = fileContent.replace(/^```[a-z]*\r?\n/, '');
+                fileContent = fileContent.replace(/\r?\n```$/, '');
+                
+                functionCalls.push({ name: 'writeFile', args: { path: path.trim(), content: fileContent.trim() } });
+                break;
+            }
+            case '@@moves': {
+                const [sourcePath, destinationPath] = currentMatch.args;
+                if (sourcePath && destinationPath) {
+                    functionCalls.push({ name: 'move', args: { sourcePath, destinationPath } });
+                    
+                    // Update the move map for subsequent commands
+                    moveMap.set(sourcePath, destinationPath);
+
+                    // Also update any existing mappings that point to the new source
+                    // e.g., A->B, then B->C. An old write to A should now point to C.
+                    for (const [key, value] of moveMap.entries()) {
+                        if (value === sourcePath) {
+                            moveMap.set(key, destinationPath);
+                        }
+                    }
+                } else {
+                     summary += `\n${currentMatch.commandLine}`;
+                }
+                summary += content;
+                break;
+            }
+            case '@@createFolder': {
+                const [path] = currentMatch.args;
+                if (path) {
+                    functionCalls.push({ name: 'createFolder', args: { path } });
+                } else {
+                    summary += `\n${currentMatch.commandLine}`;
+                }
+                summary += content;
+                break;
+            }
+            case '@@deletePaths': {
+                const [path] = currentMatch.args;
+                if (path) {
+                    functionCalls.push({ name: 'deletePath', args: { path } });
+                } else {
+                    summary += `\n${currentMatch.commandLine}`;
+                }
+                summary += content;
+                break;
+            }
+            default:
+                summary += `\n${currentMatch.commandLine}${content}`;
+                break;
+        }
+    }
+
+    summary = summary.trim().replace(/(\r?\n){3,}/g, '\n\n');
+    return { summary: summary.trim(), functionCalls };
 };
 
 const initialAdvancedCoderState: AdvancedCoderState = {
@@ -423,9 +380,13 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
 
 Your entire output **MUST** use the following format. Any text that is not part of a command block will be considered the summary. Do NOT just describe the changes you are making; you MUST output the commands themselves to perform the actions.
 
+You **MUST** output commands sequentially. The system executes them in the order they appear. Incorrect ordering will lead to errors.
+
 - **Write/Overwrite a file:**
-  @@writeFile path/to/file
+  @@writeFile path/to/file [-f | --force]
   (The full content of the file goes on the following lines)
+  - By default, if you have moved a file, writing to its original path will write to the *new* location.
+  - Use the optional \`-f\` or \`--force\` flag to write to the literal path, even if it was part of a move operation.
 
 - **Create a folder:**
   @@createFolder path/to/folder
