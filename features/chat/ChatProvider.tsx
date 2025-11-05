@@ -67,7 +67,7 @@ const parseHybridResponse = (responseText: string): { summary: string; functionC
 
         const contentStartIndex = currentMatch.index + currentMatch.commandLine.length;
         const contentEndIndex = nextMatch ? nextMatch.index : responseText.length;
-        let content = responseText.substring(contentStartIndex, contentEndIndex);
+        const contentBlock = responseText.substring(contentStartIndex, contentEndIndex);
 
         switch (currentMatch.command) {
             case '@@writeFile': {
@@ -76,21 +76,44 @@ const parseHybridResponse = (responseText: string): { summary: string; functionC
                 const force = args.includes('-f') || args.includes('--force');
                 
                 if (!path) {
-                    summary += `\n${currentMatch.commandLine}${content}`;
+                    summary += `\n${currentMatch.commandLine}${contentBlock}`;
                     continue;
                 }
                 
-                // Apply move remapping if not forced
                 if (!force && moveMap.has(path)) {
                     path = moveMap.get(path)!;
                 }
 
-                let fileContent = content.trim();
-                // Clean up potential block markers and code fences, just in case.
-                fileContent = fileContent.replace(/^--- START OF .*? ---\r?\n/i, '');
-                fileContent = fileContent.replace(/\r?\n--- END OF .*? ---$/i, '');
-                fileContent = fileContent.replace(/^```[a-z]*\r?\n/, '');
-                fileContent = fileContent.replace(/\r?\n```$/, '');
+                let fileContent = '';
+                let trailingSummary = '';
+
+                // Regexes with capture groups for the whole block and the inner content.
+                const startSeparatorRegex = /^(\s*--- START OF .*? ---\r?\n([\s\S]*?)\r?\n--- END OF .*? ---)/i;
+                const markdownFenceRegex = /^(\s*```[a-z]*\r?\n([\s\S]*?)\r?\n```)/;
+
+                let regexMatch;
+
+                // Priority 1: Check for --- START OF --- blocks
+                regexMatch = contentBlock.match(startSeparatorRegex);
+                if (regexMatch) {
+                    const matchedBlock = regexMatch[1];
+                    fileContent = regexMatch[2]; // Content is in the second capture group
+                    trailingSummary = contentBlock.substring(matchedBlock.length);
+                } else {
+                    // Priority 2: Check for markdown code fences
+                    regexMatch = contentBlock.match(markdownFenceRegex);
+                    if (regexMatch) {
+                        const matchedBlock = regexMatch[1];
+                        fileContent = regexMatch[2]; // Content is in the second capture group
+                        trailingSummary = contentBlock.substring(matchedBlock.length);
+                    } else {
+                        // Fallback: No structured block found, treat entire block as content
+                        fileContent = contentBlock;
+                        trailingSummary = '';
+                    }
+                }
+
+                summary += trailingSummary;
                 
                 functionCalls.push({ name: 'writeFile', args: { path: path.trim(), content: fileContent.trim() } });
                 break;
@@ -113,7 +136,7 @@ const parseHybridResponse = (responseText: string): { summary: string; functionC
                 } else {
                      summary += `\n${currentMatch.commandLine}`;
                 }
-                summary += content;
+                summary += contentBlock;
                 break;
             }
             case '@@createFolder': {
@@ -123,7 +146,7 @@ const parseHybridResponse = (responseText: string): { summary: string; functionC
                 } else {
                     summary += `\n${currentMatch.commandLine}`;
                 }
-                summary += content;
+                summary += contentBlock;
                 break;
             }
             case '@@deletePaths': {
@@ -133,11 +156,11 @@ const parseHybridResponse = (responseText: string): { summary: string; functionC
                 } else {
                     summary += `\n${currentMatch.commandLine}`;
                 }
-                summary += content;
+                summary += contentBlock;
                 break;
             }
             default:
-                summary += `\n${currentMatch.commandLine}${content}`;
+                summary += `\n${currentMatch.commandLine}${contentBlock}`;
                 break;
         }
     }
