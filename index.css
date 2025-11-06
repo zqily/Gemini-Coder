@@ -142,6 +142,52 @@
   .highlight-fade-fast {
     animation: fade-out-highlight-bg 0.5s ease-out forwards;
   }
+
+  /* --- Mode Settings Panel --- */
+  .popover-tail {
+    @apply absolute w-0 h-0;
+    left: 24px;
+    bottom: -8px; /* Position below the panel */
+    border-left: 8px solid transparent;
+    border-right: 8px solid transparent;
+    border-top: 8px solid var(--popover-bg);
+  }
+  .popover-tail::after {
+    @apply content-[''] absolute w-0 h-0;
+    left: -9px;
+    top: -10px;
+    border-left: 9px solid transparent;
+    border-right: 9px solid transparent;
+    border-top: 9px solid var(--popover-border);
+    z-index: -1;
+  }
+  .persona-card {
+    @apply w-full flex items-center gap-3 px-3 py-2 text-sm font-semibold text-left text-gray-300 bg-gray-700/50 rounded-lg border-2 border-transparent transition-all;
+  }
+  .persona-card:hover {
+    @apply bg-gray-700;
+  }
+  .persona-card-active {
+    @apply bg-blue-600/20 border-blue-500 text-white;
+  }
+  .persona-card-icon {
+    @apply text-gray-400 transition-colors;
+  }
+  .persona-card-active .persona-card-icon {
+    @apply text-blue-400;
+  }
+
+  .preview-pane-container {
+    @apply grid transition-all duration-300 ease-in-out;
+    grid-template-rows: 0fr;
+  }
+  .preview-pane-container.open {
+    grid-template-rows: 1fr;
+  }
+  .preview-pane-container > * {
+    @apply overflow-hidden;
+  }
+
 }
 
 @layer utilities {
