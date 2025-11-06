@@ -1,4 +1,5 @@
 import React from 'react';
+import type { SimpleCoderSettings, AdvancedCoderSettings } from '../../types';
 
 export interface SettingsContextType {
   apiKey: string;
@@ -15,6 +16,11 @@ export interface SettingsContextType {
   setIsSettingsModalOpen: (isOpen: boolean) => void;
   isHelpModalOpen: boolean;
   setIsHelpModalOpen: (isOpen: boolean) => void;
+  
+  simpleCoderSettings: SimpleCoderSettings;
+  setSimpleCoderSettings: (settings: SimpleCoderSettings) => void;
+  advancedCoderSettings: AdvancedCoderSettings;
+  setAdvancedCoderSettings: (settings: AdvancedCoderSettings) => void;
 }
 
 export const SettingsContext = React.createContext<SettingsContextType | undefined>(undefined);

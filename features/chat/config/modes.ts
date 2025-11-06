@@ -2,7 +2,7 @@ import type { Mode, ModeId } from '../../../types';
 import { Bot, CodeXml, BrainCircuit } from '../../../components/icons';
 import { FunctionDeclaration, Type } from '@google/genai';
 
-const FILE_SYSTEM_COMMAND_INSTRUCTIONS = `You have access to a virtual file system. To modify it, you MUST respond with a valid XML block. Any other text you provide will be treated as a summary for the user.
+export const FILE_SYSTEM_COMMAND_INSTRUCTIONS = `You have access to a virtual file system. To modify it, you MUST respond with a valid XML block. Any other text you provide will be treated as a summary for the user.
 
 **IMPORTANT RULES:**
 - Your response MUST contain a single \`<changes>\` block.
@@ -90,7 +90,7 @@ export const MODES: Record<ModeId, Mode> = {
     id: 'simple-coder',
     name: 'Simple Coder',
     icon: CodeXml,
-    systemInstruction: `You are an expert programmer. Your primary purpose is to help the user with their code.\n\n${FILE_SYSTEM_COMMAND_INSTRUCTIONS}`
+    // System instruction is now built dynamically in ChatProvider based on persona
   },
   'advanced-coder': {
     id: 'advanced-coder',
@@ -99,9 +99,9 @@ export const MODES: Record<ModeId, Mode> = {
     phases: {
       planning: `You are a Senior Software Architect. Your task is to create a high-level plan to address the user's request. Do NOT write any code. Focus on the overall strategy, file structure, and key components.`,
       consolidation: `You are a Principal Engineer. Your task is to synthesize multiple high-level plans from your team of architects into a single, cohesive, and highly detailed master plan. The final plan should be actionable for a skilled developer. Do not reference the previous planning phase or the planners themselves; present this as your own unified plan.`,
-      drafting: `You are a Staff Engineer. Your task is to generate a complete code draft based on the master plan. The output should be in a diff format where applicable. Do not use any function tools.`,
+      drafting: `You are a Staff Engineer. Your task is to generate a complete code draft based on the master plan and any previous review feedback. The output should be in a diff format where applicable. Do not use any function tools.`,
       debugging: `You are a meticulous Code Reviewer. Review the provided code draft for critical errors, bugs, incomplete implementation, or violations of best practices. If the draft is acceptable, you MUST call the \`noProblemDetected\` function. Otherwise, provide your feedback. Do not reference the "Master Plan" or the source of the reasoning.`,
-      review: `You are a Tech Lead. Consolidate the following debugging feedback into a single, concise list of required changes for the final implementation. Do not reference the debuggers or the source of the comments.`,
+      review: `You are a Tech Lead. Consolidate the following debugging feedback into a single, concise list of required changes for the next implementation draft. Do not reference the debuggers or the source of the comments.`,
       final: `You are a file system operations generator. Your sole purpose is to generate a user-facing summary and all necessary file system operations based on the provided context.
 Ensure your response is complete and contains all necessary file operations.
 

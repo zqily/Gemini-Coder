@@ -15,6 +15,11 @@ export interface ChatContextType {
   advancedCoderState: AdvancedCoderState | null;
   indicatorState: IndicatorState;
 
+  isModeSettingsPanelOpen: boolean;
+  modeSettingsPanelConfig: { modeId: ModeId; anchorEl: HTMLElement } | null;
+  openModeSettingsPanel: (modeId: ModeId, anchorEl: HTMLElement) => void;
+  closeModeSettingsPanel: () => void;
+
   setAttachedFiles: React.Dispatch<React.SetStateAction<AttachedFile[]>>;
   setSelectedModel: (model: string) => void;
   onSubmit: (prompt: string) => void;

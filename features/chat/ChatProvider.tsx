@@ -4,8 +4,9 @@ import { useSelectedModel } from './useSelectedModel';
 import { useSelectedMode } from './useSelectedMode';
 import { generateContentWithRetries, generateContentStreamWithRetries } from './services/geminiService';
 import { executeManagedBatchCall } from './services/rateLimitManager';
-import type { ChatMessage, AttachedFile, ChatPart, TextPart, AdvancedCoderState, GroundingChunk, IndicatorState, AdvancedCoderRunContext } from '../../types';
-import { MODES, NO_PROBLEM_DETECTED_TOOL } from './config/modes';
+import type { ChatMessage, AttachedFile, ChatPart, TextPart, AdvancedCoderState, GroundingChunk, IndicatorState, AdvancedCoderRunContext, ModeId, AdvancedCoderPhase } from '../../types';
+import { MODES, NO_PROBLEM_DETECTED_TOOL, FILE_SYSTEM_COMMAND_INSTRUCTIONS } from './config/modes';
+import { SIMPLE_CODER_PERSONAS } from './config/personas';
 import { useSettings } from '../settings/SettingsContext';
 import { FunctionCall, GenerateContentResponse } from '@google/genai';
 import { ALL_ACCEPTED_MIME_TYPES, CONVERTIBLE_TO_TEXT_MIME_TYPES, fileToDataURL } from './utils/fileUpload';
@@ -146,23 +147,35 @@ const parseXmlResponse = (responseText: string): { summary: string; functionCall
     return { summary: finalSummary, functionCalls };
 };
 
-
-const initialAdvancedCoderState: AdvancedCoderState = {
-  phases: [
-    { id: 'planning', title: 'Phase 1/6: Planning', status: 'pending', subtasks: [] },
-    { id: 'consolidation', title: 'Phase 2/6: Consolidation', status: 'pending' },
-    { id: 'drafting', title: 'Phase 3/6: Drafting', status: 'pending' },
-    { id: 'debugging', title: 'Phase 4/6: Debugging', status: 'pending', subtasks: [] },
-    { id: 'review', title: 'Phase 5/6: Review Consolidation', status: 'pending' },
-    { id: 'final', title: 'Phase 6/6: Final Implementation', status: 'pending' },
-  ],
-  statusMessage: '',
-};
-
 const updatePhase = (prevState: AdvancedCoderState | null, phaseId: string, updates: object): AdvancedCoderState | null => {
     if (!prevState) return null;
     const newPhases = prevState.phases.map(p => p.id === phaseId ? { ...p, ...updates } : p);
     return { ...prevState, phases: newPhases };
+};
+
+const generateAdvancedCoderPhases = (count: 3 | 6 | 9 | 12): AdvancedCoderPhase[] => {
+    const phases: AdvancedCoderPhase[] = [
+        // Titles are updated at the end.
+        { id: 'planning', title: 'Phase X: Planning', status: 'pending', subtasks: [] },
+        { id: 'consolidation', title: 'Phase X: Consolidation', status: 'pending' },
+    ];
+    
+    const numCycles = Math.floor((count - 2) / 3);
+
+    for (let i = 1; i <= numCycles; i++) {
+        const cycleTitleSuffix = numCycles > 1 ? ` (Cycle ${i}/${numCycles})` : '';
+        phases.push({ id: `drafting-${i}`, title: `Phase X: Drafting${cycleTitleSuffix}`, status: 'pending' });
+        phases.push({ id: `debugging-${i}`, title: `Phase X: Debugging${cycleTitleSuffix}`, status: 'pending', subtasks: [] });
+        phases.push({ id: `review-${i}`, title: `Phase X: Review Consolidation${cycleTitleSuffix}`, status: 'pending' });
+    }
+
+    phases.push({ id: 'final', title: `Phase X: Final Implementation`, status: 'pending' });
+
+    // Update titles with correct phase numbers
+    return phases.map((phase, index) => ({
+        ...phase,
+        title: phase.title.replace('Phase X', `Phase ${index + 1}/${phases.length}`),
+    }));
 };
 
 
@@ -176,6 +189,10 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
   const [totalTokens, setTotalTokens] = useState(0);
   const [advancedCoderState, setAdvancedCoderState] = useState<AdvancedCoderState | null>(null);
   const [indicatorState, setIndicatorState] = useState<IndicatorState>('loading');
+  
+  // State for the new mode settings panel
+  const [isModeSettingsPanelOpen, setIsModeSettingsPanelOpen] = useState(false);
+  const [modeSettingsPanelConfig, setModeSettingsPanelConfig] = useState<{ modeId: ModeId; anchorEl: HTMLElement } | null>(null);
 
   const abortControllerRef = useRef<AbortController | null>(null);
   const fileAttachInputRef = useRef<HTMLInputElement>(null);
@@ -183,7 +200,7 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
   const [selectedModel, setSelectedModel] = useSelectedModel();
   const [selectedMode, setSelectedMode] = useSelectedMode();
 
-  const { apiKey, isStreamingEnabled, isGoogleSearchEnabled, isContextTokenUnlocked, setIsSettingsModalOpen } = useSettings();
+  const { apiKey, isStreamingEnabled, isGoogleSearchEnabled, isContextTokenUnlocked, setIsSettingsModalOpen, simpleCoderSettings, advancedCoderSettings } = useSettings();
   const { showToast } = useToast();
 
   const { 
@@ -359,19 +376,19 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
       const onStatusUpdateForRetries = (message: string) => {
           setAdvancedCoderState(prev => (prev ? { ...prev, statusMessage: message } : null));
       };
+      
+      const allPhases = advancedCoderSettings.phaseCount;
+      const initialPhases = generateAdvancedCoderPhases(allPhases);
 
       if (isFirstRun) {
           setAdvancedCoderState(prev => updatePhase(prev, 'final', { status: 'running' }));
       } else {
+          // Rebuild a completed-looking state for retry
           const retryState: AdvancedCoderState = {
-              phases: [
-                  { id: 'planning', title: 'Phase 1/6: Planning', status: 'completed', subtasks: [] },
-                  { id: 'consolidation', title: 'Phase 2/6: Consolidation', status: 'completed' },
-                  { id: 'drafting', title: 'Phase 3/6: Drafting', status: 'completed' },
-                  { id: 'debugging', title: 'Phase 4/6: Debugging', status: 'completed', subtasks: [] },
-                  { id: 'review', title: 'Phase 5/6: Review Consolidation', status: 'completed' },
-                  { id: 'final', title: 'Phase 6/6: Final Implementation', status: 'running' },
-              ],
+              phases: initialPhases.map(p => ({
+                  ...p,
+                  status: p.id === 'final' ? 'running' : 'completed',
+              })),
               statusMessage: 'Retrying final phase...',
           };
           setAdvancedCoderState(retryState);
@@ -429,7 +446,7 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
               setChatHistory(prev => [...prev, toolResponseMessage]);
           }
       }
-  }, [apiKey, applyFunctionCalls, isContextTokenUnlocked, selectedMode]);
+  }, [apiKey, applyFunctionCalls, isContextTokenUnlocked, selectedMode, advancedCoderSettings.phaseCount]);
 
   const onSubmit = useCallback(async (currentPrompt: string) => {
     if (abortControllerRef.current) {
@@ -501,8 +518,10 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
             const onStatusUpdateForRetries = (message: string) => {
                 setAdvancedCoderState(prev => (prev ? { ...prev, statusMessage: message } : null));
             };
-
-            setAdvancedCoderState(initialAdvancedCoderState);
+            
+            const { phaseCount } = advancedCoderSettings;
+            const initialPhases = generateAdvancedCoderPhases(phaseCount);
+            setAdvancedCoderState({ phases: initialPhases, statusMessage: '' });
             
             try {
                 let baseHistory = [...historyForApi];
@@ -517,8 +536,7 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
                 setAdvancedCoderState(prev => updatePhase(prev, 'planning', { status: 'running' }));
                 const plannerSystemInstruction = advancedCoderMode.phases!.planning;
                 const planningHistoryForTokens = [...baseHistory];
-                // TODO: Replace this with a single countTotalTokens call for better accuracy
-                const plannerInputTokens = 0;
+                const plannerInputTokens = 0; // TODO: Replace
                 
                 const planningApiCalls = Array(3).fill(0).map(() =>
                     () => generateContentWithRetries(apiKey, 'gemini-flash-latest', planningHistoryForTokens, plannerSystemInstruction, undefined, controller.signal, onStatusUpdateForRetries, setIndicatorState)
@@ -552,76 +570,109 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
                 const masterPlan = consolidationResult.text;
                 setAdvancedCoderState(prev => updatePhase(prev, 'consolidation', { status: 'completed', output: masterPlan }));
                 
-                // Phase 3: Drafting
-                setAdvancedCoderState(prev => updatePhase(prev, 'drafting', { status: 'running' }));
-                const draftingSystemInstruction = advancedCoderMode.phases!.drafting;
-                const draftingHistory = [...baseHistory];
-                draftingHistory.push({ role: 'user', parts: [{ text: `Here is the master plan. Please generate the code draft.\n\n${masterPlan}` }] });
-
-                const draftingInputTokens = 0; // TODO: Replace
-                const draftingApiCall = [() => generateContentWithRetries(apiKey, 'gemini-2.5-pro', draftingHistory, draftingSystemInstruction, undefined, controller.signal, onStatusUpdateForRetries, setIndicatorState)];
-                const draftingResult = (await executeManagedBatchCall('gemini-2.5-pro', draftingInputTokens, controller.signal, draftingApiCall, onStatusUpdateForRetries, isContextTokenUnlocked))[0];
-                if (controller.signal.aborted) throw new DOMException('Cancelled by user', 'AbortError');
-                if (draftingResult instanceof Error) throw draftingResult;
-                const codeDraft = draftingResult.text;
-                setAdvancedCoderState(prev => updatePhase(prev, 'drafting', { status: 'completed', output: codeDraft }));
-
-
-                // Phase 4: Debugging
-                setAdvancedCoderState(prev => updatePhase(prev, 'debugging', { status: 'running' }));
-                const debuggerSystemInstruction = advancedCoderMode.phases!.debugging;
-                const debuggingHistory = [...baseHistory];
-                debuggingHistory.push({ role: 'user', parts: [{ text: `Master Plan:\n${masterPlan}\n\nCode Draft:\n${codeDraft}` }] });
-
-                const debuggingInputTokens = 0; // TODO: Replace
-                const debuggingApiCalls = Array(3).fill(0).map(() =>
-                    () => generateContentWithRetries(apiKey, 'gemini-flash-latest', debuggingHistory, debuggerSystemInstruction, [{ functionDeclarations: [NO_PROBLEM_DETECTED_TOOL] }], controller.signal, onStatusUpdateForRetries, setIndicatorState)
-                );
-                const debuggingResults = await executeManagedBatchCall('gemini-flash-latest', debuggingInputTokens, controller.signal, debuggingApiCalls, onStatusUpdateForRetries, isContextTokenUnlocked);
-                if (controller.signal.aborted) throw new DOMException('Cancelled by user', 'AbortError');
+                let currentCodeDraft = masterPlan; // Initial draft is the plan
+                let currentConsolidatedReview = '';
+                let earlyExit = false;
+                const numCycles = Math.floor((phaseCount - 2) / 3);
                 
-                const debuggingReports: string[] = [];
-                let noProblemCount = 0;
-                const debuggerSubtasks = debuggingResults.map((res, i) => {
-                    if (res instanceof Error) return { title: `Debugger ${i+1} Output`, content: `Error: ${res.message}` };
-                    const hasNoProblemCall = res.functionCalls?.some(fc => fc.name === 'noProblemDetected');
-                    if (hasNoProblemCall) {
-                        noProblemCount++;
-                        return { title: `Debugger ${i+1} Output`, content: 'No problems detected.' };
-                    }
-                    const reportText = res.text;
-                    if (reportText) debuggingReports.push(reportText);
-                    return { title: `Debugger ${i+1} Output`, content: reportText || 'No feedback provided.' };
-                });
-                setAdvancedCoderState(prev => updatePhase(prev, 'debugging', { status: 'completed', subtasks: debuggerSubtasks }));
+                // Iterative Drafting/Debugging/Review Cycles
+                for (let cycle = 1; cycle <= numCycles; cycle++) {
+                    // Phase 3: Drafting
+                    setAdvancedCoderState(prev => updatePhase(prev, `drafting-${cycle}`, { status: 'running' }));
+                    const draftingSystemInstruction = advancedCoderMode.phases!.drafting;
+                    const draftingHistory = [...baseHistory];
+                    const draftingUserMessage = cycle === 1
+                        ? `Here is the master plan. Please generate the code draft.\n\n${currentCodeDraft}`
+                        : `Here is the previous code draft and the consolidated review. Please generate an improved code draft.\n\nCode Draft:\n${currentCodeDraft}\n\nReview:\n${currentConsolidatedReview}`;
+                    draftingHistory.push({ role: 'user', parts: [{ text: draftingUserMessage }] });
 
-
-                const phase5Skipped = noProblemCount === 3;
-                let consolidatedReview = '';
-
-                // Phase 5: Review Consolidation
-                if (!phase5Skipped && debuggingReports.length > 0) {
-                    setAdvancedCoderState(prev => updatePhase(prev, 'review', { status: 'running' }));
-                    const reviewConsolidationSystemInstruction = advancedCoderMode.phases!.review;
-                    const reviewHistory = [...baseHistory];
-                    reviewHistory.push({ role: 'user', parts: [{ text: `Code Draft:\n${codeDraft}\n\nDebugging Reports:\n${debuggingReports.join('\n---\n')}` }] });
-
-                    const reviewInputTokens = 0; // TODO: Replace
-                    const reviewApiCall = [() => generateContentWithRetries(apiKey, 'gemini-flash-latest', reviewHistory, reviewConsolidationSystemInstruction, undefined, controller.signal, onStatusUpdateForRetries, setIndicatorState)];
-                    const reviewResult = (await executeManagedBatchCall('gemini-flash-latest', reviewInputTokens, controller.signal, reviewApiCall, onStatusUpdateForRetries, isContextTokenUnlocked))[0];
+                    const draftingInputTokens = 0; // TODO: Replace
+                    const draftingApiCall = [() => generateContentWithRetries(apiKey, 'gemini-2.5-pro', draftingHistory, draftingSystemInstruction, undefined, controller.signal, onStatusUpdateForRetries, setIndicatorState)];
+                    const draftingResult = (await executeManagedBatchCall('gemini-2.5-pro', draftingInputTokens, controller.signal, draftingApiCall, onStatusUpdateForRetries, isContextTokenUnlocked))[0];
                     if (controller.signal.aborted) throw new DOMException('Cancelled by user', 'AbortError');
-                    if (reviewResult instanceof Error) throw reviewResult;
-                    consolidatedReview = reviewResult.text;
-                    setAdvancedCoderState(prev => updatePhase(prev, 'review', { status: 'completed', output: consolidatedReview }));
-                } else {
-                     setAdvancedCoderState(prev => updatePhase(prev, 'review', { status: 'skipped' }));
+                    if (draftingResult instanceof Error) throw draftingResult;
+                    currentCodeDraft = draftingResult.text;
+                    setAdvancedCoderState(prev => updatePhase(prev, `drafting-${cycle}`, { status: 'completed', output: currentCodeDraft }));
+
+                    // Phase 4: Debugging
+                    setAdvancedCoderState(prev => updatePhase(prev, `debugging-${cycle}`, { status: 'running' }));
+                    const debuggerSystemInstruction = advancedCoderMode.phases!.debugging;
+                    const debuggingHistory = [...baseHistory];
+                    debuggingHistory.push({ role: 'user', parts: [{ text: `Master Plan:\n${masterPlan}\n\nCode Draft:\n${currentCodeDraft}` }] });
+
+                    const debuggingInputTokens = 0; // TODO: Replace
+                    const debuggingApiCalls = Array(3).fill(0).map(() =>
+                        () => generateContentWithRetries(apiKey, 'gemini-flash-latest', debuggingHistory, debuggerSystemInstruction, [{ functionDeclarations: [NO_PROBLEM_DETECTED_TOOL] }], controller.signal, onStatusUpdateForRetries, setIndicatorState)
+                    );
+                    const debuggingResults = await executeManagedBatchCall('gemini-flash-latest', debuggingInputTokens, controller.signal, debuggingApiCalls, onStatusUpdateForRetries, isContextTokenUnlocked);
+                    if (controller.signal.aborted) throw new DOMException('Cancelled by user', 'AbortError');
+                    
+                    const debuggingReports: string[] = [];
+                    let noProblemCount = 0;
+                    const debuggerSubtasks = debuggingResults.map((res, i) => {
+                        if (res instanceof Error) return { title: `Debugger ${i+1} Output`, content: `Error: ${res.message}` };
+                        const hasNoProblemCall = res.functionCalls?.some(fc => fc.name === 'noProblemDetected');
+                        if (hasNoProblemCall) {
+                            noProblemCount++;
+                            return { title: `Debugger ${i+1} Output`, content: 'No problems detected.' };
+                        }
+                        const reportText = res.text;
+                        if (reportText) debuggingReports.push(reportText);
+                        return { title: `Debugger ${i+1} Output`, content: reportText || 'No feedback provided.' };
+                    });
+                    setAdvancedCoderState(prev => updatePhase(prev, `debugging-${cycle}`, { status: 'completed', subtasks: debuggerSubtasks }));
+
+                    if (noProblemCount === 3) {
+                        earlyExit = true;
+                        setAdvancedCoderState(prev => updatePhase(prev, `review-${cycle}`, { status: 'skipped' }));
+                        break;
+                    }
+
+                    // Phase 5: Review Consolidation
+                    if (debuggingReports.length > 0) {
+                        setAdvancedCoderState(prev => updatePhase(prev, `review-${cycle}`, { status: 'running' }));
+                        const reviewConsolidationSystemInstruction = advancedCoderMode.phases!.review;
+                        const reviewHistory = [...baseHistory];
+                        reviewHistory.push({ role: 'user', parts: [{ text: `Code Draft:\n${currentCodeDraft}\n\nDebugging Reports:\n${debuggingReports.join('\n---\n')}` }] });
+
+                        const reviewInputTokens = 0; // TODO: Replace
+                        const reviewApiCall = [() => generateContentWithRetries(apiKey, 'gemini-flash-latest', reviewHistory, reviewConsolidationSystemInstruction, undefined, controller.signal, onStatusUpdateForRetries, setIndicatorState)];
+                        const reviewResult = (await executeManagedBatchCall('gemini-flash-latest', reviewInputTokens, controller.signal, reviewApiCall, onStatusUpdateForRetries, isContextTokenUnlocked))[0];
+                        if (controller.signal.aborted) throw new DOMException('Cancelled by user', 'AbortError');
+                        if (reviewResult instanceof Error) throw reviewResult;
+                        currentConsolidatedReview = reviewResult.text;
+                        setAdvancedCoderState(prev => updatePhase(prev, `review-${cycle}`, { status: 'completed', output: currentConsolidatedReview }));
+                    } else {
+                         setAdvancedCoderState(prev => updatePhase(prev, `review-${cycle}`, { status: 'skipped' }));
+                    }
                 }
+
+                // If we exited early, mark all subsequent cycles as skipped
+                if (earlyExit) {
+                    setAdvancedCoderState(prev => {
+                        if (!prev) return null;
+                        const newPhases = [...prev.phases];
+                        let foundRunning = false;
+                        for (let i = 0; i < newPhases.length; i++) {
+                            if (newPhases[i].status === 'running' || newPhases[i].status === 'pending') {
+                                if (foundRunning) { // Mark subsequent pending phases as skipped
+                                    if(newPhases[i].id.startsWith('drafting') || newPhases[i].id.startsWith('debugging') || newPhases[i].id.startsWith('review')) {
+                                      newPhases[i] = { ...newPhases[i], status: 'skipped' };
+                                    }
+                                }
+                                if (newPhases[i].status === 'running') foundRunning = true;
+                            }
+                        }
+                        return { ...prev, phases: newPhases };
+                    });
+                }
+
 
                 // Phase 6: Final Implementation
                 const advancedCoderContextForRetry: AdvancedCoderRunContext = {
                     baseHistory,
-                    codeDraft,
-                    consolidatedReview,
+                    codeDraft: currentCodeDraft,
+                    consolidatedReview: currentConsolidatedReview,
                 };
                 
                 await runFinalImplementationPhase(advancedCoderContextForRetry, controller, true);
@@ -646,8 +697,13 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
             if (projectFileContext) {
                  historyForApiWithContext.splice(historyForApiWithContext.length - 1, 0, { role: 'user', parts: [{ text: `${projectContextPreamble}\n\n${projectFileContext}`}] });
             }
+            
+            const personaKey = simpleCoderSettings.persona;
+            const personaInstruction = personaKey === 'custom'
+                ? simpleCoderSettings.customInstruction
+                : SIMPLE_CODER_PERSONAS[personaKey]?.instruction || SIMPLE_CODER_PERSONAS['default'].instruction;
 
-            const systemInstruction = MODES['simple-coder'].systemInstruction!;
+            const systemInstruction = `${personaInstruction}\n\n${FILE_SYSTEM_COMMAND_INSTRUCTIONS}`;
 
             const response = await generateContentWithRetries(apiKey, activeModel, historyForApiWithContext, systemInstruction, undefined, controller.signal, () => {}, setIndicatorState);
             if (controller.signal.aborted) throw new DOMException('Cancelled by user', 'AbortError');
@@ -785,7 +841,8 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
   }, [
     apiKey, chatHistory, selectedModel, selectedMode, isStreamingEnabled, isGoogleSearchEnabled, isContextTokenUnlocked,
     setIsSettingsModalOpen, getSerializableContext, applyFunctionCalls, attachedFiles,
-    clearProjectContext, setCreatingInFs, prompt, showToast, runFinalImplementationPhase
+    clearProjectContext, setCreatingInFs, prompt, showToast, runFinalImplementationPhase,
+    simpleCoderSettings, advancedCoderSettings
   ]);
 
   const onRetryLastAdvancedCoderPhase = useCallback(async () => {
@@ -842,6 +899,16 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
     }
 }, [chatHistory, runFinalImplementationPhase, selectedMode]);
 
+  const openModeSettingsPanel = useCallback((modeId: ModeId, anchorEl: HTMLElement) => {
+    setModeSettingsPanelConfig({ modeId, anchorEl });
+    setIsModeSettingsPanelOpen(true);
+  }, []);
+  
+  const closeModeSettingsPanel = useCallback(() => {
+    setIsModeSettingsPanelOpen(false);
+    setModeSettingsPanelConfig(null);
+  }, []);
+
   const contextValue: ChatContextType = {
     chatHistory,
     isLoading,
@@ -855,6 +922,10 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
     totalTokens,
     advancedCoderState,
     indicatorState,
+    isModeSettingsPanelOpen,
+    modeSettingsPanelConfig,
+    openModeSettingsPanel,
+    closeModeSettingsPanel,
     setAttachedFiles,
     setSelectedModel,
     onSubmit,

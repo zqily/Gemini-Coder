@@ -30,6 +30,7 @@ export {
   Search,
   Send,
   Settings,
+  SlidersHorizontal,
   Trash2,
   User,
   X,

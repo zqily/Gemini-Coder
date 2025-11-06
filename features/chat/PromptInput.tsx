@@ -1,5 +1,5 @@
 import React, { useState, useRef, useMemo, useEffect } from 'react';
-import { Plus, Send, X, File as FileIcon, LoaderCircle, ImageIcon } from '../../components/icons';
+import { Plus, Send, X, File as FileIcon, LoaderCircle, ImageIcon, SlidersHorizontal } from '../../components/icons';
 import type { AttachedFile, Mode, ModeId } from '../../types';
 import { useChat } from './ChatContext';
 import { useSettings } from '../settings/SettingsContext';
@@ -22,11 +22,13 @@ const PromptInput: React.FC = () => {
     onSubmit, isLoading, onStop, onFileAddClick,
     selectedMode, setSelectedMode, modes, chatHistory,
     attachedFiles, setAttachedFiles,
-    prompt, setPrompt, totalTokens, selectedModel
+    prompt, setPrompt, totalTokens, selectedModel,
+    openModeSettingsPanel
   } = useChat();
   const { apiKey, sendWithCtrlEnter, isContextTokenUnlocked } = useSettings();
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [hoveredMode, setHoveredMode] = useState<ModeId | null>(null);
 
   useEffect(() => {
     const textarea = textareaRef.current;
@@ -154,6 +156,13 @@ const PromptInput: React.FC = () => {
   const handleRemoveAttachedFile = (fileName: string) => {
     setAttachedFiles(prev => prev.filter(f => f.name !== fileName));
   };
+  
+  const handleModeRightClick = (e: React.MouseEvent, modeId: ModeId) => {
+    if (modeId === 'simple-coder' || modeId === 'advanced-coder') {
+        e.preventDefault();
+        openModeSettingsPanel(modeId, e.currentTarget as HTMLElement);
+    }
+  };
 
 
   return (
@@ -161,22 +170,35 @@ const PromptInput: React.FC = () => {
  
       <div className="px-4 pt-3 pb-2 flex items-center justify-between border-b border-gray-700/50">
         <div className="flex items-center gap-2">
-          {Object.values(modes).map((mode: Mode) => (
-            <button
-              key={mode.id}
-              type="button"
-              onClick={() => setSelectedMode(mode.id)}
-              className={`flex items-center gap-2 px-3 py-1.5 rounded-full transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 text-sm font-medium ${selectedMode === mode.id
-                ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20'
-                : 'bg-gray-700/50 text-gray-400 hover:bg-gray-700/80 hover:text-gray-200'
-                }`}
-              title={mode.name}
-              aria-label={mode.name}
-            >
-              {React.createElement(mode.icon, { size: 16, 'aria-hidden': true })}
-              {mode.name}
-            </button>
-          ))}
+          {Object.values(modes).map((mode: Mode) => {
+             const isSelected = selectedMode === mode.id;
+             const isHovered = hoveredMode === mode.id;
+             const showSettingsIcon = (isHovered || isSelected) && (mode.id === 'simple-coder' || mode.id === 'advanced-coder');
+
+             return (
+                 <button
+                    key={mode.id}
+                    type="button"
+                    onClick={() => setSelectedMode(mode.id)}
+                    onContextMenu={(e) => handleModeRightClick(e, mode.id)}
+                    onMouseEnter={() => setHoveredMode(mode.id)}
+                    onMouseLeave={() => setHoveredMode(null)}
+                    className={`flex items-center gap-2 pl-3 pr-2 py-1.5 rounded-full transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 text-sm font-medium relative ${
+                        isSelected
+                        ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20'
+                        : 'bg-gray-700/50 text-gray-400 hover:bg-gray-700/80 hover:text-gray-200'
+                    }`}
+                    title={`${mode.name}${mode.id !== 'default' ? ' (Right-click for settings)' : ''}`}
+                    aria-label={mode.name}
+                    >
+                    {React.createElement(mode.icon, { size: 16, 'aria-hidden': true })}
+                    {mode.name}
+                    <div className={`transition-all duration-200 overflow-hidden ${showSettingsIcon ? 'w-5 ml-1' : 'w-0'}`}>
+                        <SlidersHorizontal size={14} className="opacity-70" />
+                    </div>
+                </button>
+             )
+          })}
         </div>
         <div
           className="text-sm bg-gray-800/50 px-2 py-1 rounded-full z-10 transition-colors duration-200"

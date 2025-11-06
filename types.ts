@@ -20,6 +20,15 @@ export interface Mode {
   };
 }
 
+export interface SimpleCoderSettings {
+  persona: string; // key of SIMPLE_CODER_PERSONAS or 'custom'
+  customInstruction: string;
+}
+
+export interface AdvancedCoderSettings {
+  phaseCount: 3 | 6 | 9 | 12;
+}
+
 export interface TextPart {
   text: string;
 }
