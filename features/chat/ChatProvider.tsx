@@ -5,7 +5,7 @@ import { useSelectedMode } from './useSelectedMode';
 import { generateContentWithRetries, generateContentStreamWithRetries } from './services/geminiService';
 import { executeManagedBatchCall } from './services/rateLimitManager';
 import type { ChatMessage, AttachedFile, ChatPart, TextPart, AdvancedCoderState, GroundingChunk, IndicatorState, AdvancedCoderRunContext, ModeId, AdvancedCoderPhase } from '../../types';
-import { MODES, NO_PROBLEM_DETECTED_TOOL, FILE_SYSTEM_COMMAND_INSTRUCTIONS } from './config/modes';
+import { MODES, FILE_SYSTEM_COMMAND_INSTRUCTIONS } from './config/modes';
 import { SIMPLE_CODER_PERSONAS } from './config/personas';
 import { useSettings } from '../settings/SettingsContext';
 import { FunctionCall, GenerateContentResponse } from '@google/genai';
@@ -602,7 +602,7 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
 
                     const debuggingInputTokens = 0; // TODO: Replace
                     const debuggingApiCalls = Array(3).fill(0).map(() =>
-                        () => generateContentWithRetries(apiKey, 'gemini-flash-latest', debuggingHistory, debuggerSystemInstruction, [{ functionDeclarations: [NO_PROBLEM_DETECTED_TOOL] }], controller.signal, onStatusUpdateForRetries, setIndicatorState)
+                        () => generateContentWithRetries(apiKey, 'gemini-flash-latest', debuggingHistory, debuggerSystemInstruction, undefined, controller.signal, onStatusUpdateForRetries, setIndicatorState)
                     );
                     const debuggingResults = await executeManagedBatchCall('gemini-flash-latest', debuggingInputTokens, controller.signal, debuggingApiCalls, onStatusUpdateForRetries, isContextTokenUnlocked);
                     if (controller.signal.aborted) throw new DOMException('Cancelled by user', 'AbortError');
@@ -611,11 +611,14 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
                     let noProblemCount = 0;
                     const debuggerSubtasks = debuggingResults.map((res, i) => {
                         if (res instanceof Error) return { title: `Debugger ${i+1} Output`, content: `Error: ${res.message}` };
-                        const hasNoProblemCall = res.functionCalls?.some(fc => fc.name === 'noProblemDetected');
-                        if (hasNoProblemCall) {
+                        
+                        const hasNoProblemText = res.text?.trim().endsWith('NO PROBLEMS DETECTED');
+
+                        if (hasNoProblemText) {
                             noProblemCount++;
                             return { title: `Debugger ${i+1} Output`, content: 'No problems detected.' };
                         }
+
                         const reportText = res.text;
                         if (reportText) debuggingReports.push(reportText);
                         return { title: `Debugger ${i+1} Output`, content: reportText || 'No feedback provided.' };
