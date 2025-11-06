@@ -152,16 +152,14 @@ export const generateContentWithRetries = async (
 
       console.error(`API Error (status: ${statusCode}):`, error);
 
-      if (statusCode === 500) {
-        onStatusUpdate(`Error: A server error occurred. The input context may be too long. Please shorten your prompt or reduce the number of attached files.\n\nDetails: ${message}`);
-        throw error; // Abort instantly
-      }
-
-      if (statusCode === 503) {
+      if (statusCode === 500 || statusCode === 503) {
         const delay = Math.min(initialDelay503 + retries503 * increment503, maxDelay503);
         retries503++;
         onStateChange('delay');
-        onStatusUpdate(`Model is overloaded. Retrying in ${delay / 1000}s...`);
+        const userMessage = statusCode === 500
+          ? `A server error occurred. Retrying in ${delay / 1000}s...`
+          : `Model is overloaded. Retrying in ${delay / 1000}s...`;
+        onStatusUpdate(userMessage);
         await cancellableSleep(delay, signal);
         onStateChange('loading');
         onStatusUpdate('');
@@ -286,16 +284,14 @@ export const generateContentStreamWithRetries = async function* (
 
       console.error(`API Error (status: ${statusCode}):`, error);
 
-      if (statusCode === 500) {
-        onStatusUpdate(`Error: A server error occurred. The input context may be too long. Please shorten your prompt or reduce the number of attached files.\n\nDetails: ${message}`);
-        throw error;
-      }
-
-      if (statusCode === 503) {
+      if (statusCode === 500 || statusCode === 503) {
         const delay = Math.min(initialDelay503 + retries503 * increment503, maxDelay503);
         retries503++;
         onStateChange('delay');
-        onStatusUpdate(`Model is overloaded. Retrying in ${delay / 1000}s...`);
+        const userMessage = statusCode === 500
+            ? `A server error occurred. Retrying in ${delay / 1000}s...`
+            : `Model is overloaded. Retrying in ${delay / 1000}s...`;
+        onStatusUpdate(userMessage);
         await cancellableSleep(delay, signal);
         onStateChange('loading');
         onStatusUpdate('');
