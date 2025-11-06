@@ -18,211 +18,134 @@ interface ChatProviderProps {
   children: ReactNode;
 }
 
-interface CommandMatch {
-    commandLine: string;
-    command: string;
-    args: string[];
-    index: number;
-}
-
 /**
- * Parses the model's text response to extract a summary and file system commands.
- * This function processes commands sequentially to handle dependencies, such as a file
- * being moved and then written to.
+ * Parses the model's text response to extract a summary and file system commands from an XML block.
+ * This function uses a strict validation approach. If the XML is malformed or doesn't adhere
+ * to the schema, the entire response is treated as a summary, and no function calls are produced.
  * @param responseText The raw text from the model.
  * @returns An object with the user-facing summary and an array of FunctionCall objects.
  */
-const parseHybridResponse = (responseText: string): { summary: string; functionCalls: FunctionCall[] } => {
+const parseXmlResponse = (responseText: string): { summary: string; functionCalls: FunctionCall[] } => {
     if (!responseText) {
         return { summary: '', functionCalls: [] };
     }
 
-    const functionCalls: FunctionCall[] = [];
-    const moveMap = new Map<string, string>(); // Tracks source -> destination path remappings
+    const changesBlockRegex = /<changes>[\s\S]*?<\/changes>/;
+    const match = responseText.match(changesBlockRegex);
 
-    const commandRegex = /^(@@\w+)\s*(.*)/gm;
-    const matches: CommandMatch[] = [];
-    let match;
-
-    while ((match = commandRegex.exec(responseText)) !== null) {
-        const command = match[1];
-        const argsLine = match[2].trim();
-        matches.push({
-            commandLine: match[0],
-            command: command,
-            args: argsLine.split(/\s+/).filter(Boolean),
-            index: match.index
-        });
-    }
-
-    if (matches.length === 0) {
+    if (!match) {
+        // No <changes> block found, treat the whole response as a summary.
         return { summary: responseText, functionCalls: [] };
     }
 
-    let summary = responseText.substring(0, matches[0].index);
+    const xmlString = match[0];
+    const summary = responseText.substring(0, match.index).trim();
 
-    for (let i = 0; i < matches.length; i++) {
-        const currentMatch = matches[i];
-        const nextMatch = matches[i + 1];
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(xmlString, 'application/xml');
 
-        const contentStartIndex = currentMatch.index + currentMatch.commandLine.length;
-        const contentEndIndex = nextMatch ? nextMatch.index : responseText.length;
-        const contentBlock = responseText.substring(contentStartIndex, contentEndIndex);
+    // Check for parsing errors
+    const parserError = doc.querySelector('parsererror');
+    if (parserError) {
+        console.error('XML parsing error:', parserError.textContent);
+        // Fallback: treat the whole response as a summary if XML is malformed.
+        return { summary: responseText, functionCalls: [] };
+    }
 
-        switch (currentMatch.command) {
-            case '@@writeFile': {
-                const args = currentMatch.args;
-                let path = args[0];
-                const force = args.includes('-f') || args.includes('--force');
-                
+    const changeNodes = doc.querySelectorAll('changes > change');
+    const functionCalls: FunctionCall[] = [];
+
+    // --- Validation Phase ---
+    // Iterate through all change nodes first to validate them.
+    // If any node is invalid, we abort and return the whole response as text.
+    for (const changeNode of Array.from(changeNodes)) {
+        const functionNameElement = changeNode.querySelector('function');
+        const functionName = functionNameElement?.textContent?.trim();
+
+        if (!functionName) {
+            console.error('Validation Error: Missing <function> tag in a <change> block.');
+            return { summary: responseText, functionCalls: [] };
+        }
+
+        switch (functionName) {
+            case 'writeFile': {
+                const path = changeNode.querySelector('path')?.textContent;
+                const content = changeNode.querySelector('content')?.textContent; // CDATA is parsed as text content
+                if (!path || content === null || content === undefined) {
+                    console.error('Validation Error: writeFile requires <path> and <content> tags.');
+                    return { summary: responseText, functionCalls: [] };
+                }
+                break;
+            }
+            case 'createFolder': {
+                const path = changeNode.querySelector('path')?.textContent;
                 if (!path) {
-                    summary += `\n${currentMatch.commandLine}${contentBlock}`;
-                    continue;
+                    console.error('Validation Error: createFolder requires a <path> tag.');
+                    return { summary: responseText, functionCalls: [] };
                 }
-                
-                if (!force && moveMap.has(path)) {
-                    path = moveMap.get(path)!;
-                }
-
-                let fileContent = '';
-                let trailingSummary = '';
-
-                // Idea 3: Handle --- START/END --- blocks with nesting
-                const startSeparatorRegex = /^\s*--- START OF .*? ---\r?\n/i;
-                const endSeparatorRegex = /--- END OF .*? ---\r?\n?/i;
-                const startMatch = contentBlock.match(startSeparatorRegex);
-
-                if (startMatch) {
-                    const startIndexAfterHeader = contentBlock.indexOf(startMatch[0]) + startMatch[0].length;
-                    
-                    let openCount = 1;
-                    let searchOffset = startIndexAfterHeader;
-                    let contentEndIndex = -1;
-                    let endMatchLength = 0;
-
-                    while (openCount > 0 && searchOffset < contentBlock.length) {
-                        const remaining = contentBlock.substring(searchOffset);
-                        const nextStartResult = remaining.match(startSeparatorRegex);
-                        const nextEndResult = remaining.match(endSeparatorRegex);
-
-                        if (nextEndResult === null) {
-                            break; // No more closing tags, malformed.
-                        }
-                        
-                        const nextEndIndexInRemaining = nextEndResult.index!;
-                        
-                        if (nextStartResult !== null && nextStartResult.index! < nextEndIndexInRemaining) {
-                            openCount++;
-                            searchOffset += nextStartResult.index! + nextStartResult[0].length;
-                        } else {
-                            openCount--;
-                            if (openCount === 0) {
-                                contentEndIndex = searchOffset + nextEndIndexInRemaining;
-                                endMatchLength = nextEndResult[0].length;
-                                break;
-                            }
-                            searchOffset += nextEndIndexInRemaining + nextEndResult[0].length;
-                        }
-                    }
-
-                    if (contentEndIndex !== -1) {
-                        fileContent = contentBlock.substring(startIndexAfterHeader, contentEndIndex);
-                        let restOfBlock = contentBlock.substring(contentEndIndex + endMatchLength);
-                        
-                        // Idea 1: Check for optional @@endWriteFile
-                        const endWriteFileMatch = restOfBlock.match(/^\s*@@endWriteFile\b.*/m);
-                        if (endWriteFileMatch) {
-                            trailingSummary = restOfBlock.substring(endWriteFileMatch[0].length);
-                        } else {
-                            trailingSummary = restOfBlock;
-                        }
-                    } else {
-                        // Malformed START/END block, treat everything as content.
-                        fileContent = contentBlock;
-                        trailingSummary = '';
-                    }
-                } else {
-                    // Idea 1: No START/END block. Look for @@endWriteFile or code fence.
-                    const endWriteFileMatch = contentBlock.match(/@@endWriteFile\b.*/m);
-                    if (endWriteFileMatch) {
-                        const contentEnd = endWriteFileMatch.index!;
-                        fileContent = contentBlock.substring(0, contentEnd);
-                        trailingSummary = contentBlock.substring(endWriteFileMatch.index! + endWriteFileMatch[0].length);
-                    } else {
-                        // Fallback to old logic (markdown fence or treat whole block as content)
-                        const markdownFenceRegex = /^(\s*```[a-z]*\r?\n([\s\S]*?)\r?\n```)/;
-                        let regexMatch = contentBlock.match(markdownFenceRegex);
-                        if (regexMatch) {
-                            const matchedBlock = regexMatch[1];
-                            fileContent = regexMatch[2];
-                            trailingSummary = contentBlock.substring(matchedBlock.length);
-                        } else {
-                            fileContent = contentBlock;
-                            trailingSummary = '';
-                        }
-                    }
-                }
-
-                summary += trailingSummary;
-                functionCalls.push({ name: 'writeFile', args: { path: path.trim(), content: fileContent.trim() } });
                 break;
             }
-            case '@@moves': {
-                const [sourcePath, destinationPath] = currentMatch.args;
-                if (sourcePath && destinationPath) {
-                    functionCalls.push({ name: 'move', args: { sourcePath, destinationPath } });
-                    
-                    // Update the move map for subsequent commands
-                    moveMap.set(sourcePath, destinationPath);
-
-                    // Also update any existing mappings that point to the new source
-                    // e.g., A->B, then B->C. An old write to A should now point to C.
-                    for (const [key, value] of moveMap.entries()) {
-                        if (value === sourcePath) {
-                            moveMap.set(key, destinationPath);
-                        }
-                    }
-                } else {
-                     summary += `\n${currentMatch.commandLine}`;
+            case 'deletePath': {
+                const path = changeNode.querySelector('path')?.textContent;
+                if (!path) {
+                    console.error('Validation Error: deletePath requires a <path> tag.');
+                    return { summary: responseText, functionCalls: [] };
                 }
-                summary += contentBlock;
                 break;
             }
-            case '@@createFolder': {
-                const [path] = currentMatch.args;
-                if (path) {
-                    functionCalls.push({ name: 'createFolder', args: { path } });
-                } else {
-                    summary += `\n${currentMatch.commandLine}`;
+            case 'move': {
+                const source = changeNode.querySelector('source')?.textContent;
+                const destination = changeNode.querySelector('destination')?.textContent;
+                if (!source || !destination) {
+                    console.error('Validation Error: move requires <source> and <destination> tags.');
+                    return { summary: responseText, functionCalls: [] };
                 }
-                summary += contentBlock;
-                break;
-            }
-            case '@@deletePaths': {
-                const [path] = currentMatch.args;
-                if (path) {
-                    functionCalls.push({ name: 'deletePath', args: { path } });
-                } else {
-                    summary += `\n${currentMatch.commandLine}`;
-                }
-                summary += contentBlock;
-                break;
-            }
-            case '@@endWriteFile': {
-                // This command is handled by @@writeFile. If it appears here, its "content"
-                // (the text between it and the next command) is just part of the summary.
-                summary += contentBlock;
                 break;
             }
             default:
-                summary += `\n${currentMatch.commandLine}${contentBlock}`;
-                break;
+                console.error(`Validation Error: Unknown function name "${functionName}".`);
+                return { summary: responseText, functionCalls: [] };
         }
     }
 
-    summary = summary.trim().replace(/(\r?\n){3,}/g, '\n\n');
-    return { summary: summary.trim(), functionCalls };
+    // --- Generation Phase ---
+    // If validation passed, now we can safely generate the function calls.
+    for (const changeNode of Array.from(changeNodes)) {
+        const functionName = changeNode.querySelector('function')!.textContent!.trim();
+        
+        switch (functionName) {
+            case 'writeFile': {
+                const path = changeNode.querySelector('path')!.textContent!;
+                const content = changeNode.querySelector('content')!.textContent!;
+                functionCalls.push({ name: 'writeFile', args: { path: path.trim(), content } });
+                break;
+            }
+            case 'createFolder': {
+                const path = changeNode.querySelector('path')!.textContent!;
+                functionCalls.push({ name: 'createFolder', args: { path: path.trim() } });
+                break;
+            }
+            case 'deletePath': {
+                const path = changeNode.querySelector('path')!.textContent!;
+                functionCalls.push({ name: 'deletePath', args: { path: path.trim() } });
+                break;
+            }
+            case 'move': {
+                const source = changeNode.querySelector('source')!.textContent!;
+                const destination = changeNode.querySelector('destination')!.textContent!;
+                functionCalls.push({ name: 'move', args: { sourcePath: source.trim(), destinationPath: destination.trim() } });
+                break;
+            }
+        }
+    }
+    
+    // Check if there is any text content after the xml block.
+    const trailingSummary = responseText.substring(match.index + xmlString.length).trim();
+    const finalSummary = (summary + '\n' + trailingSummary).trim();
+    
+    return { summary: finalSummary, functionCalls };
 };
+
 
 const initialAdvancedCoderState: AdvancedCoderState = {
   phases: [
@@ -473,7 +396,7 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
           return finalState;
       });
       
-      const { summary: summaryText, functionCalls } = parseHybridResponse(response.text);
+      const { summary: summaryText, functionCalls } = parseXmlResponse(response.text);
 
       if (!summaryText && functionCalls.length === 0) {
           setChatHistory(prev => prev.slice(0, -1));
@@ -729,7 +652,7 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
             const response = await generateContentWithRetries(apiKey, activeModel, historyForApiWithContext, systemInstruction, undefined, controller.signal, () => {}, setIndicatorState);
             if (controller.signal.aborted) throw new DOMException('Cancelled by user', 'AbortError');
 
-            const { summary: summaryText, functionCalls } = parseHybridResponse(response.text);
+            const { summary: summaryText, functionCalls } = parseXmlResponse(response.text);
 
             if (!summaryText && functionCalls.length === 0) {
                 setChatHistory(prev => prev.slice(0, -1));

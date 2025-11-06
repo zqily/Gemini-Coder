@@ -2,65 +2,82 @@ import type { Mode, ModeId } from '../../../types';
 import { Bot, CodeXml, BrainCircuit } from '../../../components/icons';
 import { FunctionDeclaration, Type } from '@google/genai';
 
-const FILE_SYSTEM_COMMAND_INSTRUCTIONS = `You have access to a virtual file system. Use the following commands sequentially to modify it. Any other text is treated as a summary for the user.
+const FILE_SYSTEM_COMMAND_INSTRUCTIONS = `You have access to a virtual file system. To modify it, you MUST respond with a valid XML block. Any other text you provide will be treated as a summary for the user.
 
 **IMPORTANT RULES:**
+- Your response MUST contain a single \`<changes>\` block.
+- All file operations must be within this block.
+- Operations are executed sequentially.
 - You **must always** write the full, complete content of a file from start to finish.
 - **NEVER** use diff formats, provide partial code snippets, or use placeholders like \`// ... rest of the file\`.
+- All file content within a \`<content>\` tag MUST be wrapped in \`<![CDATA[...]]>\` to handle special characters correctly.
+- If the XML is malformed or invalid, NONE of the operations will be performed.
 
-**Commands:**
-- \`@@writeFile path/to/file [-f | --force]\`: Writes or overwrites a file. The file content must follow on the next lines.
-- \`@@endWriteFile path/to/file\`: (Optional) Marks the end of a file's content block.
-- \`@@createFolder path/to/folder\`: Creates a new folder, including any necessary parent folders.
-- \`@@moves source destination\`: Moves or renames a file or folder.
-- \`@@deletePaths path/to/delete\`: Deletes a file or an entire folder recursively.
+**XML Schema:**
+<changes>
+  <change>
+    <function>[function_name]</function>
+    <!-- Arguments for the function -->
+  </change>
+  ...
+</changes>
 
-**Usage Examples:**
+**Functions & Arguments:**
 
-*Example 1: Creating a new React component and its stylesheet.*
-@@createFolder src/components
-@@writeFile src/components/Button.jsx
---- START OF src/components/Button.jsx ---
-import React from 'react';
+1.  **writeFile**
+    -   Description: Writes or overwrites a file. Parent directories will be created if they don't exist.
+    -   Tags:
+        -   \`<function>writeFile</function>\`
+        -   \`<path>[full/path/to/file]</path>\`
+        -   \`<content><![CDATA[[file_content]]]></content>\`
+
+2.  **createFolder**
+    -   Description: Creates a new folder, including any necessary parent folders.
+    -   Tags:
+        -   \`<function>createFolder</function>\`
+        -   \`<path>[full/path/to/folder]</path>\`
+
+3.  **move**
+    -   Description: Moves or renames a file or folder.
+    -   Tags:
+        -   \`<function>move</function>\`
+        -   \`<source>[source/path]</source>\`
+        -   \`<destination>[destination/path]</destination>\`
+
+4.  **deletePath**
+    -   Description: Deletes a file or an entire folder recursively.
+    -   Tags:
+        -   \`<function>deletePath</function>\`
+        -   \`<path>[path/to/delete]</path>\`
+
+
+**Usage Example:**
+
+Okay, I will create a new React component and its stylesheet.
+<changes>
+  <change>
+    <function>createFolder</function>
+    <path>src/components</path>
+  </change>
+  <change>
+    <function>writeFile</function>
+    <path>src/components/Button.jsx</path>
+    <content><![CDATA[import React from 'react';
 import './Button.module.css';
+
 const Button = () => <button className="button">Click Me</button>;
-export default Button;
---- END OF src/components/Button.jsx ---
-@@endWriteFile src/components/Button.jsx
-@@writeFile src/components/Button.module.css
---- START OF src/components/Button.module.css ---
-.button {
+
+export default Button;]]></content>
+  </change>
+  <change>
+    <function>writeFile</function>
+    <path>src/components/Button.module.css</path>
+    <content><![CDATA[.button {
   background-color: blue;
   color: white;
-}
---- END OF src/components/Button.module.css ---
-@@endWriteFile src/components/Button.module.css
-
-*Example 2: Refactoring by moving a file and deleting an old directory.*
-@@createFolder src/utils
-@@moves src/lib/helper.js src/utils/helper.js
-@@deletePaths src/lib
-@@writeFile src/main.js
---- START OF src/main.js ---
-import { helper } from './utils/helper.js';
-
-helper();
-console.log('Main file updated.');
---- END OF src/main.js ---
-@@endWriteFile src/main.js
-
-*Example 3: Complex move operation and the --force flag.*
-(Note: The virtual file system is stateful. After a \`@@moves\` command, subsequent writes to the original path are automatically redirected. The \`--force\` flag overrides this redirection to create a new file at the original path.)
-@@createFolder data
-@@moves config.json data/config.json
-@@writeFile data/config.json
---- START OF data/config.json ---
-{ "setting": "new-value" }
---- END OF data/config.json ---
-@@endWriteFile data/config.json
-@@writeFile config.json --force
-{ "setting": "old-value-recreated" }
-@@endWriteFile config.json`;
+}]]></content>
+  </change>
+</changes>`;
 
 export const MODES: Record<ModeId, Mode> = {
   'default': {
