@@ -50,8 +50,12 @@ export const FILE_SYSTEM_COMMAND_INSTRUCTIONS = `You have access to a virtual fi
         -   \`<path>[path/to/delete]</path>\`
 
 
-**Usage Example:**
+**Usage Examples:**
 
+--- Example 1: Creating new files ---
+Request: "Create a new React component called Button with its own CSS module."
+
+Expected Response:
 Okay, I will create a new React component and its stylesheet.
 <changes>
   <change>
@@ -75,6 +79,60 @@ export default Button;]]></content>
   background-color: blue;
   color: white;
 }]]></content>
+  </change>
+</changes>
+
+--- Example 2: Modifying an existing file ---
+Request: "Change the button color to red in \`Button.module.css\`."
+
+Expected Response:
+Okay, I've updated the button color to red.
+<changes>
+  <change>
+    <function>writeFile</function>
+    <path>src/components/Button.module.css</path>
+    <content><![CDATA[.button {
+  background-color: red;
+  color: white;
+}]]></content>
+  </change>
+</changes>
+
+--- Example 3: Renaming and moving files ---
+Request: "Refactor the Button component into its own folder. Rename \`Button.jsx\` to \`index.jsx\` and \`Button.module.css\` to \`styles.module.css\` inside a new \`src/components/Button\` directory."
+
+Expected Response:
+I've refactored the Button component as requested.
+<changes>
+  <change>
+    <function>createFolder</function>
+    <path>src/components/Button</path>
+  </change>
+  <change>
+    <function>move</function>
+    <source>src/components/Button.jsx</source>
+    <destination>src/components/Button/index.jsx</destination>
+  </change>
+  <change>
+    <function>move</function>
+    <source>src/components/Button.module.css</source>
+    <destination>src/components/Button/styles.module.css</destination>
+  </change>
+</changes>
+
+--- Example 4: Deleting files and folders ---
+Request: "Remove the old \`utils/legacy.js\` file and the entire \`assets/icons\` directory."
+
+Expected Response:
+I have removed the specified legacy file and icon directory.
+<changes>
+  <change>
+    <function>deletePath</function>
+    <path>utils/legacy.js</path>
+  </change>
+  <change>
+    <function>deletePath</function>
+    <path>assets/icons</path>
   </change>
 </changes>`;
 
