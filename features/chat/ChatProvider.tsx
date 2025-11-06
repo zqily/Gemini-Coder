@@ -190,9 +190,9 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
   const [advancedCoderState, setAdvancedCoderState] = useState<AdvancedCoderState | null>(null);
   const [indicatorState, setIndicatorState] = useState<IndicatorState>('loading');
   
-  // State for the new mode settings panel
-  const [isModeSettingsPanelOpen, setIsModeSettingsPanelOpen] = useState(false);
-  const [modeSettingsPanelConfig, setModeSettingsPanelConfig] = useState<{ modeId: ModeId; anchorEl: HTMLElement } | null>(null);
+  // State for the new mode settings modal
+  const [isModeSettingsModalOpen, setIsModeSettingsModalOpen] = useState(false);
+  const [modeSettingsModalConfig, setModeSettingsModalConfig] = useState<{ modeId: ModeId } | null>(null);
 
   const abortControllerRef = useRef<AbortController | null>(null);
   const fileAttachInputRef = useRef<HTMLInputElement>(null);
@@ -899,14 +899,14 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
     }
 }, [chatHistory, runFinalImplementationPhase, selectedMode]);
 
-  const openModeSettingsPanel = useCallback((modeId: ModeId, anchorEl: HTMLElement) => {
-    setModeSettingsPanelConfig({ modeId, anchorEl });
-    setIsModeSettingsPanelOpen(true);
+  const openModeSettingsModal = useCallback((modeId: ModeId) => {
+    setModeSettingsModalConfig({ modeId });
+    setIsModeSettingsModalOpen(true);
   }, []);
   
-  const closeModeSettingsPanel = useCallback(() => {
-    setIsModeSettingsPanelOpen(false);
-    setModeSettingsPanelConfig(null);
+  const closeModeSettingsModal = useCallback(() => {
+    setIsModeSettingsModalOpen(false);
+    setModeSettingsModalConfig(null);
   }, []);
 
   const contextValue: ChatContextType = {
@@ -922,10 +922,10 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
     totalTokens,
     advancedCoderState,
     indicatorState,
-    isModeSettingsPanelOpen,
-    modeSettingsPanelConfig,
-    openModeSettingsPanel,
-    closeModeSettingsPanel,
+    isModeSettingsModalOpen,
+    modeSettingsModalConfig,
+    openModeSettingsModal,
+    closeModeSettingsModal,
     setAttachedFiles,
     setSelectedModel,
     onSubmit,

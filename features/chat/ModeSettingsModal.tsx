@@ -1,12 +1,12 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useChat } from './ChatContext';
 import { useSettings } from '../settings/SettingsContext';
 import { SIMPLE_CODER_PERSONAS } from './config/personas';
-import { X, User } from '../../components/icons';
+import { X, User, Save } from '../../components/icons';
 import type { SimpleCoderSettings, AdvancedCoderSettings } from '../../types';
 
-const ModeSettingsPanel: React.FC = () => {
-  const { isModeSettingsPanelOpen, modeSettingsPanelConfig, closeModeSettingsPanel } = useChat();
+const ModeSettingsModal: React.FC = () => {
+  const { isModeSettingsModalOpen, modeSettingsModalConfig, closeModeSettingsModal, modes } = useChat();
   const {
     simpleCoderSettings,
     setSimpleCoderSettings,
@@ -16,41 +16,42 @@ const ModeSettingsPanel: React.FC = () => {
   
   const [localSimpleSettings, setLocalSimpleSettings] = useState<SimpleCoderSettings>(simpleCoderSettings);
   const [localAdvancedSettings, setLocalAdvancedSettings] = useState<AdvancedCoderSettings>(advancedCoderSettings);
-  
-  const panelRef = useRef<HTMLDivElement>(null);
+  const [isClosing, setIsClosing] = useState(false);
   
   useEffect(() => {
-    if (isModeSettingsPanelOpen) {
+    if (isModeSettingsModalOpen) {
       setLocalSimpleSettings(simpleCoderSettings);
       setLocalAdvancedSettings(advancedCoderSettings);
     }
-  }, [isModeSettingsPanelOpen, simpleCoderSettings, advancedCoderSettings]);
+  }, [isModeSettingsModalOpen, simpleCoderSettings, advancedCoderSettings]);
   
+  const handleClose = useCallback(() => {
+    setIsClosing(true);
+    setTimeout(() => {
+      closeModeSettingsModal();
+      setIsClosing(false); // Reset for next open
+    }, 200); // Animation duration
+  }, [closeModeSettingsModal]);
+
+  // ESC key listener
   useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (panelRef.current && !panelRef.current.contains(event.target as Node)) {
-        closeModeSettingsPanel();
-      }
-    };
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        closeModeSettingsPanel();
+        handleClose();
       }
     };
 
-    if (isModeSettingsPanelOpen) {
-      document.addEventListener('mousedown', handleClickOutside);
+    if (isModeSettingsModalOpen) {
       window.addEventListener('keydown', handleKeyDown);
     }
     return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [isModeSettingsPanelOpen, closeModeSettingsPanel]);
+  }, [isModeSettingsModalOpen, handleClose]);
 
-  if (!isModeSettingsPanelOpen || !modeSettingsPanelConfig) return null;
+  if (!isModeSettingsModalOpen || !modeSettingsModalConfig) return null;
 
-  const { anchorEl, modeId } = modeSettingsPanelConfig;
+  const { modeId } = modeSettingsModalConfig;
   
   const isDirty = modeId === 'simple-coder'
     ? (localSimpleSettings.persona !== simpleCoderSettings.persona || localSimpleSettings.customInstruction !== simpleCoderSettings.customInstruction)
@@ -62,13 +63,9 @@ const ModeSettingsPanel: React.FC = () => {
     } else if (modeId === 'advanced-coder') {
       setAdvancedCoderSettings(localAdvancedSettings);
     }
-    closeModeSettingsPanel();
+    handleClose();
   };
   
-  const rect = anchorEl.getBoundingClientRect();
-  const bottom = window.innerHeight - rect.top + 8;
-  const left = rect.left;
-
   const renderSimpleCoderSettings = () => {
     const selectedPersona = localSimpleSettings.persona;
     const instructionText = selectedPersona === 'custom' 
@@ -108,7 +105,7 @@ const ModeSettingsPanel: React.FC = () => {
           />
         </div>
       </div>
-    )
+    );
   };
   
   const advancedCoderOptions: { count: AdvancedCoderSettings['phaseCount'], title: string, description: string }[] = [
@@ -143,44 +140,52 @@ const ModeSettingsPanel: React.FC = () => {
     </div>
   );
 
+  const modeDetails = modes[modeId];
+  const Icon = modeDetails.icon;
+
   return (
-    <div
-      ref={panelRef}
-      className="fixed z-50 bg-[#2c2d2f] rounded-xl shadow-2xl w-96 border border-gray-700/50 animate-fade-in-up-short"
-      style={{ bottom: `${bottom}px`, left: `${left}px` }}
+    <div 
+      className={`fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4 ${isClosing ? 'animate-fade-out' : 'animate-fade-in'}`} 
+      onClick={handleClose}
     >
-      <div className="popover-tail" style={{'--popover-bg': '#2c2d2f', '--popover-border': '#4a556880'} as React.CSSProperties} />
-      <header className="flex items-center justify-between p-4 border-b border-gray-700/50">
-        <h3 className="text-lg font-bold text-white">
-            {modeId === 'simple-coder' ? 'Simple Coder Settings' : 'Advanced Coder Settings'}
-        </h3>
-        <button onClick={closeModeSettingsPanel} className="p-1 rounded-full hover:bg-gray-700 transition-colors" aria-label="Close settings">
-          <X size={18} />
-        </button>
-      </header>
+      <div 
+        className={`bg-[#2c2d2f] w-full max-w-lg max-h-[90vh] rounded-xl shadow-2xl flex flex-col border border-gray-700/50 ${isClosing ? 'animate-fade-out-scale' : 'animate-fade-in-scale'}`}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <header className="flex items-center justify-between p-4 border-b border-gray-700/50 flex-shrink-0">
+          <h2 className="flex items-center gap-3 text-xl font-bold text-white">
+            {React.createElement(Icon, { size: 24, className: modeId === 'advanced-coder' ? 'text-purple-400' : 'text-blue-400' })}
+            {modeDetails.name} Settings
+          </h2>
+          <button onClick={handleClose} className="p-2 rounded-full hover:bg-gray-700 transition-colors" aria-label="Close settings">
+            <X size={20} />
+          </button>
+        </header>
+
+        <main className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar">
+          {modeId === 'simple-coder' && renderSimpleCoderSettings()}
+          {modeId === 'advanced-coder' && renderAdvancedCoderSettings()}
+        </main>
       
-      <main className="p-4 max-h-[50vh] overflow-y-auto custom-scrollbar">
-        {modeId === 'simple-coder' && renderSimpleCoderSettings()}
-        {modeId === 'advanced-coder' && renderAdvancedCoderSettings()}
-      </main>
-      
-      <footer className="p-3 flex justify-end gap-2 bg-gray-900/20 border-t border-gray-700/50 rounded-b-xl">
-        <button
-          onClick={closeModeSettingsPanel}
-          className="px-4 py-2 text-sm font-semibold text-gray-300 bg-gray-700/50 hover:bg-gray-700 rounded-md transition-colors"
-        >
-          Cancel
-        </button>
-        <button
-          onClick={handleSave}
-          disabled={!isDirty}
-          className="px-4 py-2 text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          Save Changes
-        </button>
-      </footer>
+        <footer className="p-4 flex justify-end gap-2 bg-gray-900/20 border-t border-gray-700/50 rounded-b-xl flex-shrink-0">
+          <button
+            onClick={handleClose}
+            className="px-4 py-2 text-sm font-semibold text-gray-300 bg-gray-700/50 hover:bg-gray-700 rounded-md transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={!isDirty}
+            className="px-4 py-2 text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <Save size={16} className="inline-block mr-1" />
+            Save Changes
+          </button>
+        </footer>
+      </div>
     </div>
   );
 };
 
-export default ModeSettingsPanel;
+export default ModeSettingsModal;

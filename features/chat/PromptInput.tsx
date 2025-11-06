@@ -23,7 +23,7 @@ const PromptInput: React.FC = () => {
     selectedMode, setSelectedMode, modes, chatHistory,
     attachedFiles, setAttachedFiles,
     prompt, setPrompt, totalTokens, selectedModel,
-    openModeSettingsPanel
+    openModeSettingsModal
   } = useChat();
   const { apiKey, sendWithCtrlEnter, isContextTokenUnlocked } = useSettings();
 
@@ -160,7 +160,7 @@ const PromptInput: React.FC = () => {
   const handleModeRightClick = (e: React.MouseEvent, modeId: ModeId) => {
     if (modeId === 'simple-coder' || modeId === 'advanced-coder') {
         e.preventDefault();
-        openModeSettingsPanel(modeId, e.currentTarget as HTMLElement);
+        openModeSettingsModal(modeId);
     }
   };
 

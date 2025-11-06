@@ -7,11 +7,11 @@ import FileSystemProvider from './features/file-system/FileSystemProvider';
 import ChatProvider from './features/chat/ChatProvider';
 import { useChat } from './features/chat/ChatContext';
 import { useFileSystem } from './features/file-system/FileSystemContext';
-import { ImageIcon } from './components/Icons';
+import { ImageIcon } from './components/icons';
 import FileSearchModal from './features/file-system/FileSearchModal';
 import { useSettings } from './features/settings/SettingsContext';
 import { ToastProvider } from './features/toast/ToastProvider';
-import ModeSettingsPanel from './features/chat/ModeSettingsPanel';
+import ModeSettingsModal from './features/chat/ModeSettingsModal';
 
 
 // Custom hook to detect window size
@@ -132,7 +132,7 @@ const AppContent: React.FC = () => {
         isOpen={isSearchModalOpen}
         onClose={() => setIsSearchModalOpen(false)}
       />
-      <ModeSettingsPanel />
+      <ModeSettingsModal />
     </div>
   );
 };

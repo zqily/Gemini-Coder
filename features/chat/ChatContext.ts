@@ -15,10 +15,10 @@ export interface ChatContextType {
   advancedCoderState: AdvancedCoderState | null;
   indicatorState: IndicatorState;
 
-  isModeSettingsPanelOpen: boolean;
-  modeSettingsPanelConfig: { modeId: ModeId; anchorEl: HTMLElement } | null;
-  openModeSettingsPanel: (modeId: ModeId, anchorEl: HTMLElement) => void;
-  closeModeSettingsPanel: () => void;
+  isModeSettingsModalOpen: boolean;
+  modeSettingsModalConfig: { modeId: ModeId } | null;
+  openModeSettingsModal: (modeId: ModeId) => void;
+  closeModeSettingsModal: () => void;
 
   setAttachedFiles: React.Dispatch<React.SetStateAction<AttachedFile[]>>;
   setSelectedModel: (model: string) => void;
