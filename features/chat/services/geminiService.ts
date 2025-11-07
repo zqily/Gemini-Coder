@@ -29,7 +29,6 @@ export const cancellableSleep = (ms: number, signal: AbortSignal): Promise<void>
  * @param apiKey - The user's Google AI API key.
  * @param modelName - The name of the model to use.
  * @param history - The full conversation history.
- * @param systemInstruction - Optional system instruction.
  * @param tools - Optional function calling tools.
  * @param additionalConfig - Optional additional configuration for the request, like responseSchema.
  * @returns A promise that resolves to the generation response.
@@ -38,7 +37,6 @@ export const generateContent = async (
   apiKey: string,
   modelName: string,
   history: ChatMessage[],
-  systemInstruction?: string,
   tools?: any,
   additionalConfig?: object
 ): Promise<GenerateContentResponse> => {
@@ -47,8 +45,7 @@ export const generateContent = async (
   }
   const ai = new GoogleGenAI({ apiKey });
 
-  const config: { systemInstruction?: string, tools?: any, thinkingConfig?: object, [key: string]: any } = { ...additionalConfig };
-  if (systemInstruction) config.systemInstruction = systemInstruction;
+  const config: { tools?: any, thinkingConfig?: object, [key: string]: any } = { ...additionalConfig };
   if (tools) config.tools = tools;
 
   // Add thinking budget based on model
@@ -75,7 +72,6 @@ export const generateContent = async (
  * @param apiKey - The user's Google AI API key.
  * @param modelName - The name of the model to use.
  * @param history - The full conversation history.
- * @param systemInstruction - Optional system instruction.
  * @param tools - Optional function calling tools.
  * @param signal - An AbortSignal to cancel the request.
  * @param onStatusUpdate - A callback to update the UI with status messages (e.g., "Retrying...").
@@ -87,7 +83,6 @@ export const generateContentWithRetries = async (
   apiKey: string,
   modelName: string,
   history: ChatMessage[],
-  systemInstruction: string | undefined,
   tools: any | undefined,
   signal: AbortSignal,
   onStatusUpdate: (message: string) => void,
@@ -109,7 +104,7 @@ export const generateContentWithRetries = async (
     }
 
     try {
-      const response = await generateContent(apiKey, modelName, history, systemInstruction, tools, additionalConfig);
+      const response = await generateContent(apiKey, modelName, history, tools, additionalConfig);
       if (signal.aborted) throw new DOMException("Cancelled by user", "AbortError");
       return response; // Success, return response object and exit loop
     } catch (error: any) {
@@ -196,7 +191,6 @@ export const generateContentWithRetries = async (
  * @param apiKey The user's Google AI API key.
  * @param modelName The name of the model to use.
  * @param history The full conversation history.
- * @param systemInstruction Optional system instruction.
  * @param signal An AbortSignal to cancel the request.
  * @param onStatusUpdate A callback to update the UI with status messages.
  * @param onStateChange - A callback to update the UI with the indicator's visual state.
@@ -207,7 +201,6 @@ export const generateContentStreamWithRetries = async function* (
   apiKey: string,
   modelName: string,
   history: ChatMessage[],
-  systemInstruction: string | undefined,
   signal: AbortSignal,
   onStatusUpdate: (message: string) => void,
   onStateChange: (state: IndicatorState) => void,
@@ -217,9 +210,8 @@ export const generateContentStreamWithRetries = async function* (
     throw new Error("API Key is missing. Please add it in settings.");
   }
   const ai = new GoogleGenAI({ apiKey });
-  const config: { systemInstruction?: string, thinkingConfig?: object, [key: string]: any } = { ...additionalConfig };
-  if (systemInstruction) config.systemInstruction = systemInstruction;
-
+  const config: { thinkingConfig?: object, [key: string]: any } = { ...additionalConfig };
+  
   // Add thinking budget based on model
   if (modelName === 'gemini-2.5-pro') {
     config.thinkingConfig = { thinkingBudget: 32768 };

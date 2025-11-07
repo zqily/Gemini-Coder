@@ -48,9 +48,9 @@ export const FILE_SYSTEM_COMMAND_INSTRUCTIONS = `You have access to a virtual fi
     -   Tags:
         -   \`<function>deletePath</function>\`
         -   \`<path>[path/to/delete]</path>\`
+`;
 
-
-**Usage Examples:**
+export const FILE_SYSTEM_COMMAND_EXAMPLES = `**Usage Examples:**
 
 --- Example 1: Creating new files ---
 Request: "Create a new React component called Button with its own CSS module."
@@ -141,32 +141,15 @@ export const MODES: Record<ModeId, Mode> = {
     id: 'default',
     name: 'Default',
     icon: Bot,
-    systemInstruction: `You are a helpful assistant. If the user provides project files as context, you can read them to answer questions and provide suggestions, but you cannot modify them. When asked to write code, provide it directly in your response using markdown code blocks.`,
   },
   'simple-coder': {
     id: 'simple-coder',
     name: 'Simple Coder',
     icon: CodeXml,
-    // System instruction is now built dynamically in ChatProvider based on persona
   },
   'advanced-coder': {
     id: 'advanced-coder',
     name: 'Advanced Coder',
     icon: BrainCircuit,
-    phases: {
-      planning: `You are a Senior Software Architect. Your task is to create a high-level plan to address the user's request. Do NOT write any code. Focus on the overall strategy, file structure, and key components.`,
-      consolidation: `You are a Principal Engineer. Your task is to synthesize multiple high-level plans from your team of architects into a single, cohesive, and highly detailed master plan. The final plan should be actionable for a skilled developer. Do not reference the previous planning phase or the planners themselves; present this as your own unified plan.`,
-      drafting: `You are a Staff Engineer. Your task is to generate a complete code implementation based on the master plan and any previous review feedback.
-Your response MUST be in the XML format for file system operations. Write the full content for every file you create or modify. Do not use diffs or placeholders.
-If the request is to modify existing code based on a review, only output the \`<change>\` blocks for the files that need to be changed.
-
-${FILE_SYSTEM_COMMAND_INSTRUCTIONS}`,
-      debugging: `You are a meticulous Code Reviewer. Review the provided code for critical errors, bugs, incomplete implementation, or violations of best practices. If the code is acceptable, simply reply with the exact phrase "NO PROBLEMS DETECTED". If you find issues, just provide your feedback without this phrase. Do not reference the "Master Plan" or the source of the reasoning.`,
-      review: `You are a Tech Lead. Consolidate the following debugging feedback into a single, concise list of required changes for future implementation. Do not reference the debuggers or the source of the comments.`,
-      final: `You are a file system operations generator. Your sole purpose is to generate a user-facing summary and all necessary file system operations based on the provided context.
-Ensure your response is complete and contains all necessary file operations.
-
-${FILE_SYSTEM_COMMAND_INSTRUCTIONS}`,
-    }
   }
 };

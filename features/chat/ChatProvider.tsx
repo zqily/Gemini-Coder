@@ -5,7 +5,7 @@ import { useSelectedMode } from './useSelectedMode';
 import { generateContentWithRetries, generateContentStreamWithRetries } from './services/geminiService';
 import { executeManagedBatchCall } from './services/rateLimitManager';
 import type { ChatMessage, AttachedFile, ChatPart, TextPart, AdvancedCoderState, GroundingChunk, IndicatorState, AdvancedCoderRunContext, ModeId, AdvancedCoderPhase, ProjectContext } from '../../types';
-import { MODES, FILE_SYSTEM_COMMAND_INSTRUCTIONS } from './config/modes';
+import { MODES, FILE_SYSTEM_COMMAND_INSTRUCTIONS, FILE_SYSTEM_COMMAND_EXAMPLES } from './config/modes';
 import { SIMPLE_CODER_PERSONAS } from './config/personas';
 import { useSettings } from '../settings/SettingsContext';
 import { FunctionCall, GenerateContentResponse } from '@google/genai';
@@ -205,6 +205,21 @@ const applyFunctionCallsToTempContext = (
     }
     return tempContext;
 };
+
+// --- Instructions moved from modes.ts for dynamic construction ---
+const ADVANCED_CODER_PHASES_INSTRUCTIONS = {
+      planning: `You are a Senior Software Architect. Your task is to create a high-level plan to address the user's request. Do NOT write any code. Focus on the overall strategy, file structure, and key components.`,
+      consolidation: `You are a Principal Engineer. Your task is to synthesize multiple high-level plans from your team of architects into a single, cohesive, and highly detailed master plan. The final plan should be actionable for a skilled developer. Do not reference the previous planning phase or the planners themselves; present this as your own unified plan.`,
+      drafting: `You are a Staff Engineer. Your task is to generate a complete code implementation based on the master plan and any previous review feedback.
+Your response MUST be in the XML format for file system operations. Write the full content for every file you create or modify. Do not use diffs or placeholders.
+If the request is to modify existing code based on a review, only output the \`<change>\` blocks for the files that need to be changed.`,
+      debugging: `You are a meticulous Code Reviewer. Review the provided code for critical errors, bugs, incomplete implementation, or violations of best practices. If the code is acceptable, simply reply with the exact phrase "NO PROBLEMS DETECTED". If you find issues, just provide your feedback without this phrase. Do not reference the "Master Plan" or the source of the reasoning.`,
+      review: `You are a Tech Lead. Consolidate the following debugging feedback into a single, concise list of required changes for future implementation. Do not reference the debuggers or the source of the comments.`,
+      final: `You are a file system operations generator. Your sole purpose is to generate a user-facing summary and all necessary file system operations based on the provided context.
+Ensure your response is complete and contains all necessary file operations.`,
+};
+
+const DEFAULT_MODE_INSTRUCTION = `You are a helpful assistant. If the user provides project files as context, you can read them to answer questions and provide suggestions, but you cannot modify them. When asked to write code, provide it directly in your response using markdown code blocks.`;
 
 
 const ChatProvider: React.FC<ChatProviderProps> = ({
@@ -460,6 +475,14 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
     const projectContextPreamble = `The user has provided a project context. This includes a list of all folders, and a list of all files with their full paths and content. All paths are relative to the project root. Use this information to understand the project structure and answer the user's request. When performing file operations, you MUST use the exact paths provided.`;
     const projectContextPreambleForDefault = `The user has provided a project context. This includes a list of all folders, and a list of all files with their full paths and content. All paths are relative to the project root. Use this information to understand the project structure and answer the user's request. Do not mention this context message in your response unless the user asks about it.`;
 
+    const buildInstructionMessage = (instruction: string): ChatMessage[] => {
+        if (!instruction.trim()) return [];
+        return [
+            { role: 'user', parts: [{ text: instruction }] },
+            { role: 'model', parts: [{ text: 'Understood. I am ready.' }] },
+        ];
+    };
+
     try {
         if (selectedMode === 'advanced-coder') {
             const onStatusUpdateForRetries = (message: string) => {
@@ -473,11 +496,7 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
             try {
                 let baseHistory = [...historyForApi];
                 const projectFileContext = getProjectContextStringLocal();
-                if (projectFileContext) {
-                    baseHistory.splice(baseHistory.length - 1, 0, { role: 'user', parts: [{ text: `${projectContextPreamble}\n\n${projectFileContext}` }] });
-                }
                 
-                const advancedCoderMode = MODES['advanced-coder'];
                 const initialProjectContext: ProjectContext = projectContext ? 
                     { files: new Map(projectContext.files), dirs: new Set(projectContext.dirs) } : 
                     EMPTY_CONTEXT;
@@ -486,12 +505,16 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
 
                 // Phase 1: Planning
                 setAdvancedCoderState(prev => updatePhase(prev, 'planning', { status: 'running' }));
-                const plannerSystemInstruction = advancedCoderMode.phases!.planning;
-                const planningHistoryForTokens = [...baseHistory];
+                let planningInstructions = ADVANCED_CODER_PHASES_INSTRUCTIONS.planning;
+                if(projectFileContext) {
+                    planningInstructions = `${projectContextPreamble}\n\n${projectFileContext}\n\n${planningInstructions}`;
+                }
+                const planningHistory = [...buildInstructionMessage(planningInstructions), ...baseHistory];
+
                 const plannerInputTokens = 0; // TODO: Replace
                 
                 const planningApiCalls = Array(3).fill(0).map(() =>
-                    () => generateContentWithRetries(apiKey, 'gemini-flash-latest', planningHistoryForTokens, plannerSystemInstruction, undefined, controller.signal, onStatusUpdateForRetries, setIndicatorState)
+                    () => generateContentWithRetries(apiKey, 'gemini-flash-latest', planningHistory, undefined, controller.signal, onStatusUpdateForRetries, setIndicatorState)
                 );
 
                 const planningResults = await executeManagedBatchCall('gemini-flash-latest', plannerInputTokens, controller.signal, planningApiCalls, onStatusUpdateForRetries, isContextTokenUnlocked);
@@ -508,13 +531,17 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
 
                 // Phase 2: Consolidation
                 setAdvancedCoderState(prev => updatePhase(prev, 'consolidation', { status: 'running' }));
-                const consolidationSystemInstruction = advancedCoderMode.phases!.consolidation;
-                const consolidationHistory = [...baseHistory];
+                let consolidationInstructions = ADVANCED_CODER_PHASES_INSTRUCTIONS.consolidation;
+                 if(projectFileContext) {
+                    consolidationInstructions = `${projectContextPreamble}\n\n${projectFileContext}\n\n${consolidationInstructions}`;
+                }
+                const consolidationHistoryBase = [...buildInstructionMessage(consolidationInstructions), ...baseHistory];
+                const consolidationHistory = [...consolidationHistoryBase];
                 const successfulPlanContents = successfulPlans.filter(p => !p.content.startsWith('Error:')).map(p => p.content);
                 consolidationHistory.push({ role: 'user', parts: [{ text: `Here are the plans from the architects:\n\n${successfulPlanContents.map((p, i) => `--- PLAN ${i+1} ---\n${p}`).join('\n\n')}` }] });
 
                 const consolidationInputTokens = 0; // TODO: Replace
-                const consolidationApiCall = [() => generateContentWithRetries(apiKey, 'gemini-2.5-pro', consolidationHistory, consolidationSystemInstruction, undefined, controller.signal, onStatusUpdateForRetries, setIndicatorState)];
+                const consolidationApiCall = [() => generateContentWithRetries(apiKey, 'gemini-2.5-pro', consolidationHistory, undefined, controller.signal, onStatusUpdateForRetries, setIndicatorState)];
                 
                 const consolidationResult = (await executeManagedBatchCall('gemini-2.5-pro', consolidationInputTokens, controller.signal, consolidationApiCall, onStatusUpdateForRetries, isContextTokenUnlocked))[0];
                 if (controller.signal.aborted) throw new DOMException('Cancelled by user', 'AbortError');
@@ -531,15 +558,20 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
                 for (let cycle = 1; cycle <= numCycles; cycle++) {
                     // Phase 3: Drafting
                     setAdvancedCoderState(prev => updatePhase(prev, `drafting-${cycle}`, { status: 'running' }));
-                    const draftingSystemInstruction = advancedCoderMode.phases!.drafting;
-                    const draftingHistory = [...baseHistory];
+                    let draftingInstructions = `${ADVANCED_CODER_PHASES_INSTRUCTIONS.drafting}\n\n${FILE_SYSTEM_COMMAND_INSTRUCTIONS}\n\nHere are examples:\n${FILE_SYSTEM_COMMAND_EXAMPLES}`;
+                    if(projectFileContext) {
+                        draftingInstructions = `${projectContextPreamble}\n\n${projectFileContext}\n\n${draftingInstructions}`;
+                    }
+                    const draftingHistoryBase = [...buildInstructionMessage(draftingInstructions), ...baseHistory];
+                    const draftingHistory = [...draftingHistoryBase];
+
                     const draftingUserMessage = cycle === 1
                         ? `Here is the master plan. Please generate the code implementation.\n\n${currentCodeDraft}`
                         : `Here is the previous code draft and the consolidated review. Please generate an improved implementation.\n\nCode Draft:\n${currentCodeDraft}\n\nReview:\n${currentConsolidatedReview}`;
                     draftingHistory.push({ role: 'user', parts: [{ text: draftingUserMessage }] });
 
                     const draftingInputTokens = 0; // TODO: Replace
-                    const draftingApiCall = [() => generateContentWithRetries(apiKey, 'gemini-2.5-pro', draftingHistory, draftingSystemInstruction, undefined, controller.signal, onStatusUpdateForRetries, setIndicatorState)];
+                    const draftingApiCall = [() => generateContentWithRetries(apiKey, 'gemini-2.5-pro', draftingHistory, undefined, controller.signal, onStatusUpdateForRetries, setIndicatorState)];
                     const draftingResult = (await executeManagedBatchCall('gemini-2.5-pro', draftingInputTokens, controller.signal, draftingApiCall, onStatusUpdateForRetries, isContextTokenUnlocked))[0];
                     if (controller.signal.aborted) throw new DOMException('Cancelled by user', 'AbortError');
                     if (draftingResult instanceof Error) throw draftingResult;
@@ -561,13 +593,17 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
 
                     // Phase 4: Debugging
                     setAdvancedCoderState(prev => updatePhase(prev, `debugging-${cycle}`, { status: 'running' }));
-                    const debuggerSystemInstruction = advancedCoderMode.phases!.debugging;
-                    const debuggingHistory = [...baseHistory];
+                    let debuggingInstructions = ADVANCED_CODER_PHASES_INSTRUCTIONS.debugging;
+                    if(projectFileContext) {
+                        debuggingInstructions = `${projectContextPreamble}\n\n${projectFileContext}\n\n${debuggingInstructions}`;
+                    }
+                    const debuggingHistoryBase = [...buildInstructionMessage(debuggingInstructions), ...baseHistory];
+                    const debuggingHistory = [...debuggingHistoryBase];
                     debuggingHistory.push({ role: 'user', parts: [{ text: `Master Plan:\n${masterPlan}\n\nCode Draft:\n${currentCodeDraft}` }] });
 
                     const debuggingInputTokens = 0; // TODO: Replace
                     const debuggingApiCalls = Array(3).fill(0).map(() =>
-                        () => generateContentWithRetries(apiKey, 'gemini-flash-latest', debuggingHistory, debuggerSystemInstruction, undefined, controller.signal, onStatusUpdateForRetries, setIndicatorState)
+                        () => generateContentWithRetries(apiKey, 'gemini-flash-latest', debuggingHistory, undefined, controller.signal, onStatusUpdateForRetries, setIndicatorState)
                     );
                     const debuggingResults = await executeManagedBatchCall('gemini-flash-latest', debuggingInputTokens, controller.signal, debuggingApiCalls, onStatusUpdateForRetries, isContextTokenUnlocked);
                     if (controller.signal.aborted) throw new DOMException('Cancelled by user', 'AbortError');
@@ -599,12 +635,16 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
                     // Phase 5: Review Consolidation
                     if (debuggingReports.length > 0) {
                         setAdvancedCoderState(prev => updatePhase(prev, `review-${cycle}`, { status: 'running' }));
-                        const reviewConsolidationSystemInstruction = advancedCoderMode.phases!.review;
-                        const reviewHistory = [...baseHistory];
+                        let reviewInstructions = ADVANCED_CODER_PHASES_INSTRUCTIONS.review;
+                        if(projectFileContext) {
+                           reviewInstructions = `${projectContextPreamble}\n\n${projectFileContext}\n\n${reviewInstructions}`;
+                        }
+                        const reviewHistoryBase = [...buildInstructionMessage(reviewInstructions), ...baseHistory];
+                        const reviewHistory = [...reviewHistoryBase];
                         reviewHistory.push({ role: 'user', parts: [{ text: `Code Draft:\n${currentCodeDraft}\n\nDebugging Reports:\n${debuggingReports.join('\n---\n')}` }] });
 
                         const reviewInputTokens = 0; // TODO: Replace
-                        const reviewApiCall = [() => generateContentWithRetries(apiKey, 'gemini-flash-latest', reviewHistory, reviewConsolidationSystemInstruction, undefined, controller.signal, onStatusUpdateForRetries, setIndicatorState)];
+                        const reviewApiCall = [() => generateContentWithRetries(apiKey, 'gemini-flash-latest', reviewHistory, undefined, controller.signal, onStatusUpdateForRetries, setIndicatorState)];
                         const reviewResult = (await executeManagedBatchCall('gemini-flash-latest', reviewInputTokens, controller.signal, reviewApiCall, onStatusUpdateForRetries, isContextTokenUnlocked))[0];
                         if (controller.signal.aborted) throw new DOMException('Cancelled by user', 'AbortError');
                         if (reviewResult instanceof Error) throw reviewResult;
@@ -637,13 +677,18 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
 
                 // Final Implementation Phase
                 setAdvancedCoderState(prev => updatePhase(prev, 'final', { status: 'running' }));
-                const finalSystemInstruction = advancedCoderMode.phases!.final;
-                const finalHistory = [...baseHistory];
+                let finalInstructions = `${ADVANCED_CODER_PHASES_INSTRUCTIONS.final}\n\n${FILE_SYSTEM_COMMAND_INSTRUCTIONS}\n\nHere are examples:\n${FILE_SYSTEM_COMMAND_EXAMPLES}`;
+                if(projectFileContext) {
+                    finalInstructions = `${projectContextPreamble}\n\n${projectFileContext}\n\n${finalInstructions}`;
+                }
+                const finalHistoryBase = [...buildInstructionMessage(finalInstructions), ...baseHistory];
+                const finalHistory = [...finalHistoryBase];
+
                 const finalUserContent = `Here is the context for the final implementation. Generate the file system operations.\n\nCode Draft:\n${currentCodeDraft}\n\n${currentConsolidatedReview ? `Consolidated Review:\n${currentConsolidatedReview}` : 'No issues were found in the draft.'}`;
                 finalHistory.push({ role: 'user', parts: [{ text: finalUserContent }] });
                 
                 const finalInputTokens = 0; // TODO: Replace
-                const finalApiCall = [() => generateContentWithRetries(apiKey, 'gemini-2.5-pro', finalHistory, finalSystemInstruction, undefined, controller.signal, onStatusUpdateForRetries, setIndicatorState)];
+                const finalApiCall = [() => generateContentWithRetries(apiKey, 'gemini-2.5-pro', finalHistory, undefined, controller.signal, onStatusUpdateForRetries, setIndicatorState)];
                 const response = (await executeManagedBatchCall('gemini-2.5-pro', finalInputTokens, controller.signal, finalApiCall, onStatusUpdateForRetries, isContextTokenUnlocked))[0];
                 
                 if (controller.signal.aborted) throw new DOMException('Cancelled by user', 'AbortError');
@@ -714,10 +759,10 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
             }
 
         } else if (selectedMode === 'simple-coder') {
-            let historyForApiWithContext = [...historyForApi];
+            let instructions = '';
             const projectFileContext = getProjectContextStringLocal();
             if (projectFileContext) {
-                 historyForApiWithContext.splice(historyForApiWithContext.length - 1, 0, { role: 'user', parts: [{ text: `${projectContextPreamble}\n\n${projectFileContext}`}] });
+                 instructions += `${projectContextPreamble}\n\n${projectFileContext}\n\n`;
             }
             
             const personaKey = simpleCoderSettings.persona;
@@ -725,9 +770,16 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
                 ? simpleCoderSettings.customInstruction
                 : SIMPLE_CODER_PERSONAS[personaKey]?.instruction || SIMPLE_CODER_PERSONAS['default'].instruction;
 
-            const systemInstruction = `${personaInstruction}\n\n${FILE_SYSTEM_COMMAND_INSTRUCTIONS}`;
+            instructions += `${personaInstruction}\n\n`;
+            instructions += `${FILE_SYSTEM_COMMAND_INSTRUCTIONS}\n\n`;
+            instructions += `Here are examples:\n\n${FILE_SYSTEM_COMMAND_EXAMPLES}`;
 
-            const response = await generateContentWithRetries(apiKey, activeModel, historyForApiWithContext, systemInstruction, undefined, controller.signal, () => {}, setIndicatorState);
+            const historyForApiWithSystem = [
+                ...buildInstructionMessage(instructions),
+                ...historyForApi
+            ];
+
+            const response = await generateContentWithRetries(apiKey, activeModel, historyForApiWithSystem, undefined, controller.signal, () => {}, setIndicatorState);
             if (controller.signal.aborted) throw new DOMException('Cancelled by user', 'AbortError');
 
             const { summary: summaryText, functionCalls } = parseXmlResponse(response.text);
@@ -759,7 +811,6 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
             }
 
         } else {
-            let historyForApiWithContext = [...historyForApi];
             const shouldUseStreaming = isStreamingEnabled && selectedMode === 'default' && !isGoogleSearchEnabled;
             
             const onStatusUpdate = (message: string) => {
@@ -773,16 +824,20 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
                 });
             };
 
+            let instructions = '';
             const projectFileContext = getProjectContextStringLocal();
             if (projectFileContext) {
-                 historyForApiWithContext.splice(historyForApiWithContext.length - 1, 0, { role: 'user', parts: [{ text: `${projectContextPreambleForDefault}\n\n${projectFileContext}`}] });
+                 instructions += `${projectContextPreambleForDefault}\n\n${projectFileContext}\n\n`;
             }
+            instructions += DEFAULT_MODE_INSTRUCTION;
 
-            const mode = MODES[selectedMode];
-            const systemInstruction = mode.systemInstruction;
+            const historyForApiWithSystem = [
+                ...buildInstructionMessage(instructions),
+                ...historyForApi
+            ];
 
             if (shouldUseStreaming) {
-                const stream = generateContentStreamWithRetries( apiKey, activeModel, historyForApiWithContext, systemInstruction, controller.signal, onStatusUpdate, setIndicatorState );
+                const stream = generateContentStreamWithRetries( apiKey, activeModel, historyForApiWithSystem, controller.signal, onStatusUpdate, setIndicatorState );
                 let fullResponseText = '';
                 for await (const chunk of stream) {
                     if (controller.signal.aborted) break;
@@ -803,7 +858,7 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
                 if (!fullResponseText.trim()) setChatHistory(prev => prev.slice(0, -1));
             } else {
                 const toolsForApi = isGoogleSearchEnabled ? [{ googleSearch: {} }] : undefined;
-                const response = await generateContentWithRetries( apiKey, activeModel, historyForApiWithContext, systemInstruction, toolsForApi, controller.signal, onStatusUpdate, setIndicatorState );
+                const response = await generateContentWithRetries( apiKey, activeModel, historyForApiWithSystem, toolsForApi, controller.signal, onStatusUpdate, setIndicatorState );
                 if (controller.signal.aborted) throw new DOMException('Cancelled by user', 'AbortError');
                 const modelResponseText = response.text;
                 const groundingChunks: GroundingChunk[] | undefined = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
@@ -895,6 +950,14 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
     const onStatusUpdateForRetries = (message: string) => {
         setAdvancedCoderState(prev => (prev ? { ...prev, statusMessage: message } : null));
     };
+    
+    const buildInstructionMessage = (instruction: string): ChatMessage[] => {
+        if (!instruction.trim()) return [];
+        return [
+            { role: 'user', parts: [{ text: instruction }] },
+            { role: 'model', parts: [{ text: 'Understood. I am ready.' }] },
+        ];
+    };
 
     try {
         const { baseHistory, codeDraft, consolidatedReview, accumulatedFunctionCalls } = lastModelMessage.advancedCoderContext;
@@ -910,13 +973,20 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
         };
         setAdvancedCoderState(retryState);
         
-        const advancedCoderMode = MODES['advanced-coder'];
-        const finalSystemInstruction = advancedCoderMode.phases!.final;
-        const finalHistory = [...baseHistory];
+        const projectFileContext = getSerializableContext();
+        const projectContextPreamble = `The user has provided a project context. This includes a list of all folders, and a list of all files with their full paths and content. All paths are relative to the project root. Use this information to understand the project structure and answer the user's request. When performing file operations, you MUST use the exact paths provided.`;
+
+        let finalInstructions = `${ADVANCED_CODER_PHASES_INSTRUCTIONS.final}\n\n${FILE_SYSTEM_COMMAND_INSTRUCTIONS}\n\nHere are examples:\n${FILE_SYSTEM_COMMAND_EXAMPLES}`;
+        if(projectFileContext) {
+            finalInstructions = `${projectContextPreamble}\n\n${projectFileContext}\n\n${finalInstructions}`;
+        }
+        const finalHistoryBase = [...buildInstructionMessage(finalInstructions), ...baseHistory];
+        const finalHistory = [...finalHistoryBase];
+
         const finalUserContent = `Here is the context for the final implementation. Generate the file system operations.\n\nCode Draft:\n${codeDraft}\n\n${consolidatedReview ? `Consolidated Review:\n${consolidatedReview}` : 'No issues were found in the draft.'}`;
         finalHistory.push({ role: 'user', parts: [{ text: finalUserContent }] });
         
-        const finalApiCall = [() => generateContentWithRetries(apiKey, 'gemini-2.5-pro', finalHistory, finalSystemInstruction, undefined, controller.signal, onStatusUpdateForRetries, setIndicatorState)];
+        const finalApiCall = [() => generateContentWithRetries(apiKey, 'gemini-2.5-pro', finalHistory, undefined, controller.signal, onStatusUpdateForRetries, setIndicatorState)];
         const response = (await executeManagedBatchCall('gemini-2.5-pro', 0, controller.signal, finalApiCall, onStatusUpdateForRetries, isContextTokenUnlocked))[0];
         
         if (controller.signal.aborted) throw new DOMException('Cancelled by user', 'AbortError');
@@ -980,7 +1050,7 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
         }
         setIndicatorState('loading');
     }
-}, [chatHistory, selectedMode, apiKey, isContextTokenUnlocked, applyFunctionCalls, advancedCoderSettings.phaseCount]);
+}, [chatHistory, selectedMode, apiKey, isContextTokenUnlocked, applyFunctionCalls, advancedCoderSettings.phaseCount, getSerializableContext]);
 
   const openModeSettingsModal = useCallback((modeId: ModeId) => {
     setModeSettingsModalConfig({ modeId });
