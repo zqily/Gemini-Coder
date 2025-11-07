@@ -4,7 +4,7 @@ import { useSelectedModel } from './useSelectedModel';
 import { useSelectedMode } from './useSelectedMode';
 import { generateContentWithRetries, generateContentStreamWithRetries } from './services/geminiService';
 import { executeManagedBatchCall } from './services/rateLimitManager';
-import type { ChatMessage, AttachedFile, ChatPart, TextPart, AdvancedCoderState, GroundingChunk, IndicatorState, AdvancedCoderRunContext, ModeId, AdvancedCoderPhase } from '../../types';
+import type { ChatMessage, AttachedFile, ChatPart, TextPart, AdvancedCoderState, GroundingChunk, IndicatorState, AdvancedCoderRunContext, ModeId, AdvancedCoderPhase, ProjectContext } from '../../types';
 import { MODES, FILE_SYSTEM_COMMAND_INSTRUCTIONS } from './config/modes';
 import { SIMPLE_CODER_PERSONAS } from './config/personas';
 import { useSettings } from '../settings/SettingsContext';
@@ -13,6 +13,9 @@ import { ALL_ACCEPTED_MIME_TYPES, CONVERTIBLE_TO_TEXT_MIME_TYPES, fileToDataURL 
 import { useFileSystem } from '../file-system/FileSystemContext';
 import { countTotalTokens } from './utils/tokenCounter';
 import { useToast } from '../toast/ToastContext';
+import { serializeProjectContext } from '../file-system/utils/fileSystem';
+import { executeFunctionCall } from '../file-system/utils/functionCalling';
+import { EMPTY_CONTEXT } from '../file-system/FileSystemContext';
 
 
 interface ChatProviderProps {
@@ -176,6 +179,31 @@ const generateAdvancedCoderPhases = (count: 3 | 6 | 9 | 12): AdvancedCoderPhase[
         ...phase,
         title: phase.title.replace('Phase X', `Phase ${index + 1}/${phases.length}`),
     }));
+};
+
+/**
+ * A pure function that applies an array of function calls to a given ProjectContext.
+ * Used for creating temporary "staged" contexts for multi-step generation.
+ * @param calls The function calls to apply.
+ * @param initialContext The starting ProjectContext.
+ * @returns The new ProjectContext after applying the calls.
+ */
+const applyFunctionCallsToTempContext = (
+    calls: FunctionCall[],
+    initialContext: ProjectContext,
+): ProjectContext => {
+    let tempContext = { files: new Map(initialContext.files), dirs: new Set(initialContext.dirs) };
+    // We don't care about deleted items for this temporary application,
+    // as it's just for generating the next prompt.
+    let tempDeleted = EMPTY_CONTEXT; 
+
+    for (const fc of calls) {
+        // executeFunctionCall is pure and returns new contexts
+        const { newContext, newDeleted } = executeFunctionCall(fc, tempContext, tempDeleted);
+        tempContext = newContext;
+        tempDeleted = newDeleted;
+    }
+    return tempContext;
 };
 
 
@@ -366,87 +394,6 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
     }
     event.target.value = '';
   };
-    
-  const runFinalImplementationPhase = useCallback(async (
-    context: AdvancedCoderRunContext,
-    controller: AbortController,
-    isFirstRun: boolean
-  ) => {
-      const { baseHistory, codeDraft, consolidatedReview } = context;
-      const onStatusUpdateForRetries = (message: string) => {
-          setAdvancedCoderState(prev => (prev ? { ...prev, statusMessage: message } : null));
-      };
-      
-      const allPhases = advancedCoderSettings.phaseCount;
-      const initialPhases = generateAdvancedCoderPhases(allPhases);
-
-      if (isFirstRun) {
-          setAdvancedCoderState(prev => updatePhase(prev, 'final', { status: 'running' }));
-      } else {
-          // Rebuild a completed-looking state for retry
-          const retryState: AdvancedCoderState = {
-              phases: initialPhases.map(p => ({
-                  ...p,
-                  status: p.id === 'final' ? 'running' : 'completed',
-              })),
-              statusMessage: 'Retrying final phase...',
-          };
-          setAdvancedCoderState(retryState);
-      }
-
-      const finalSystemInstruction = MODES['advanced-coder'].phases!.final;
-
-      const finalHistory = [...baseHistory];
-      const finalUserContent = `Here is the context for the final implementation. Generate the file system operations.\n\nCode Draft:\n${codeDraft}\n\n${consolidatedReview ? `Consolidated Review:\n${consolidatedReview}` : 'No issues were found in the draft.'}`;
-      finalHistory.push({ role: 'user', parts: [{ text: finalUserContent }] });
-      
-      const finalInputTokens = 0; // TODO: Replace
-      const finalApiCall = [() => generateContentWithRetries(apiKey, 'gemini-2.5-pro', finalHistory, finalSystemInstruction, undefined, controller.signal, onStatusUpdateForRetries, setIndicatorState)];
-      const response = (await executeManagedBatchCall('gemini-2.5-pro', finalInputTokens, controller.signal, finalApiCall, onStatusUpdateForRetries, isContextTokenUnlocked))[0];
-      
-      if (controller.signal.aborted) throw new DOMException('Cancelled by user', 'AbortError');
-      if (response instanceof Error) throw response;
-      
-      let finalState: AdvancedCoderState | null = null;
-      setAdvancedCoderState(prev => {
-          finalState = updatePhase(prev, 'final', { status: 'completed', output: response.text });
-          return finalState;
-      });
-      
-      const { summary: summaryText, functionCalls } = parseXmlResponse(response.text);
-
-      if (!summaryText && functionCalls.length === 0) {
-          setChatHistory(prev => prev.slice(0, -1));
-      } else {
-          const modelTurnParts: ChatPart[] = [];
-          if (summaryText) modelTurnParts.push({ text: summaryText });
-          functionCalls.forEach(fc => modelTurnParts.push({ functionCall: fc }));
-
-          const modelTurnWithMessage: ChatMessage = {
-              role: 'model',
-              parts: modelTurnParts,
-              mode: selectedMode,
-              advancedCoderContext: context,
-              advancedCoderState: finalState,
-          };
-
-          setChatHistory(prev => {
-              const newHistory = [...prev];
-              newHistory[newHistory.length - 1] = modelTurnWithMessage;
-              return newHistory;
-          });
-
-          if (functionCalls.length > 0) {
-              if (controller.signal.aborted) throw new DOMException('Cancelled by user', 'AbortError');
-              const functionResponses: ChatPart[] = await applyFunctionCalls(functionCalls);
-
-              if (controller.signal.aborted) throw new DOMException('Cancelled by user', 'AbortError');
-
-              const toolResponseMessage: ChatMessage = { role: 'tool', parts: functionResponses };
-              setChatHistory(prev => [...prev, toolResponseMessage]);
-          }
-      }
-  }, [apiKey, applyFunctionCalls, isContextTokenUnlocked, selectedMode, advancedCoderSettings.phaseCount]);
 
   const onSubmit = useCallback(async (currentPrompt: string) => {
     if (abortControllerRef.current) {
@@ -531,6 +478,11 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
                 }
                 
                 const advancedCoderMode = MODES['advanced-coder'];
+                const initialProjectContext: ProjectContext = projectContext ? 
+                    { files: new Map(projectContext.files), dirs: new Set(projectContext.dirs) } : 
+                    EMPTY_CONTEXT;
+                let accumulatedFunctionCalls: FunctionCall[] = [];
+
 
                 // Phase 1: Planning
                 setAdvancedCoderState(prev => updatePhase(prev, 'planning', { status: 'running' }));
@@ -570,7 +522,7 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
                 const masterPlan = consolidationResult.text;
                 setAdvancedCoderState(prev => updatePhase(prev, 'consolidation', { status: 'completed', output: masterPlan }));
                 
-                let currentCodeDraft = masterPlan; // Initial draft is the plan
+                let currentCodeDraft = masterPlan; // Initial draft is the plan, in text form
                 let currentConsolidatedReview = '';
                 let earlyExit = false;
                 const numCycles = Math.floor((phaseCount - 2) / 3);
@@ -582,8 +534,8 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
                     const draftingSystemInstruction = advancedCoderMode.phases!.drafting;
                     const draftingHistory = [...baseHistory];
                     const draftingUserMessage = cycle === 1
-                        ? `Here is the master plan. Please generate the code draft.\n\n${currentCodeDraft}`
-                        : `Here is the previous code draft and the consolidated review. Please generate an improved code draft.\n\nCode Draft:\n${currentCodeDraft}\n\nReview:\n${currentConsolidatedReview}`;
+                        ? `Here is the master plan. Please generate the code implementation.\n\n${currentCodeDraft}`
+                        : `Here is the previous code draft and the consolidated review. Please generate an improved implementation.\n\nCode Draft:\n${currentCodeDraft}\n\nReview:\n${currentConsolidatedReview}`;
                     draftingHistory.push({ role: 'user', parts: [{ text: draftingUserMessage }] });
 
                     const draftingInputTokens = 0; // TODO: Replace
@@ -591,8 +543,21 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
                     const draftingResult = (await executeManagedBatchCall('gemini-2.5-pro', draftingInputTokens, controller.signal, draftingApiCall, onStatusUpdateForRetries, isContextTokenUnlocked))[0];
                     if (controller.signal.aborted) throw new DOMException('Cancelled by user', 'AbortError');
                     if (draftingResult instanceof Error) throw draftingResult;
-                    currentCodeDraft = draftingResult.text;
-                    setAdvancedCoderState(prev => updatePhase(prev, `drafting-${cycle}`, { status: 'completed', output: currentCodeDraft }));
+                    
+                    const rawDraftXml = draftingResult.text;
+                    setAdvancedCoderState(prev => updatePhase(prev, `drafting-${cycle}`, { status: 'completed', output: rawDraftXml }));
+                    
+                    // Parse draft and update the "staged code" representation for the next phase
+                    const { functionCalls: draftFunctionCalls } = parseXmlResponse(rawDraftXml);
+                    if (draftFunctionCalls.length > 0) {
+                        accumulatedFunctionCalls.push(...draftFunctionCalls);
+                        // Create a temporary context reflecting all accumulated changes so far
+                        const stagedDraftContext = applyFunctionCallsToTempContext(accumulatedFunctionCalls, initialProjectContext);
+                        currentCodeDraft = serializeProjectContext(stagedDraftContext);
+                    } else {
+                        // If parsing fails, the raw XML text is the draft for review
+                        currentCodeDraft = rawDraftXml;
+                    }
 
                     // Phase 4: Debugging
                     setAdvancedCoderState(prev => updatePhase(prev, `debugging-${cycle}`, { status: 'running' }));
@@ -670,15 +635,69 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
                     });
                 }
 
-
-                // Phase 6: Final Implementation
-                const advancedCoderContextForRetry: AdvancedCoderRunContext = {
-                    baseHistory,
-                    codeDraft: currentCodeDraft,
-                    consolidatedReview: currentConsolidatedReview,
-                };
+                // Final Implementation Phase
+                setAdvancedCoderState(prev => updatePhase(prev, 'final', { status: 'running' }));
+                const finalSystemInstruction = advancedCoderMode.phases!.final;
+                const finalHistory = [...baseHistory];
+                const finalUserContent = `Here is the context for the final implementation. Generate the file system operations.\n\nCode Draft:\n${currentCodeDraft}\n\n${currentConsolidatedReview ? `Consolidated Review:\n${currentConsolidatedReview}` : 'No issues were found in the draft.'}`;
+                finalHistory.push({ role: 'user', parts: [{ text: finalUserContent }] });
                 
-                await runFinalImplementationPhase(advancedCoderContextForRetry, controller, true);
+                const finalInputTokens = 0; // TODO: Replace
+                const finalApiCall = [() => generateContentWithRetries(apiKey, 'gemini-2.5-pro', finalHistory, finalSystemInstruction, undefined, controller.signal, onStatusUpdateForRetries, setIndicatorState)];
+                const response = (await executeManagedBatchCall('gemini-2.5-pro', finalInputTokens, controller.signal, finalApiCall, onStatusUpdateForRetries, isContextTokenUnlocked))[0];
+                
+                if (controller.signal.aborted) throw new DOMException('Cancelled by user', 'AbortError');
+                if (response instanceof Error) throw response;
+                
+                const { summary: summaryText, functionCalls: finalFunctionCalls } = parseXmlResponse(response.text);
+
+                // Add final calls to the accumulated list before applying
+                accumulatedFunctionCalls.push(...finalFunctionCalls);
+
+                const finalState: AdvancedCoderState | null = updatePhase(advancedCoderState, 'final', { status: 'completed', output: response.text });
+
+                if (!summaryText && accumulatedFunctionCalls.length === 0) {
+                    setChatHistory(prev => prev.slice(0, -1)); // No output, remove placeholder
+                } else {
+                    const modelTurnParts: ChatPart[] = [];
+                    if (summaryText) modelTurnParts.push({ text: summaryText });
+                    
+                    // Create a context for retry that captures the state *before* this final phase
+                    const advancedCoderContextForRetry: AdvancedCoderRunContext = {
+                        baseHistory,
+                        codeDraft: currentCodeDraft,
+                        consolidatedReview: currentConsolidatedReview,
+                        // Pass the accumulated calls *before* this final attempt
+                        accumulatedFunctionCalls: accumulatedFunctionCalls.filter(fc => !finalFunctionCalls.includes(fc)),
+                    };
+
+                    const modelTurnWithMessage: ChatMessage = {
+                        role: 'model',
+                        parts: modelTurnParts,
+                        mode: selectedMode,
+                        advancedCoderContext: advancedCoderContextForRetry,
+                        advancedCoderState: finalState,
+                    };
+                     
+                    // Add function calls to the message parts *after* setting context for retry
+                    accumulatedFunctionCalls.forEach(fc => modelTurnWithMessage.parts.push({ functionCall: fc }));
+
+                    setChatHistory(prev => {
+                        const newHistory = [...prev];
+                        newHistory[newHistory.length - 1] = modelTurnWithMessage;
+                        return newHistory;
+                    });
+        
+                    if (accumulatedFunctionCalls.length > 0) {
+                        if (controller.signal.aborted) throw new DOMException('Cancelled by user', 'AbortError');
+                        const functionResponses: ChatPart[] = await applyFunctionCalls(accumulatedFunctionCalls);
+        
+                        if (controller.signal.aborted) throw new DOMException('Cancelled by user', 'AbortError');
+        
+                        const toolResponseMessage: ChatMessage = { role: 'tool', parts: functionResponses };
+                        setChatHistory(prev => [...prev, toolResponseMessage]);
+                    }
+                }
 
             } catch (phaseError) {
                 setAdvancedCoderState(prev => {
@@ -844,8 +863,8 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
   }, [
     apiKey, chatHistory, selectedModel, selectedMode, isStreamingEnabled, isGoogleSearchEnabled, isContextTokenUnlocked,
     setIsSettingsModalOpen, getSerializableContext, applyFunctionCalls, attachedFiles,
-    clearProjectContext, setCreatingInFs, prompt, showToast, runFinalImplementationPhase,
-    simpleCoderSettings, advancedCoderSettings
+    clearProjectContext, setCreatingInFs, prompt, showToast,
+    simpleCoderSettings, advancedCoderSettings, projectContext
   ]);
 
   const onRetryLastAdvancedCoderPhase = useCallback(async () => {
@@ -866,15 +885,76 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
     const controller = new AbortController();
     abortControllerRef.current = controller;
 
-    // Remove the last model message. A tool response won't exist because the button only shows if there are no function calls.
-    setChatHistory(prev => prev.slice(0, lastModelMessageIndex));
-    setChatHistory(prev => [...prev, { role: 'model', parts: [{ text: '' }], mode: 'advanced-coder' }]);
+    // Replace the last model message with a placeholder for the retry attempt.
+    const placeholderMessage: ChatMessage = { role: 'model', parts: [{ text: '' }], mode: 'advanced-coder' };
+    setChatHistory(prev => [...prev.slice(0, lastModelMessageIndex), placeholderMessage]);
     
     setIsChatProcessing(true);
     setIndicatorState('loading');
 
+    const onStatusUpdateForRetries = (message: string) => {
+        setAdvancedCoderState(prev => (prev ? { ...prev, statusMessage: message } : null));
+    };
+
     try {
-        await runFinalImplementationPhase(lastModelMessage.advancedCoderContext, controller, false);
+        const { baseHistory, codeDraft, consolidatedReview, accumulatedFunctionCalls } = lastModelMessage.advancedCoderContext;
+        const allPhasesCount = advancedCoderSettings.phaseCount;
+        const initialPhases = generateAdvancedCoderPhases(allPhasesCount);
+
+        const retryState: AdvancedCoderState = {
+            phases: initialPhases.map(p => ({
+                ...p,
+                status: p.id === 'final' ? 'running' : 'completed',
+            })),
+            statusMessage: 'Retrying final phase...',
+        };
+        setAdvancedCoderState(retryState);
+        
+        const advancedCoderMode = MODES['advanced-coder'];
+        const finalSystemInstruction = advancedCoderMode.phases!.final;
+        const finalHistory = [...baseHistory];
+        const finalUserContent = `Here is the context for the final implementation. Generate the file system operations.\n\nCode Draft:\n${codeDraft}\n\n${consolidatedReview ? `Consolidated Review:\n${consolidatedReview}` : 'No issues were found in the draft.'}`;
+        finalHistory.push({ role: 'user', parts: [{ text: finalUserContent }] });
+        
+        const finalApiCall = [() => generateContentWithRetries(apiKey, 'gemini-2.5-pro', finalHistory, finalSystemInstruction, undefined, controller.signal, onStatusUpdateForRetries, setIndicatorState)];
+        const response = (await executeManagedBatchCall('gemini-2.5-pro', 0, controller.signal, finalApiCall, onStatusUpdateForRetries, isContextTokenUnlocked))[0];
+        
+        if (controller.signal.aborted) throw new DOMException('Cancelled by user', 'AbortError');
+        if (response instanceof Error) throw response;
+        
+        const { summary: summaryText, functionCalls: finalFunctionCalls } = parseXmlResponse(response.text);
+
+        const finalState: AdvancedCoderState | null = updatePhase(advancedCoderState, 'final', { status: 'completed', output: response.text });
+        const finalAccumulatedCalls = [...(accumulatedFunctionCalls || []), ...finalFunctionCalls];
+
+        if (!summaryText && finalAccumulatedCalls.length === 0) {
+             setChatHistory(prev => prev.slice(0, -1));
+        } else {
+             const modelTurnParts: ChatPart[] = [];
+             if (summaryText) modelTurnParts.push({ text: summaryText });
+             finalAccumulatedCalls.forEach(fc => modelTurnParts.push({ functionCall: fc }));
+
+             const modelTurnWithMessage: ChatMessage = {
+                 role: 'model',
+                 parts: modelTurnParts,
+                 mode: selectedMode,
+                 advancedCoderState: finalState,
+                 // We don't add advancedCoderContext here to prevent another retry loop
+             };
+             setChatHistory(prev => {
+                const newHistory = [...prev];
+                newHistory[newHistory.length - 1] = modelTurnWithMessage;
+                return newHistory;
+             });
+
+             if (finalAccumulatedCalls.length > 0) {
+                if (controller.signal.aborted) throw new DOMException('Cancelled by user', 'AbortError');
+                const functionResponses: ChatPart[] = await applyFunctionCalls(finalAccumulatedCalls);
+                if (controller.signal.aborted) throw new DOMException('Cancelled by user', 'AbortError');
+                const toolResponseMessage: ChatMessage = { role: 'tool', parts: functionResponses };
+                setChatHistory(prev => [...prev, toolResponseMessage]);
+             }
+        }
     } catch (error) {
         console.error("A critical error occurred during retry:", error);
         const isAbortError = error instanceof DOMException && error.name === 'AbortError';
@@ -900,7 +980,7 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
         }
         setIndicatorState('loading');
     }
-}, [chatHistory, runFinalImplementationPhase, selectedMode]);
+}, [chatHistory, selectedMode, apiKey, isContextTokenUnlocked, applyFunctionCalls, advancedCoderSettings.phaseCount]);
 
   const openModeSettingsModal = useCallback((modeId: ModeId) => {
     setModeSettingsModalConfig({ modeId });

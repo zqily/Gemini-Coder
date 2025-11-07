@@ -1,4 +1,5 @@
 import React from 'react';
+import type { FunctionCall } from '@google/genai';
 
 export type IndicatorState = 'loading' | 'error' | 'delay';
 
@@ -68,6 +69,7 @@ export interface AdvancedCoderRunContext {
   baseHistory: ChatMessage[];
   codeDraft: string;
   consolidatedReview: string;
+  accumulatedFunctionCalls?: FunctionCall[];
 }
 
 export interface ChatMessage {
