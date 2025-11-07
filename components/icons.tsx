@@ -9,6 +9,7 @@ export {
   ClipboardCopy,
   CodeXml,
   Copy,
+  DownloadCloud,
   Eye,
   EyeOff,
   File,

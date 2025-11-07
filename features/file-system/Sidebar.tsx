@@ -1,9 +1,11 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react';
-import { Menu, Plus, Settings, FolderSync, Folder, Trash2, FilePlus, FolderPlus, Save, GitBranch } from '../../components/icons';
+import { Menu, Plus, Settings, FolderSync, Folder, Trash2, FilePlus, FolderPlus, Save, GitBranch, DownloadCloud, LoaderCircle } from '../../components/icons';
 import FileTree from './FileTree';
 import { useFileSystem } from './FileSystemContext';
 import { useChat } from '../chat/ChatContext';
 import { useSettings } from '../settings/SettingsContext';
+import JSZip from 'jszip';
+import { useToast } from '../toast/ToastContext';
 
 
 interface SidebarProps {
@@ -40,6 +42,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     onCreateFile, onCreateFolder,
     setCreatingIn,
     rootDirHandle,
+    projectContext,
     hasUnappliedChanges,
     applyChangesToDisk,
     revertChanges
@@ -50,6 +53,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   const { 
     setIsSettingsModalOpen
   } = useSettings();
+  const { showToast } = useToast();
 
   const [isCreateMenuOpen, setCreateMenuOpen] = useState(false);
   const createMenuRef = useRef<HTMLDivElement>(null);
@@ -58,6 +62,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   // --- Resizing Logic ---
   const [isResizing, setIsResizing] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(getInitialWidth);
+  const [isZipping, setIsZipping] = useState(false);
 
   const startResizing = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -154,8 +159,51 @@ const Sidebar: React.FC<SidebarProps> = ({
     }
   };
 
+  const handleDownloadZip = async () => {
+    if (!projectContext) return;
+    setIsZipping(true);
+    showToast('Creating zip file...', 'success');
+
+    const zip = new JSZip();
+
+    // Add all directories (including empty ones)
+    for (const dirPath of projectContext.dirs) {
+        zip.folder(dirPath);
+    }
+    
+    // Add all files
+    for (const [filePath, fileContent] of projectContext.files.entries()) {
+        if (fileContent.startsWith('data:image/')) {
+            const base64Data = fileContent.split(',')[1];
+            zip.file(filePath, base64Data, { base64: true });
+        } else {
+            zip.file(filePath, fileContent);
+        }
+    }
+
+    try {
+        const blob = await zip.generateAsync({ type: 'blob' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'gemini-project.zip';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    } catch (error) {
+        console.error("Failed to create zip file", error);
+        showToast(`Failed to create zip file: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
+    } finally {
+        setIsZipping(false);
+    }
+  };
+
+
   const desktopWidth = isOpen ? sidebarWidth : '5rem';
   const mobileWidth = isOpen ? '18rem' : '0rem'; // w-72 for mobile open
+
+  const showDownloadZipPopup = !rootDirHandle && displayContext && (displayContext.files.size > 0 || displayContext.dirs.size > 0);
 
   return (
     <>
@@ -227,6 +275,19 @@ const Sidebar: React.FC<SidebarProps> = ({
                   className="w-full flex items-center justify-center gap-2 border border-red-500 text-red-400 hover:bg-red-500/20 py-1.5 px-3 rounded-md transition-colors text-sm disabled:opacity-50"
                 >
                   <GitBranch size={14} /> Revert
+                </button>
+              </div>
+            )}
+            {showDownloadZipPopup && (
+              <div className="flex-shrink-0 mb-4 p-3 bg-gray-800/50 rounded-lg animate-fade-in space-y-2">
+                <p className="text-xs text-center text-blue-300">This is a virtual project.</p>
+                <button
+                  onClick={handleDownloadZip}
+                  disabled={isZipping || isChatLoading}
+                  className="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-3 rounded-md transition-colors disabled:bg-gray-500"
+                >
+                  {isZipping ? <LoaderCircle size={16} className="animate-spin" /> : <DownloadCloud size={16} />}
+                  {isZipping ? 'Zipping...' : 'Download as .zip'}
                 </button>
               </div>
             )}
