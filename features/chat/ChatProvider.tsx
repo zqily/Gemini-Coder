@@ -6,7 +6,6 @@ import { generateContentWithRetries, generateContentStreamWithRetries } from './
 import { executeManagedBatchCall } from './services/rateLimitManager';
 import type { ChatMessage, AttachedFile, ChatPart, TextPart, AdvancedCoderState, GroundingChunk, IndicatorState, AdvancedCoderRunContext, ModeId, AdvancedCoderPhase, ProjectContext } from '../../types';
 import { MODES, FILE_SYSTEM_COMMAND_INSTRUCTIONS, FILE_SYSTEM_COMMAND_EXAMPLES } from './config/modes';
-import { SIMPLE_CODER_PERSONAS } from './config/personas';
 import { useSettings } from '../settings/SettingsContext';
 import { FunctionCall, GenerateContentResponse } from '@google/genai';
 import { ALL_ACCEPTED_MIME_TYPES, CONVERTIBLE_TO_TEXT_MIME_TYPES, fileToDataURL } from './utils/fileUpload';
@@ -16,6 +15,7 @@ import { useToast } from '../toast/ToastContext';
 import { serializeProjectContext } from '../file-system/utils/fileSystem';
 import { executeFunctionCall } from '../file-system/utils/functionCalling';
 import { EMPTY_CONTEXT } from '../file-system/FileSystemContext';
+import { DEFAULT_CODER_PERSONA, DEFAULT_GENERAL_PERSONA } from '../settings/usePersonaSettings';
 
 
 interface ChatProviderProps {
@@ -218,8 +218,6 @@ If the request is to modify existing code based on a review, only output the \`<
       final: `You are a file system operations generator. Your sole purpose is to generate a user-facing summary and all necessary file system operations based on the provided context.
 Ensure your response is complete and contains all necessary file operations.`,
 };
-
-const DEFAULT_MODE_INSTRUCTION = `You are a helpful assistant. If the user provides project files as context, you can read them to answer questions and provide suggestions, but you cannot modify them. When asked to write code, provide it directly in your response using markdown code blocks.`;
 
 
 const ChatProvider: React.FC<ChatProviderProps> = ({
@@ -473,11 +471,23 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
     };
 
     const getPersonaInstruction = (): string => {
-        const { persona, customInstruction } = personaSettings;
-        if (persona === 'custom' && customInstruction) {
-            return customInstruction;
+        const isGeneralMode = selectedMode === 'default';
+
+        if (isGeneralMode) {
+            const { generalPersonaId, customGeneralPersonas } = personaSettings;
+            if (generalPersonaId === DEFAULT_GENERAL_PERSONA.id) {
+                return DEFAULT_GENERAL_PERSONA.instruction;
+            }
+            const custom = customGeneralPersonas.find(p => p.id === generalPersonaId);
+            return custom?.instruction || DEFAULT_GENERAL_PERSONA.instruction;
+        } else {
+            const { coderPersonaId, customCoderPersonas } = personaSettings;
+            if (coderPersonaId === DEFAULT_CODER_PERSONA.id) {
+                return DEFAULT_CODER_PERSONA.instruction;
+            }
+            const custom = customCoderPersonas.find(p => p.id === coderPersonaId);
+            return custom?.instruction || DEFAULT_CODER_PERSONA.instruction;
         }
-        return SIMPLE_CODER_PERSONAS[persona]?.instruction || SIMPLE_CODER_PERSONAS['default'].instruction;
     };
     const personaInstruction = getPersonaInstruction();
 
@@ -768,14 +778,13 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
             }
 
         } else if (selectedMode === 'simple-coder') {
-            let instructions = '';
+            let instructions = personaInstruction;
             const projectFileContext = getProjectContextStringLocal();
             if (projectFileContext) {
-                 instructions += `${projectContextPreamble}\n\n${projectFileContext}\n\n`;
+                 instructions = `${projectContextPreamble}\n\n${projectFileContext}\n\n${instructions}`;
             }
             
-            instructions += `${personaInstruction}\n\n`;
-            instructions += `${FILE_SYSTEM_COMMAND_INSTRUCTIONS}\n\n`;
+            instructions += `\n\n${FILE_SYSTEM_COMMAND_INSTRUCTIONS}\n\n`;
             instructions += `Here are examples:\n\n${FILE_SYSTEM_COMMAND_EXAMPLES}`;
 
             const historyForApiWithSystem = [
@@ -828,12 +837,11 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
                 });
             };
 
-            let instructions = '';
+            let instructions = personaInstruction;
             const projectFileContext = getProjectContextStringLocal();
             if (projectFileContext) {
-                 instructions += `${projectContextPreambleForDefault}\n\n${projectFileContext}\n\n`;
+                 instructions = `${projectContextPreambleForDefault}\n\n${projectFileContext}\n\n${instructions}`;
             }
-            instructions += `${personaInstruction}\n\n${DEFAULT_MODE_INSTRUCTION}`;
 
             const historyForApiWithSystem = [
                 ...buildInstructionMessage(instructions),
@@ -981,11 +989,23 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
         const projectContextPreamble = `The user has provided a project context. This includes a list of all folders, and a list of all files with their full paths and content. All paths are relative to the project root. Use this information to understand the project structure and answer the user's request. When performing file operations, you MUST use the exact paths provided.`;
         
         const getPersonaInstruction = (): string => {
-            const { persona, customInstruction } = personaSettings;
-            if (persona === 'custom' && customInstruction) {
-                return customInstruction;
+            const isGeneralMode = selectedMode === 'default';
+    
+            if (isGeneralMode) {
+                const { generalPersonaId, customGeneralPersonas } = personaSettings;
+                if (generalPersonaId === DEFAULT_GENERAL_PERSONA.id) {
+                    return DEFAULT_GENERAL_PERSONA.instruction;
+                }
+                const custom = customGeneralPersonas.find(p => p.id === generalPersonaId);
+                return custom?.instruction || DEFAULT_GENERAL_PERSONA.instruction;
+            } else {
+                const { coderPersonaId, customCoderPersonas } = personaSettings;
+                if (coderPersonaId === DEFAULT_CODER_PERSONA.id) {
+                    return DEFAULT_CODER_PERSONA.instruction;
+                }
+                const custom = customCoderPersonas.find(p => p.id === coderPersonaId);
+                return custom?.instruction || DEFAULT_CODER_PERSONA.instruction;
             }
-            return SIMPLE_CODER_PERSONAS[persona]?.instruction || SIMPLE_CODER_PERSONAS['default'].instruction;
         };
         const personaInstruction = getPersonaInstruction();
 

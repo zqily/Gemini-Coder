@@ -21,9 +21,17 @@ export interface Mode {
   };
 }
 
+export interface CustomPersona {
+  id: string;
+  title: string;
+  instruction: string;
+}
+
 export interface PersonaSettings {
-  persona: string; // key of SIMPLE_CODER_PERSONAS or 'custom'
-  customInstruction: string;
+  generalPersonaId: string;
+  coderPersonaId: string;
+  customGeneralPersonas: CustomPersona[];
+  customCoderPersonas: CustomPersona[];
 }
 
 export interface AdvancedCoderSettings {

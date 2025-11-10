@@ -5,7 +5,7 @@ import { useSendShortcutSetting } from './useSendShortcutSetting';
 import { useStreamingSetting } from './useStreamingSetting';
 import { useGoogleSearchSetting } from './useGoogleSearchSetting';
 import { useUnlockContextTokenSetting } from './useUnlockContextTokenSetting';
-import { usePersonaSettings } from './useSimpleCoderSettings';
+import { usePersonaSettings } from './usePersonaSettings';
 import { useAdvancedCoderSettings } from './useAdvancedCoderSettings';
 import SettingsModal from './SettingsModal';
 import HelpModal from './HelpModal'; // Import HelpModal
