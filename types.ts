@@ -21,7 +21,7 @@ export interface Mode {
   };
 }
 
-export interface SimpleCoderSettings {
+export interface PersonaSettings {
   persona: string; // key of SIMPLE_CODER_PERSONAS or 'custom'
   customInstruction: string;
 }

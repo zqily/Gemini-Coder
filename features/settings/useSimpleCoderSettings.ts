@@ -1,29 +1,29 @@
 import { useState, useCallback } from 'react';
-import type { SimpleCoderSettings } from '../../types';
+import type { PersonaSettings } from '../../types';
 
-const SIMPLE_CODER_SETTINGS_KEY = 'gemini-simple-coder-settings';
+const PERSONA_SETTINGS_KEY = 'gemini-persona-settings';
 
-const getInitialSettings = (): SimpleCoderSettings => {
+const getInitialSettings = (): PersonaSettings => {
   try {
-    const storedValue = localStorage.getItem(SIMPLE_CODER_SETTINGS_KEY);
+    const storedValue = localStorage.getItem(PERSONA_SETTINGS_KEY);
     if (storedValue) {
         return JSON.parse(storedValue);
     }
   } catch (error) {
-    console.error('Failed to retrieve simple coder settings:', error);
+    console.error('Failed to retrieve persona settings:', error);
   }
   return { persona: 'default', customInstruction: '' };
 };
 
-export const useSimpleCoderSettings = (): [SimpleCoderSettings, (settings: SimpleCoderSettings) => void] => {
-  const [settings, setSettings] = useState<SimpleCoderSettings>(getInitialSettings);
+export const usePersonaSettings = (): [PersonaSettings, (settings: PersonaSettings) => void] => {
+  const [settings, setSettings] = useState<PersonaSettings>(getInitialSettings);
 
-  const saveSettings = useCallback((newSettings: SimpleCoderSettings) => {
+  const saveSettings = useCallback((newSettings: PersonaSettings) => {
     try {
       setSettings(newSettings);
-      localStorage.setItem(SIMPLE_CODER_SETTINGS_KEY, JSON.stringify(newSettings));
+      localStorage.setItem(PERSONA_SETTINGS_KEY, JSON.stringify(newSettings));
     } catch (error) {
-      console.error('Failed to save simple coder settings:', error);
+      console.error('Failed to save persona settings:', error);
     }
   }, []);
 

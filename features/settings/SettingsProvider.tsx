@@ -5,7 +5,7 @@ import { useSendShortcutSetting } from './useSendShortcutSetting';
 import { useStreamingSetting } from './useStreamingSetting';
 import { useGoogleSearchSetting } from './useGoogleSearchSetting';
 import { useUnlockContextTokenSetting } from './useUnlockContextTokenSetting';
-import { useSimpleCoderSettings } from './useSimpleCoderSettings';
+import { usePersonaSettings } from './useSimpleCoderSettings';
 import { useAdvancedCoderSettings } from './useAdvancedCoderSettings';
 import SettingsModal from './SettingsModal';
 import HelpModal from './HelpModal'; // Import HelpModal
@@ -20,7 +20,7 @@ const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) => {
   const [isStreamingEnabled, setStreamingEnabled] = useStreamingSetting();
   const [isGoogleSearchEnabled, setGoogleSearchEnabled] = useGoogleSearchSetting();
   const [isContextTokenUnlocked, setContextTokenUnlocked] = useUnlockContextTokenSetting();
-  const [simpleCoderSettings, setSimpleCoderSettings] = useSimpleCoderSettings();
+  const [personaSettings, setPersonaSettings] = usePersonaSettings();
   const [advancedCoderSettings, setAdvancedCoderSettings] = useAdvancedCoderSettings();
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [isHelpModalOpen, setIsHelpModalOpen] = useState(false); // New state for HelpModal
@@ -40,8 +40,8 @@ const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) => {
     setIsSettingsModalOpen,
     isHelpModalOpen, // Add to context value
     setIsHelpModalOpen, // Add to context value
-    simpleCoderSettings,
-    setSimpleCoderSettings,
+    personaSettings,
+    setPersonaSettings,
     advancedCoderSettings,
     setAdvancedCoderSettings,
   };

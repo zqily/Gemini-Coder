@@ -243,7 +243,7 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
   const [selectedModel, setSelectedModel] = useSelectedModel();
   const [selectedMode, setSelectedMode] = useSelectedMode();
 
-  const { apiKey, isStreamingEnabled, isGoogleSearchEnabled, isContextTokenUnlocked, setIsSettingsModalOpen, simpleCoderSettings, advancedCoderSettings } = useSettings();
+  const { apiKey, isStreamingEnabled, isGoogleSearchEnabled, isContextTokenUnlocked, setIsSettingsModalOpen, personaSettings, advancedCoderSettings } = useSettings();
   const { showToast } = useToast();
 
   const { 
@@ -472,6 +472,15 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
         return getSerializableContext();
     };
 
+    const getPersonaInstruction = (): string => {
+        const { persona, customInstruction } = personaSettings;
+        if (persona === 'custom' && customInstruction) {
+            return customInstruction;
+        }
+        return SIMPLE_CODER_PERSONAS[persona]?.instruction || SIMPLE_CODER_PERSONAS['default'].instruction;
+    };
+    const personaInstruction = getPersonaInstruction();
+
     const projectContextPreamble = `The user has provided a project context. This includes a list of all folders, and a list of all files with their full paths and content. All paths are relative to the project root. Use this information to understand the project structure and answer the user's request. When performing file operations, you MUST use the exact paths provided.`;
     const projectContextPreambleForDefault = `The user has provided a project context. This includes a list of all folders, and a list of all files with their full paths and content. All paths are relative to the project root. Use this information to understand the project structure and answer the user's request. Do not mention this context message in your response unless the user asks about it.`;
 
@@ -677,7 +686,7 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
 
                 // Final Implementation Phase
                 setAdvancedCoderState(prev => updatePhase(prev, 'final', { status: 'running' }));
-                let finalInstructions = `${ADVANCED_CODER_PHASES_INSTRUCTIONS.final}\n\n${FILE_SYSTEM_COMMAND_INSTRUCTIONS}\n\nHere are examples:\n${FILE_SYSTEM_COMMAND_EXAMPLES}`;
+                let finalInstructions = `${personaInstruction}\n\n${ADVANCED_CODER_PHASES_INSTRUCTIONS.final}\n\n${FILE_SYSTEM_COMMAND_INSTRUCTIONS}\n\nHere are examples:\n${FILE_SYSTEM_COMMAND_EXAMPLES}`;
                 if(projectFileContext) {
                     finalInstructions = `${projectContextPreamble}\n\n${projectFileContext}\n\n${finalInstructions}`;
                 }
@@ -765,11 +774,6 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
                  instructions += `${projectContextPreamble}\n\n${projectFileContext}\n\n`;
             }
             
-            const personaKey = simpleCoderSettings.persona;
-            const personaInstruction = personaKey === 'custom'
-                ? simpleCoderSettings.customInstruction
-                : SIMPLE_CODER_PERSONAS[personaKey]?.instruction || SIMPLE_CODER_PERSONAS['default'].instruction;
-
             instructions += `${personaInstruction}\n\n`;
             instructions += `${FILE_SYSTEM_COMMAND_INSTRUCTIONS}\n\n`;
             instructions += `Here are examples:\n\n${FILE_SYSTEM_COMMAND_EXAMPLES}`;
@@ -829,7 +833,7 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
             if (projectFileContext) {
                  instructions += `${projectContextPreambleForDefault}\n\n${projectFileContext}\n\n`;
             }
-            instructions += DEFAULT_MODE_INSTRUCTION;
+            instructions += `${personaInstruction}\n\n${DEFAULT_MODE_INSTRUCTION}`;
 
             const historyForApiWithSystem = [
                 ...buildInstructionMessage(instructions),
@@ -919,7 +923,7 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
     apiKey, chatHistory, selectedModel, selectedMode, isStreamingEnabled, isGoogleSearchEnabled, isContextTokenUnlocked,
     setIsSettingsModalOpen, getSerializableContext, applyFunctionCalls, attachedFiles,
     clearProjectContext, setCreatingInFs, prompt, showToast,
-    simpleCoderSettings, advancedCoderSettings, projectContext
+    personaSettings, advancedCoderSettings, projectContext
   ]);
 
   const onRetryLastAdvancedCoderPhase = useCallback(async () => {
@@ -975,8 +979,17 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
         
         const projectFileContext = getSerializableContext();
         const projectContextPreamble = `The user has provided a project context. This includes a list of all folders, and a list of all files with their full paths and content. All paths are relative to the project root. Use this information to understand the project structure and answer the user's request. When performing file operations, you MUST use the exact paths provided.`;
+        
+        const getPersonaInstruction = (): string => {
+            const { persona, customInstruction } = personaSettings;
+            if (persona === 'custom' && customInstruction) {
+                return customInstruction;
+            }
+            return SIMPLE_CODER_PERSONAS[persona]?.instruction || SIMPLE_CODER_PERSONAS['default'].instruction;
+        };
+        const personaInstruction = getPersonaInstruction();
 
-        let finalInstructions = `${ADVANCED_CODER_PHASES_INSTRUCTIONS.final}\n\n${FILE_SYSTEM_COMMAND_INSTRUCTIONS}\n\nHere are examples:\n${FILE_SYSTEM_COMMAND_EXAMPLES}`;
+        let finalInstructions = `${personaInstruction}\n\n${ADVANCED_CODER_PHASES_INSTRUCTIONS.final}\n\n${FILE_SYSTEM_COMMAND_INSTRUCTIONS}\n\nHere are examples:\n${FILE_SYSTEM_COMMAND_EXAMPLES}`;
         if(projectFileContext) {
             finalInstructions = `${projectContextPreamble}\n\n${projectFileContext}\n\n${finalInstructions}`;
         }
@@ -1050,7 +1063,7 @@ const ChatProvider: React.FC<ChatProviderProps> = ({
         }
         setIndicatorState('loading');
     }
-}, [chatHistory, selectedMode, apiKey, isContextTokenUnlocked, applyFunctionCalls, advancedCoderSettings.phaseCount, getSerializableContext]);
+}, [chatHistory, selectedMode, apiKey, isContextTokenUnlocked, applyFunctionCalls, advancedCoderSettings.phaseCount, getSerializableContext, personaSettings]);
 
   const openModeSettingsModal = useCallback((modeId: ModeId) => {
     setModeSettingsModalConfig({ modeId });

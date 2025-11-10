@@ -1,5 +1,5 @@
 import React from 'react';
-import type { SimpleCoderSettings, AdvancedCoderSettings } from '../../types';
+import type { PersonaSettings, AdvancedCoderSettings } from '../../types';
 
 export interface SettingsContextType {
   apiKey: string;
@@ -17,8 +17,8 @@ export interface SettingsContextType {
   isHelpModalOpen: boolean;
   setIsHelpModalOpen: (isOpen: boolean) => void;
   
-  simpleCoderSettings: SimpleCoderSettings;
-  setSimpleCoderSettings: (settings: SimpleCoderSettings) => void;
+  personaSettings: PersonaSettings;
+  setPersonaSettings: (settings: PersonaSettings) => void;
   advancedCoderSettings: AdvancedCoderSettings;
   setAdvancedCoderSettings: (settings: AdvancedCoderSettings) => void;
 }

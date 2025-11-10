@@ -158,7 +158,7 @@ const PromptInput: React.FC = () => {
   };
   
   const handleModeRightClick = (e: React.MouseEvent, modeId: ModeId) => {
-    if (modeId === 'simple-coder' || modeId === 'advanced-coder') {
+    if (modeId === 'advanced-coder') {
         e.preventDefault();
         openModeSettingsModal(modeId);
     }
@@ -173,7 +173,8 @@ const PromptInput: React.FC = () => {
           {Object.values(modes).map((mode: Mode) => {
              const isSelected = selectedMode === mode.id;
              const isHovered = hoveredMode === mode.id;
-             const showSettingsIcon = (isHovered || isSelected) && (mode.id === 'simple-coder' || mode.id === 'advanced-coder');
+             const showSettingsIcon = (isHovered || isSelected) && (mode.id === 'advanced-coder');
+             const hasSettings = mode.id === 'advanced-coder';
 
              return (
                  <button
@@ -188,7 +189,7 @@ const PromptInput: React.FC = () => {
                         ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20'
                         : 'bg-gray-700/50 text-gray-400 hover:bg-gray-700/80 hover:text-gray-200'
                     }`}
-                    title={`${mode.name}${mode.id !== 'default' ? ' (Right-click for settings)' : ''}`}
+                    title={`${mode.name}${hasSettings ? ' (Right-click for settings)' : ''}`}
                     aria-label={mode.name}
                     >
                     {React.createElement(mode.icon, { size: 16, 'aria-hidden': true })}

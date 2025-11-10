@@ -1,29 +1,24 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useChat } from './ChatContext';
 import { useSettings } from '../settings/SettingsContext';
-import { SIMPLE_CODER_PERSONAS } from './config/personas';
-import { X, User, Save } from '../../components/icons';
-import type { SimpleCoderSettings, AdvancedCoderSettings } from '../../types';
+import { X, Save } from '../../components/icons';
+import type { AdvancedCoderSettings } from '../../types';
 
 const ModeSettingsModal: React.FC = () => {
   const { isModeSettingsModalOpen, modeSettingsModalConfig, closeModeSettingsModal, modes } = useChat();
   const {
-    simpleCoderSettings,
-    setSimpleCoderSettings,
     advancedCoderSettings,
     setAdvancedCoderSettings
   } = useSettings();
   
-  const [localSimpleSettings, setLocalSimpleSettings] = useState<SimpleCoderSettings>(simpleCoderSettings);
   const [localAdvancedSettings, setLocalAdvancedSettings] = useState<AdvancedCoderSettings>(advancedCoderSettings);
   const [isClosing, setIsClosing] = useState(false);
   
   useEffect(() => {
     if (isModeSettingsModalOpen) {
-      setLocalSimpleSettings(simpleCoderSettings);
       setLocalAdvancedSettings(advancedCoderSettings);
     }
-  }, [isModeSettingsModalOpen, simpleCoderSettings, advancedCoderSettings]);
+  }, [isModeSettingsModalOpen, advancedCoderSettings]);
   
   const handleClose = useCallback(() => {
     setIsClosing(true);
@@ -49,63 +44,19 @@ const ModeSettingsModal: React.FC = () => {
     };
   }, [isModeSettingsModalOpen, handleClose]);
 
-  if (!isModeSettingsModalOpen || !modeSettingsModalConfig) return null;
+  if (!isModeSettingsModalOpen || !modeSettingsModalConfig || modeSettingsModalConfig.modeId !== 'advanced-coder') {
+    return null;
+  }
 
   const { modeId } = modeSettingsModalConfig;
   
-  const isDirty = modeId === 'simple-coder'
-    ? (localSimpleSettings.persona !== simpleCoderSettings.persona || localSimpleSettings.customInstruction !== simpleCoderSettings.customInstruction)
-    : (localAdvancedSettings.phaseCount !== advancedCoderSettings.phaseCount);
+  const isDirty = localAdvancedSettings.phaseCount !== advancedCoderSettings.phaseCount;
 
   const handleSave = () => {
-    if (modeId === 'simple-coder') {
-      setSimpleCoderSettings(localSimpleSettings);
-    } else if (modeId === 'advanced-coder') {
+    if (modeId === 'advanced-coder') {
       setAdvancedCoderSettings(localAdvancedSettings);
     }
     handleClose();
-  };
-  
-  const renderSimpleCoderSettings = () => {
-    const selectedPersona = localSimpleSettings.persona;
-    const instructionText = selectedPersona === 'custom' 
-      ? 'Define a custom persona for the model.' 
-      : SIMPLE_CODER_PERSONAS[selectedPersona]?.instruction;
-
-    return (
-      <div className="space-y-4">
-        <label className="block text-sm font-medium text-gray-300">Persona</label>
-        <div role="radiogroup" className="space-y-2">
-          {Object.entries(SIMPLE_CODER_PERSONAS).map(([key, persona]) => (
-            <button key={key} role="radio" aria-checked={selectedPersona === key} onClick={() => setLocalSimpleSettings(prev => ({...prev, persona: key}))} className={`persona-card ${selectedPersona === key ? 'persona-card-active' : ''}`}>
-              {React.createElement(persona.icon, { size: 18, className: "persona-card-icon" })}
-              {persona.name}
-            </button>
-          ))}
-          <button role="radio" aria-checked={selectedPersona === 'custom'} onClick={() => setLocalSimpleSettings(prev => ({...prev, persona: 'custom'}))} className={`persona-card ${selectedPersona === 'custom' ? 'persona-card-active' : ''}`}>
-            <User size={18} className="persona-card-icon" />
-            Custom...
-          </button>
-        </div>
-
-        <div className={`preview-pane-container ${selectedPersona ? 'open' : ''}`}>
-           <blockquote className="text-xs text-gray-400 italic p-3 bg-black/20 border-l-4 border-gray-600 rounded-r-md">
-                {instructionText}
-           </blockquote>
-        </div>
-
-        <div className={`preview-pane-container ${selectedPersona === 'custom' ? 'open' : ''}`}>
-          <textarea
-            id="custom-instruction"
-            rows={4}
-            value={localSimpleSettings.customInstruction}
-            onChange={(e) => setLocalSimpleSettings(prev => ({...prev, customInstruction: e.target.value}))}
-            className="w-full bg-[#1e1f20] border border-gray-600 rounded-md px-3 py-2 text-white focus:ring-2 focus:ring-blue-500 focus:outline-none resize-y text-sm"
-            placeholder="e.g., You are a Go developer who prefers concise, idiomatic code..."
-          />
-        </div>
-      </div>
-    );
   };
   
   const advancedCoderOptions: { count: AdvancedCoderSettings['phaseCount'], title: string, description: string }[] = [
@@ -163,7 +114,6 @@ const ModeSettingsModal: React.FC = () => {
         </header>
 
         <main className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar">
-          {modeId === 'simple-coder' && renderSimpleCoderSettings()}
           {modeId === 'advanced-coder' && renderAdvancedCoderSettings()}
         </main>
       
